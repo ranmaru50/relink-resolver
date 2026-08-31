@@ -10,9 +10,11 @@ English | [日本語](README.ja.md)
 
 Specification-first design phase.
 
-Resolver Core 0.1, Resolver Lifecycle 0.1, and the Resolver / Manifest Conformance Catalog 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31** and form the stable Manifest 0.1 baseline for implementation and conformance work.
+Resolver Core 0.1 and Resolver Lifecycle 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1 was **Frozen on 2026-09-01** as the stable protocol-side Testbed handoff baseline.
 
 For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to standard members, wire semantics, integrity semantics, extension compatibility, or security/trust semantics require a later Manifest version or separately versioned profile.
+
+For frozen Conformance Catalog 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to conformance targets, result semantics, case identifiers, normative case expectations, baseline/optional classification, or security/network-policy semantics require a later catalog version or separately versioned profile.
 
 ## Specifications
 
@@ -22,7 +24,7 @@ For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0
 - RELink Resolver Lifecycle 0.1 — Draft
   - [English](docs/specs/resolver-lifecycle-0.1.md)
   - [日本語](docs/specs/resolver-lifecycle-0.1.ja.md)
-- RELink Resolver / Manifest Conformance Catalog 0.1 — Draft
+- RELink Resolver / Manifest Conformance Catalog 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/resolver-manifest-conformance-0.1.md)
   - [日本語](docs/specs/resolver-manifest-conformance-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
@@ -33,7 +35,7 @@ For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0
   - [English](docs/specs/manifest-0.1-extension-policy.md)
   - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
 
-The English Frozen Manifest documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs Manifest 0.1 conformance.
+The English Frozen Manifest and Conformance Catalog documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
 
 ## Architecture
 
@@ -114,7 +116,7 @@ Lifecycle transition reasons and bounded history are administrative metadata. Li
 
 ## Conformance Catalog
 
-The Resolver / Manifest Conformance Catalog 0.1 defines implementation-independent protocol test cases for Resolver Core, Lifecycle, Frozen Manifest 0.1, optional integrity verification, extension compatibility, transport, cache/CORS, and resource-boundary behavior.
+The Frozen Resolver / Manifest Conformance Catalog 0.1 defines implementation-independent protocol test cases for Resolver Core, Lifecycle, Frozen Manifest 0.1, optional integrity verification, extension compatibility, transport, cache/CORS, network-policy boundaries, and resource-boundary behavior.
 
 The catalog belongs in this repository because it defines protocol expectations. Executable tests, fixtures, runners, CI integration, and reports are delegated to `relink-testbed`.
 
@@ -179,7 +181,7 @@ This repository is expected to contain:
 
 - Resolver Core 0.1 specification
 - Resolver Lifecycle 0.1 specification
-- Resolver / Manifest Conformance Catalog 0.1
+- Frozen Resolver / Manifest Conformance Catalog 0.1
 - Frozen Manifest 0.1 specification set
 - Reference Resolver design and implementation
 - RELink Testbed integration definitions
