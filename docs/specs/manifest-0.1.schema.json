@@ -48,6 +48,42 @@
         "mediaType": {
           "type": "string",
           "minLength": 1
+        },
+        "integrity": {
+          "type": "object",
+          "required": ["algorithm", "digest"],
+          "properties": {
+            "algorithm": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9-]*$",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^[0-9a-f]+$",
+              "minLength": 2
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "algorithm": {
+                    "const": "sha-256"
+                  }
+                },
+                "required": ["algorithm"]
+              },
+              "then": {
+                "properties": {
+                  "digest": {
+                    "pattern": "^[0-9a-f]{64}$"
+                  }
+                }
+              }
+            }
+          ],
+          "additionalProperties": true
         }
       },
       "additionalProperties": true
