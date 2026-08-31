@@ -8,14 +8,16 @@ This repository is the home of the RELink Resolver and Manifest specifications, 
 
 Specification-first design phase.
 
-Resolver Core 0.1 now has a normative draft. Implementation work should follow only after the relevant protocol and responsibility boundaries are sufficiently defined.
+Resolver Core 0.1 and Manifest 0.1 have normative drafts. Implementation work should follow only after the relevant protocol and responsibility boundaries are sufficiently defined.
 
 ## Specifications
 
 - RELink Resolver Core 0.1
   - [English](docs/specs/resolver-core-0.1.md)
   - [日本語](docs/specs/resolver-core-0.1.ja.md)
-- RELink Manifest 0.1 — planned
+- RELink Manifest 0.1
+  - [Specification](docs/specs/manifest-0.1.md)
+  - [JSON Schema](docs/specs/manifest-0.1.schema.json)
 
 ## Architecture
 
@@ -80,6 +82,7 @@ A minimal L1 resolver may redirect directly to AR-XML without requiring a Manife
 A richer deployment may expose a Manifest containing Entity-level resolution metadata such as:
 
 ```text
+Anchor UUID
 Canonical Entity Identity
 Current AR-XML Location
 Lifecycle metadata
@@ -87,11 +90,17 @@ Version information
 Future extension metadata
 ```
 
+The default Manifest retrieval resource is separate from Resolver Core:
+
+```text
+GET /{resolver-service}/{uuid}/manifest
+```
+
 Manifest must not turn Resolver Core into an execution, management, or trust service.
 
 ## Trust and Security
 
-Trust, authentication, signatures, authenticated mutation, ownership transfer, and related mechanisms are outside Resolver Core 0.1.
+Trust, authentication, signatures, authenticated mutation, ownership transfer, and related mechanisms are outside Resolver Core 0.1 and Manifest 0.1.
 
 They are expected to be designed as later layers without redefining the L1 identity and resolution model.
 
