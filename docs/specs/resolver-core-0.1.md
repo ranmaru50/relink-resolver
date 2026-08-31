@@ -20,10 +20,12 @@ Resolver Core is intentionally smaller than the complete RELink architecture. It
 
 ```text
 Resolver Core = minimal resolution
-Manifest      = richer metadata
+Manifest      = frozen richer Entity-level resolution metadata
 Trust         = later security / authority layer
 Runtime       = consumer-facing interpretation and execution
 ```
+
+RELink Manifest 0.1 was frozen on 2026-08-31 as a separate specification layer. Resolver Core 0.1 remains independent of Manifest retrieval: an ACTIVE Anchor MUST remain directly resolvable to its current AR-XML Description Location without requiring a Manifest.
 
 ## 2. Requirements language
 
@@ -73,7 +75,9 @@ A Description Location returned by a Resolver is **untrusted network input** fro
 
 ### 3.6 Canonical Entity Identity
 
-A location-independent identity for the Entity. Its concrete representation is outside the normative scope of Resolver Core 0.1 and is expected to be specified with the Manifest specification.
+A location-independent identity for the Entity.
+
+Its concrete Manifest-layer representation is defined by the frozen RELink Manifest 0.1 specification as `entity.id`, an absolute URI with identifier-only semantics. Resolver Core 0.1 itself does not require, return, or dereference Canonical Entity Identity as part of ordinary L1 resolution.
 
 Resolver Core 0.1 **MUST NOT** equate the Resolver URL or Description Location with Canonical Entity Identity.
 
@@ -498,7 +502,7 @@ This restriction also prevents ordinary resolution from becoming an external-req
 
 ## 19. Resolver and Manifest boundary
 
-Manifest is a separate specification.
+Manifest is a separate specification. RELink Manifest 0.1 and its Extension Policy were frozen on 2026-08-31 and define the stable 0.1 Manifest-layer contract independently of Resolver Core.
 
 A conforming Resolver Core 0.1 deployment **MUST** be able to resolve an ACTIVE UUID directly to its AR-XML Description Location without requiring a Manifest.
 
@@ -508,11 +512,17 @@ Resolver Core
 AR-XML
 ```
 
-A richer deployment **MAY** additionally expose a Manifest through a separately specified mechanism.
+A richer deployment **MAY** additionally expose the frozen Manifest 0.1 representation through its separately defined deterministic Manifest resource.
 
-Manifest availability, retrieval, parsing, validation, or failure **MUST NOT** be a prerequisite for normal Core 0.1 L1 resolution.
+Manifest availability, retrieval, parsing, validation, integrity verification, or failure **MUST NOT** be a prerequisite for normal Core 0.1 L1 resolution.
 
-Canonical Entity Identity representation, richer lifecycle metadata, version information, and future security/trust references belong to the Manifest layer.
+The frozen Manifest 0.1 layer defines Canonical Entity Identity (`entity.id`), Description metadata including optional content pinning, lifecycle metadata, versioning, and extension semantics. Those semantics **MUST NOT** be reimplemented as additional Resolver Core response semantics.
+
+The relevant specification set is:
+
+- `docs/specs/manifest-0.1.md`
+- `docs/specs/manifest-0.1.schema.json`
+- `docs/specs/manifest-0.1-extension-policy.md`
 
 ## 20. L1 and future L2 boundary
 
@@ -564,6 +574,8 @@ Resolver Core 0.1 does **not** provide:
 - current device-IP discovery;
 - device configuration;
 - management-console construction.
+
+Optional AR-XML content pinning defined by frozen Manifest 0.1 is a Manifest-layer feature and does not expand Resolver Core responsibility.
 
 A consumer **MUST NOT** treat `303 See Other`, an Anchor UUID, an HTTPS-only path, or an L1 result as proof of any of those properties.
 
@@ -719,7 +731,8 @@ Relevant standards include:
 Related RELink work:
 
 - AR-XML Core 0.1
-- RELink Manifest 0.1
+- RELink Manifest 0.1 — Frozen 2026-08-31
+- RELink Manifest 0.1 Extension Policy — Frozen 2026-08-31
 - RELink Web Runtime integration
 - RELink Resolver Testbed cases
 - future RELink Trust / higher security-level specifications
@@ -776,6 +789,10 @@ Consumer boundary:
 Core responsibility:
     UUID → current description location
 
+Manifest boundary:
+    Manifest 0.1 frozen separately
+    Core resolution does not depend on Manifest
+
 Not Core responsibility:
     Trust
     authentication
@@ -786,4 +803,4 @@ Not Core responsibility:
     AR-XML interpretation
 ```
 
-This minimal boundary is intentional and is the baseline on which Manifest, Trust, Runtime integration, Reference Resolver implementation, and conformance testing are expected to build.
+This minimal boundary is intentional and is the baseline on which the frozen Manifest 0.1 layer, future Trust, Runtime integration, Reference Resolver implementation, and conformance testing are expected to build.
