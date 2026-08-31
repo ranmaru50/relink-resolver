@@ -1,7 +1,8 @@
 # RELink Manifest 0.1
 
-Status: Draft specification  
+Status: Frozen specification  
 Version: 0.1  
+Freeze date: 2026-08-31  
 Scope: Optional Entity-level resolution metadata
 
 ## 1. Purpose
@@ -33,6 +34,21 @@ AR-XML
 ```
 
 Manifest availability, retrieval, parsing, validation, or failure MUST NOT be a prerequisite for ordinary Resolver Core 0.1 L1 resolution.
+
+### 1.1 Frozen status and change policy
+
+RELink Manifest 0.1 is frozen as of 2026-08-31.
+
+The required member model, wire-format semantics, retrieval semantics, extension rules, integrity semantics, lifecycle semantics, and security boundaries defined by this version are considered stable for implementation and conformance work.
+
+After freeze:
+
+- editorial corrections and non-semantic errata MAY be applied to Manifest 0.1;
+- clarifications MAY be applied only when they do not change interoperable behavior required by the frozen specification;
+- adding or removing standard members, changing required/optional status, changing wire semantics, changing integrity semantics, or changing security/trust semantics MUST be specified by a later Manifest version or separately versioned profile;
+- the accompanying Manifest 0.1 Extension Policy and JSON Schema are part of the frozen 0.1 specification set and MUST remain semantically aligned with this document.
+
+The English specification is the normative source text. Japanese documentation MAY provide an official project translation, but if a translation conflicts with this document, this English frozen text governs Manifest 0.1 conformance.
 
 ## 2. Requirements language
 
@@ -768,6 +784,10 @@ A consumer claiming **Manifest 0.1 integrity-verification support** MUST satisfy
 ```text
 Manifest 0.1
 = optional Entity-level resolution metadata
+
+Status:
+    frozen 2026-08-31
+    semantic changes require later version/profile
 
 Wire format:
     strict JSON
