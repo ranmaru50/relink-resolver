@@ -10,9 +10,11 @@ RELink Resolver は、既存の Web インフラストラクチャを用いて�
 
 現在は specification-first の設計段階です。
 
-Resolver Core 0.1、Resolver Lifecycle 0.1、Resolver / Manifest Conformance Catalog 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされ、実装および conformance 作業のための安定した Manifest 0.1 baseline を構成します。
+Resolver Core 0.1 と Resolver Lifecycle 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされています。Resolver / Manifest Conformance Catalog 0.1 は、Testbed 実装へ引き渡す安定した protocol-side baseline として **2026-09-01 に Frozen** とされました。
 
 Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の範囲で修正できます。一方、standard member、wire semantics、integrity semantics、extension compatibility、security / trust semantics に関する変更は、後続の Manifest version または別途 versioning された profile で扱います。
+
+Frozen Conformance Catalog 0.1 では、編集上または非semanticな errata は 0.1 内で修正できます。Conformance target、result semantics、case identifier、normative case expectation、baseline / optional 分類、security / network-policy semantics の変更は、後続 catalog version または別途 versioning された profile で扱います。
 
 ## 仕様
 
@@ -22,7 +24,7 @@ Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の
 - RELink Resolver Lifecycle 0.1 — Draft
   - [English](docs/specs/resolver-lifecycle-0.1.md)
   - [日本語](docs/specs/resolver-lifecycle-0.1.ja.md)
-- RELink Resolver / Manifest Conformance Catalog 0.1 — Draft
+- RELink Resolver / Manifest Conformance Catalog 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/resolver-manifest-conformance-0.1.md)
   - [日本語](docs/specs/resolver-manifest-conformance-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
@@ -33,7 +35,7 @@ Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の
   - [English](docs/specs/manifest-0.1-extension-policy.md)
   - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
 
-Frozen Manifest 0.1 の英語文書が normative source text です。日本語文書は公式プロジェクト翻訳であり、解釈に差異がある場合は英語 Frozen 文書を Manifest 0.1 conformance の基準とします。
+Frozen Manifest および Conformance Catalog の英語文書が normative source text です。日本語文書は公式プロジェクト翻訳であり、解釈に差異がある場合は英語 Frozen 文書を conformance の基準とします。
 
 ## アーキテクチャ
 
@@ -114,7 +116,7 @@ Lifecycle transition reasonやbounded historyはadministrative metadataです。
 
 ## Conformance Catalog
 
-Resolver / Manifest Conformance Catalog 0.1 は、Resolver Core、Lifecycle、Frozen Manifest 0.1、OPTIONAL integrity verification、extension compatibility、transport、cache/CORS、resource boundaryについて、実装に依存しないprotocol test caseを定義します。
+Frozen Resolver / Manifest Conformance Catalog 0.1 は、Resolver Core、Lifecycle、Frozen Manifest 0.1、OPTIONAL integrity verification、extension compatibility、transport、cache/CORS、network-policy boundary、resource boundaryについて、実装に依存しないprotocol test caseを定義します。
 
 Protocol expectationを定義するためcatalog自体はこのリポジトリで管理します。一方、実行可能test、fixture、runner、CI integration、report生成は `relink-testbed` 側へ委譲します。
 
@@ -181,7 +183,7 @@ Resolver Core は次の処理を行いません。
 
 - Resolver Core 0.1 specification
 - Resolver Lifecycle 0.1 specification
-- Resolver / Manifest Conformance Catalog 0.1
+- Frozen Resolver / Manifest Conformance Catalog 0.1
 - Frozen Manifest 0.1 specification set
 - Reference Resolver design / implementation
 - RELink Testbed integration definitions
