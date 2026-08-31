@@ -12,7 +12,9 @@ Resolver Core 0.1 now has a normative draft. Implementation work should follow o
 
 ## Specifications
 
-- [RELink Resolver Core 0.1](docs/specs/resolver-core-0.1.md)
+- RELink Resolver Core 0.1
+  - [English](docs/specs/resolver-core-0.1.md)
+  - [日本語](docs/specs/resolver-core-0.1.ja.md)
 - RELink Manifest 0.1 — planned
 
 ## Architecture
