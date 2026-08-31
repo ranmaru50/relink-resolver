@@ -1,10 +1,13 @@
 # RELink Resolver / Manifest Conformance Catalog 0.1 日本語版
 
-Status: Draft conformance specification  
+Status: Frozen conformance specification  
 Version: 0.1  
+Freeze date: 2026-09-01  
 Scope: Resolver Core 0.1、Resolver Lifecycle 0.1、Frozen Manifest 0.1
 
 > この文書は `resolver-manifest-conformance-0.1.md` の日本語版です。解釈に差異がある場合は英語版を基準とします。
+>
+> **Freeze policy:** Conformance Catalog 0.1 は、Testbed実装へ引き渡す安定したprotocol-side baselineとしてFrozenです。編集上または非semanticなerrataは0.1内で修正できます。Conformance target、result semantics、case identifier、normative case expectation、baseline/optional分類、security/network-policy semanticsの変更は、後続catalog versionまたは別途versioningされたprofileで扱います。
 
 ## 1. 目的
 
