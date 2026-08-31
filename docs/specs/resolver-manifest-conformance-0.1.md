@@ -1,8 +1,11 @@
 # RELink Resolver / Manifest Conformance Catalog 0.1
 
-Status: Draft conformance specification  
+Status: Frozen conformance specification  
 Version: 0.1  
+Freeze date: 2026-09-01  
 Scope: Resolver Core 0.1, Resolver Lifecycle 0.1, Frozen Manifest 0.1
+
+> **Freeze policy:** Conformance Catalog 0.1 is frozen as the stable protocol-side Testbed handoff baseline. Editorial or non-semantic errata MAY be corrected within 0.1. Changes to conformance targets, result semantics, case identifiers, normative case expectations, baseline/optional classification, or security/network-policy semantics require a later catalog version or separately versioned profile.
 
 ## 1. Purpose
 
