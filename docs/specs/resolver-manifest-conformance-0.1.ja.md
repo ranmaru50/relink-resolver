@@ -10,7 +10,7 @@ Scope: Resolver Core 0.1、Resolver Lifecycle 0.1、Frozen Manifest 0.1
 
 本書は、RELink Resolver Core 0.1、Resolver Lifecycle 0.1、Frozen RELink Manifest 0.1について、実装方式に依存しない決定的なconformance caseを定義します。
 
-このcatalogは `relink-testbed` 側で実行可能テストとして実装されることを想定しますが、実際のテストコードは本リポジトリの範囲外です。
+このcatalogは `relink-testbed` 側で実行可能testとして実装されることを想定しますが、実際のtest codeは本リポジトリの範囲外です。
 
 ```text
 relink-resolver
@@ -20,206 +20,328 @@ relink-testbed
 = executable test implementation
 ```
 
-テストはPHP、SQLite、framework、process、deployment内部構造ではなく、外部から観測可能なprotocol behaviorとrepresentation semanticsを検証しなければなりません。
+TestはPHP、SQLite、framework、process、deployment内部構造ではなく、外部から観測可能なprotocol behaviorとrepresentation semanticsを検証しなければなりません。
 
-## 2. Case model
+## 2. Conformance targetとcase model
+
+各catalog caseは、誰を試験するかを明示しなければなりません。定義するtargetは次のとおりです。
+
+```text
+RESOLVER-SERVER
+L1-CONSUMER
+MANIFEST-ENDPOINT
+MANIFEST-PRODUCER
+MANIFEST-CONSUMER
+INTEGRITY-CONSUMER
+LIFECYCLE-ADMIN
+REFERENCE-RESOLVER
+```
+
+1つの実装が複数targetをclaimしても構いませんが、異なるtargetの結果を曖昧な「Resolver / Manifest PASS」へ統合してはなりません。
 
 各caseは次の要素を持ちます。
 
 - **ID**: 安定したcatalog identifier
+- **Target**: conformance role
+- **Strength**: 主に試験するnormative strength（`MUST` / `SHOULD` / `MAY`）
 - **Precondition**: 外部挙動に関係するstate / fixture
-- **Action/Input**: system under testへ与えるrequest / representation
+- **Action/Input**: system under testへ与えるrequest / raw representation
 - **Expected**: 要求されるobservable result
 - **Reference**: 根拠となるRELink仕様箇所
 
 Testbed実装は1つのcatalog caseを複数の実行可能testに分割しても構いませんが、reportではcatalog IDを保持することを推奨します。
 
-## 3. Result class
+## 3. Result classとnormative strength
 
 Testbedは少なくとも次を区別することを推奨します。
 
 ```text
 PASS
 FAIL
+PASS-WITH-DEVIATION
 NOT-APPLICABLE
 UNSUPPORTED-OPTIONAL
 ```
 
-`UNSUPPORTED-OPTIONAL`は、Manifest integrity verificationなどbaseline conformanceで必須ではないOPTIONAL機能にのみ使用します。
+**MUST / MUST NOT** を満たさない場合、対象targetのconformance failureであり `FAIL` としなければなりません。
 
-## 4. Resolver resolution
+**SHOULD / SHOULD NOT** からの逸脱は必ずreportしなければなりません。ただし、実装が妥当な理由をdocumentしている場合、baseline conformance failureとは自動的にみなしません。その場合は、別profileがmandatoryとしていない限り `PASS-WITH-DEVIATION` を推奨します。
 
-- **RES-001** ACTIVE UUID → `303 See Other` + current validated HTTPS Description Location
-- **RES-002** Description Location更新後、新しいorigin requestでは新Locationを返す。既存cacheはadvertised freshness内だけ旧値を返し得る
-- **RES-003** 未登録のvalid UUID → `404 Not Found`
-- **RES-004** unsafe / invalid stored Locationを外部へemitしてはならず、`500 Internal Server Error`を返すことを推奨
+**MAY** caseは許容されるbehaviorまたはoptional interoperabilityを試験します。optional behaviorがないことをbaseline failureとしてはなりません。
+
+`UNSUPPORTED-OPTIONAL`は、Manifest integrity verificationなど、該当baseline targetが要求しないOPTIONAL機能にのみ使用します。
+
+## 4. Conformance set
+
+```text
+Resolver Core Server Conformance
+= RES-* + ID-* + HTTP-* + server-side CACHE-* + CORS-001
+
+Resolver L1 Consumer Conformance
+= REDIR-* + NET-* + CORS-002 where applicable
+
+Resolver Lifecycle Administration Conformance
+= LIFE-* administrative-transition cases
+
+Reference Resolver Operational Conformance
+= reference-profile SHOULD cases + LIFE-011 + documented resource/admin behavior
+
+Manifest Producer / Endpoint Conformance
+= MAN representation/endpoint subset + MNET server-side requirements
+
+Manifest Consumer Conformance
+= MAN parsing/semantic subset + MNET consumer subset + EXT-* + LIMIT-* + SCHEMA-*
+
+Manifest Integrity Verification Conformance
+= INT-* only
+```
+
+Conformance reportでは、実行したsetを明示することを推奨します。
+
+## 5. Resolver resolution
+
+### RES-001 — ACTIVE UUID resolves
+**Target:** RESOLVER-SERVER  
+**Strength:** MUST  
+ACTIVE UUIDのCore GETは`303 See Other`を返し、`Location`はcurrent validated HTTPS Description Locationと一致しなければなりません。
+
+### RES-002 — Description Location更新の反映
+**Target:** RESOLVER-SERVER  
+**Strength:** MUST  
+A→B更新後のfresh origin requestはBを返さなければなりません。既存intermediary cacheはadvertised freshness内のみAを返し得ます。
+
+### RES-003 — unknown UUID
+**Target:** RESOLVER-SERVER  
+**Strength:** MUST  
+validだが未登録UUIDは`404 Not Found`。
+
+### RES-004 — unsafe stored Locationをemitしない
+**Target:** RESOLVER-SERVER  
+**Strength:** unsafe value非emitはMUST、`500`はSHOULD。  
+Testbedは少なくとも次のsubcaseを実装することを推奨します。
+
+```text
+RES-004/relative-uri
+RES-004/http-scheme
+RES-004/malformed-absolute-uri
+RES-004/header-injection
+```
 
 Reference: Resolver Core §§7-9, 11-14; Lifecycle §15.
 
-## 5. Identifier handling
+## 6. Identifier handling
 
-- **ID-001** lowercase RFC 9562 UUIDを受理
-- **ID-002** uppercase UUIDを同一UUID valueとして受理
-- **ID-003** mixed-case UUIDを受理
+**Target:** RESOLVER-SERVER
+
+- **ID-001** valid lowercase RFC 9562 UUIDをMUST受理
+- **ID-002** uppercase UUIDを同一UUID valueとしてMUST受理
+- **ID-003** valid mixed-case UUIDをMUST受理
 - **ID-004** malformed UUID → `400 Bad Request`
-- **ID-005** valid UUID version-specific bitsからResolver semanticsを導出しない
+- **ID-005** supported/registered UUIDについてversion-specific bitsのみでResolver semanticsを変更してはならない
 
 Reference: Resolver Core §6.
 
-## 6. HTTP method / level request
+## 7. HTTP method / level request
 
-- **HTTP-001** public GETはread-onlyでResolver stateを変更しない
-- **HTTP-002** unsupported method → `405 Method Not Allowed` + `Allow: GET`
-- **HTTP-003** unsupported-method responseはACTIVE/SUSPENDED/unknownを区別しない
-- **HTTP-004** unsupported `l`はL1へsilent downgradeせず、`501 Not Implemented`を推奨
-- **HTTP-005** defining levelなしのreserved `p`はL1として処理せず、`400 Bad Request`を推奨
+**Target:** RESOLVER-SERVER
+
+- **HTTP-001** public GETはMUST be read-only
+- **HTTP-002** unsupported method → MUST `405 Method Not Allowed` + `Allow: GET`
+- **HTTP-003** unsupported methodはACTIVE/SUSPENDED/RETIRED/unknownの全てで`405`
+- **HTTP-004** unsupported `l`はMUST fail closed、Core-only Resolverは`501` SHOULD
+- **HTTP-005** defining levelなしreserved `p`はMUST fail closed、Core-only Resolverは`400` SHOULD
+
+HTTP-003は次を直接試験します。
+
+```text
+unsupported method + ACTIVE    → 405
+unsupported method + SUSPENDED → 405
+unsupported method + RETIRED   → 405
+unsupported method + unknown   → 405
+```
 
 Reference: Resolver Core §§5, 7, 12.
 
-## 7. Redirect / Transport
+## 8. Redirect / Transport
 
-- **REDIR-001** Resolver前のordinary HTTPS redirectを許容
-- **REDIR-002** Resolver `303`の後、consumer policyに従いAR-XMLへ到達
-- **REDIR-003** Resolver後の追加HTTPS redirectを許容
-- **REDIR-004** Resolver到達前のHTTPS→HTTP downgradeを拒否
-- **REDIR-005** Resolver後からfinal AR-XMLまでのHTTPS→HTTP downgradeを拒否
-- **REDIR-006** final AR-XML URLはHTTPS
-- **REDIR-007** redirect loopはbounded redirect / loop detectionにより無限処理しない
+**Target:** 原則L1-CONSUMER
+
+- **REDIR-001** Resolver前のordinary HTTPS redirectはMAY
+- **REDIR-002** Resolver `303`の後、network policyに従ってAR-XMLへ到達
+- **REDIR-003** Resolver後の追加HTTPS redirectはMAY
+- **REDIR-004** Resolver前のHTTPS→HTTP downgradeはMUST fail
+- **REDIR-005** Resolver後のHTTPS→HTTP downgradeはMUST fail
+- **REDIR-006** final AR-XML URLはMUST HTTPS
+- **REDIR-007** bounded redirect / loop detectionをSHOULD実装し、unbounded dereferenceしてはならない
 
 Reference: Resolver Core §§10, 16-17.
 
-## 8. Lifecycle
+## 9. Consumer Network Policy
 
-- **LIFE-001** ACTIVE → Core GET `303`
-- **LIFE-002** SUSPENDED → `404`
-- **LIFE-003** RETIRED → `410`
-- **LIFE-004** ACTIVE → SUSPENDEDは許可
-- **LIFE-005** SUSPENDED → ACTIVEは許可
-- **LIFE-006** ACTIVE → RETIREDは許可
-- **LIFE-007** SUSPENDED → RETIREDは許可
-- **LIFE-008** RETIRED → ACTIVEは禁止
-- **LIFE-009** RETIRED → SUSPENDEDは禁止
-- **LIFE-010** lifecycleとDescription Locationは独立
-- **LIFE-011** Reference Resolverがhistoryを保持する場合、previous/new state/timeが実際のtransitionと整合
-- **LIFE-012** stale cacheはorigin stateを再定義しない
+このgroupはpolicy enforcementを試験し、private/local destinationをprotocol全体で禁止するものではありません。
+
+- **NET-001** — **Target:** L1-CONSUMER; Resolver Locationはuntrusted inputとしてMUST policy適用
+- **NET-002** — **Target:** MANIFEST-CONSUMER; Manifest `description.location`はMUST policy適用
+- **NET-003** — configured policyがXをdenyする場合、enforce可能な環境ではMUST Xをfetchしない
+- **NET-004** — native/server等でredirect target inspection/control可能なら、allowed→denied XへのredirectをSHOULD block
+- **NET-005** — successful `303`またはManifest `200`をnetwork restriction bypassの許可として扱ってはならない
+
+`127.0.0.1 MUST reject`のようなprotocol-wide ruleは定義しません。Local Entity accessはdeployment/policy dependentです。
+
+Reference: Resolver Core §16; Frozen Manifest 0.1 §15.
+
+## 10. Lifecycle
+
+- **LIFE-001** — Target RESOLVER-SERVER; ACTIVE → `303` MUST
+- **LIFE-002** — Target RESOLVER-SERVER; SUSPENDED → `404` MUST
+- **LIFE-003** — Target RESOLVER-SERVER; RETIRED → `410` MUST
+- **LIFE-004** — Target LIFECYCLE-ADMIN; ACTIVE → SUSPENDED MUST permit
+- **LIFE-005** — Target LIFECYCLE-ADMIN; SUSPENDED → ACTIVE MUST permit
+- **LIFE-006** — Target LIFECYCLE-ADMIN; ACTIVE → RETIRED MUST permit
+- **LIFE-007** — Target LIFECYCLE-ADMIN; SUSPENDED → RETIRED MUST permit
+- **LIFE-008** — Target LIFECYCLE-ADMIN; RETIRED → ACTIVE MUST reject
+- **LIFE-009** — Target LIFECYCLE-ADMIN; RETIRED → SUSPENDED MUST reject
+- **LIFE-010** — lifecycleとDescription Locationはsemanticに独立
+- **LIFE-011** — Target REFERENCE-RESOLVER; retained historyはprevious/new state/time整合をSHOULD保持
+- **LIFE-012** — Target RESOLVER-SERVER; originはcommitted stateをMUST反映。stale cacheはHTTP freshnessのみで規定
 
 Reference: Resolver Lifecycle 0.1 §§3-16.
 
-## 9. Cache / CORS
+## 11. Cache / CORS
 
-- **CACHE-001** ACTIVE `303`はexplicit cache policyを返す
-- **CACHE-002** Reference defaultは `Cache-Control: public, max-age=60`
-- **CACHE-003** `400/404/500/501/503`はReference profileで`no-store`推奨
-- **CACHE-004** `410`はfinite cache可能
-- **CORS-001** browser-oriented public Coreでは `Access-Control-Allow-Origin: *` 推奨
-- **CORS-002** Resolver CORS成功はAR-XML origin CORS許可を意味しない
+- **CACHE-001** — Target RESOLVER-SERVER; ACTIVE `303`はexplicit cache policy MUST
+- **CACHE-002** — Target REFERENCE-RESOLVER; default `public, max-age=60` SHOULD
+- **CACHE-003** — Target REFERENCE-RESOLVER; `400/404/500/501/503`は`no-store` SHOULD
+- **CACHE-004** — Target RESOLVER-SERVER; `410`はMAY finite cache
+- **CORS-001** — Target RESOLVER-SERVER; browser-oriented Coreは`Access-Control-Allow-Origin: *` SHOULD
+- **CORS-002** — Target L1-CONSUMER; Resolver CORS successをAR-XML fetch permissionとして扱ってはならない
 
 Reference: Resolver Core §§14-15.
 
-## 10. Manifest baseline
+## 12. Manifest baseline
 
-- **MAN-001** required 5 fieldsを持つminimal valid Manifestを受理
-- **MAN-002** `manifestVersion != "0.1"` はManifest 0.1として解釈しない
-- **MAN-003** JSON5-only syntaxはwire representationとして拒否
-- **MAN-004** duplicate object-member nameはnested extensionを含めて拒否
-- **MAN-005** deterministic `/uuid/manifest`では`anchor.id`とpath UUIDが同一UUID valueでなければinvalid
-- **MAN-006** `description.location`変更時に`entity.id`変更を要求しない
-- **MAN-007** `entity.id`をURIだからという理由だけでdereferenceしない
-- **MAN-008** L1の`description.location`はHTTPS必須
-- **MAN-009** Manifest endpoint不在でもCore L1は成立
-- **MAN-010** ACTIVE public Manifest → `200 application/json`
-- **MAN-011** SUSPENDED public Manifest → `404`
-- **MAN-012** RETIRED public Manifest → `410`
-- **MAN-013** unknown UUID Manifest → `404`
+- **MAN-001** — Target MANIFEST-CONSUMER / MANIFEST-PRODUCER; required 5 fieldsのminimal valid ManifestをMUST accept/produce
+- **MAN-002** — Target MANIFEST-CONSUMER; unsupported `manifestVersion`を0.1として解釈してはならない
+- **MAN-003** — Target MANIFEST-CONSUMER / PRODUCER; JSON5-only syntaxをwireでMUST reject/not produce
+- **MAN-004** — duplicate memberをMUST reject/not produce
+- **MAN-005** — deterministic endpointでは`anchor.id`とpath UUID一致MUST
+- **MAN-006** — `description.location`変更時に`entity.id`変更を要求してはならない
+- **MAN-007** — `entity.id`はURIであるだけではMUST NOT dereference
+- **MAN-008** — L1 `description.location`はHTTPS MUST
+- **MAN-009** — Manifest不在/失敗をCore L1失敗としてはならない
+- **MAN-010** — Target MANIFEST-ENDPOINT; ACTIVE → `200 application/json` SHOULD
+- **MAN-011** — SUSPENDED → `404` SHOULD
+- **MAN-012** — RETIRED → `410` SHOULD
+- **MAN-013** — unknown UUID → `404` SHOULD
+- **MAN-014** — optional `description.integrity`不在でもbaseline Manifest validityを失わない
+- **MAN-015** — integrity存在時は`algorithm`+`digest`必須。`sha-256` digestはexact 64 lowercase hex MUST
+
+### MAN-004 fixture rule
+
+Duplicate-member caseは、通常のJSON object構築前の**raw Manifest UTF-8 bytes/text**としてconsumerへ渡さなければなりません。Testbedが事前に`JSON.parse()`等を行いduplicate memberを消失させてはなりません。
 
 Reference: Frozen Manifest 0.1 §§5-13, 23.
 
-## 11. Manifest transport
+## 13. Manifest transport
 
-- **MNET-001** L1 Manifest retrievalはHTTPS-only
-- **MNET-002** Manifest redirect chainのHTTPS→HTTP downgradeを拒否
-- **MNET-003** L1処理対象のfinal Manifest URLはHTTPS
+- **MNET-001** — Target MANIFEST-ENDPOINT / CONSUMER; L1 Manifest retrievalはHTTPS MUST
+- **MNET-002** — Target MANIFEST-CONSUMER; HTTPS→HTTP downgradeはMUST reject/prevent
+- **MNET-003** — Target MANIFEST-CONSUMER; final Manifest URLはHTTPS-only chain経由のHTTPS MUST
 
 Reference: Frozen Manifest 0.1 §11.1.
 
-## 12. Manifest integrity
+## 14. Optional Manifest integrity verification
 
-以下はManifest 0.1 integrity-verification supportをclaimするconsumerに適用します。
+以下は**INTEGRITY-CONSUMER** targetだけに適用します。Integrity verificationをclaimしないbaseline Manifest Consumerは `FAIL` ではなく `UNSUPPORTED-OPTIONAL` とします。
 
-- **INT-001** integrity absentでもbaseline Manifestはvalid
-- **INT-002** valid `sha-256` digest match → verification success
-- **INT-003** digest mismatch → integrity failure。policyがverification必須ならcapability discovery/invocationへ進まない
-- **INT-004** unsupported algorithmをverifiedとして報告しない
-- **INT-005** `sha-256` digestは64文字lowercase hexでなければinvalid
-- **INT-006** intermediate redirect bodyはdigest inputではない
-- **INT-007** digest inputはHTTP content-coding処理後、character decode/XML parse前のfinal representation body octets
-- **INT-008** digest matchをauthentication / authenticity / freshness / rollback protection / authorization / L2として扱わない
+- **INT-002** — valid `sha-256` digest matchをverification successとして扱う
+- **INT-003** — mismatchはMUST integrity failureとしてexposeし、policyがverified integrityを要求する場合、そのrepresentationをintegrity-verified inputとして後続AR-XML処理へ受理してはならない
+- **INT-004** — unsupported algorithmをverifiedとして報告してはならない。local policyでunverifiable分類MAY
+- **INT-006** — intermediate redirect bodyはdigest inputではない
+- **INT-007** — digest inputはHTTP content-coding処理後、character decode/XML parse前のfinal body octets
+- **INT-008** — digest matchをauthentication / Manifest authenticity / authorization / freshness / rollback protection / L2として報告してはならない
+
+INT-003はautomatic capability discovery/invocationや特定Runtime APIを要求しません。
+
+旧`INT-001`と`INT-005`のbaseline semanticsは、それぞれ`MAN-014`と`MAN-015`へ移しました。Testbedはhistorical report互換のためaliasを保持しても構いません。
 
 Reference: Frozen Manifest 0.1 §9.2.
 
-## 13. Extension
+## 15. Extension
 
-- **EXT-001** unknown non-critical top-level memberはforward compatibilityとして原則無視可能
-- **EXT-002** unknown vendor extensionはbaseline processingを壊さず無視可能
-- **EXT-003** extensionは`description.location`をoverrideできない
-- **EXT-004** extensionは`lifecycle.status`をoverride / reinterpretできない
-- **EXT-005** extensionは`description.integrity` semanticsを再定義できない
+**Target:** 原則MANIFEST-CONSUMER
+
+- **EXT-001** unknown non-critical top-level memberはSHOULD processable、標準semanticsをoverride不可
+- **EXT-002** unknown vendor extensionはSHOULD ignoreしてbaseline継続
+- **EXT-003** `description.location` override禁止
+- **EXT-004** `lifecycle.status` override/reinterpret禁止
+- **EXT-005** `description.integrity` semantics再定義禁止
 - **EXT-006** `trusted` / `verified` / `signature` / `publicKey`等の名前だけでTrust semanticsを得ない
-- **EXT-007** vendor extensionをbaseline Manifest 0.1 / Core L1 dependencyにしてはならない
+- **EXT-007** vendor extensionをbaseline Manifest/Core dependencyにしてはならない
 
 Reference: Frozen Manifest 0.1 §12; Extension Policy §§2-6.
 
-## 14. Resource consumption
+## 16. Resource consumption
 
-- **LIMIT-001** consumerはdocumented finite body-size limit超過Manifestを拒否可能
-- **LIMIT-002** finite JSON nesting limitを推奨
-- **LIMIT-003** finite member/element/time/memory limitを推奨
+**Target:** MANIFEST-CONSUMER
 
-Universal numeric limitではなく、実装がdocumented limitを一貫して適用することを検証します。
+- **LIMIT-001** documented finite body-size limit超過ManifestをMAY reject
+- **LIMIT-002** finite JSON nesting-depth limitをSHOULD enforce
+- **LIMIT-003** finite member/element/time/memory limitsをSHOULD enforce
+
+Universal numeric valueではなく、documented limitの存在と一貫したenforcementを試験します。
 
 Reference: Frozen Manifest 0.1 §17.
 
-## 15. JSON Schema
+## 17. JSON Schema
 
-- **SCHEMA-001** Schema validation successだけではconformance成立としない
-- **SCHEMA-002** validatorが`format`をannotationとして扱ってもUUID/URIのnormative semantic checksを省略しない
+**Target:** MANIFEST-CONSUMER / validation tooling
+
+- **SCHEMA-001** Schema successでもnormative semantic violationはMUST reject
+- **SCHEMA-002** validatorが`format`をannotation扱いしてもUUID/absolute URI semanticsをMUST check
 
 Reference: Frozen Manifest 0.1 §21.
 
-## 16. Testbed implementation boundary
+## 18. Testbed implementation boundary
 
-`relink-testbed`側の実行実装は任意の言語・frameworkを利用できます。
+Testbedは任意の実装言語/frameworkを使用できます。
 
-Testbedは、少なくとも次のfixtureを制御できることを推奨します。
+次のfixtureを制御できることを推奨します。
 
 - Resolver lifecycle state
 - Description Location mutation
 - HTTP redirects / downgrade path
+- configured allow/deny network-policy decisions
 - cache headers
-- malformed / duplicate-member Manifest
+- raw malformed / duplicate-member Manifest representation
 - content-coded AR-XML response
 - integrity match / mismatch
 - extension payload
 - bounded-resource cases
 
-外部から確認可能な挙動がある場合、内部datastore stateだけを見てprotocol conformanceと判定してはなりません。
+外部から確認可能な挙動がある場合、内部datastore stateだけでprotocol conformanceを判定してはなりません。
 
-## 17. Reporting
+## 19. Reporting
 
 Conformance reportでは次を記録することを推奨します。
 
 ```text
 catalog version
+conformance target / set
 implementation under test
 execution environment
 case ID
+normative strength
 result
-optional diagnostic detail
+optional deviation reason
+diagnostic detail
 ```
+
+`PASS-WITH-DEVIATION`をSHOULD/SHOULD NOT厳密充足と区別不能に表示してはなりません。
 
 OPTIONAL機能未対応とbaseline failureを明確に分離します。
 
-## 18. Scope boundary
+## 20. Scope boundary
 
 本catalogは次を定義しません。
 
@@ -230,26 +352,29 @@ OPTIONAL機能未対応とbaseline failureを明確に分離します。
 - L2 / Trust authentication tests
 - vendor-specific application behavior
 
-## 19. Summary
+## 21. Conformance set summary
 
 ```text
-Resolver Core
-    RES-* ID-* HTTP-* REDIR-* CACHE-* CORS-*
+Resolver Core Server
+    RES-* ID-* HTTP-* CACHE-* CORS-001
 
-Lifecycle
-    LIFE-*
+Resolver L1 Consumer
+    REDIR-* NET-* CORS-002
 
-Manifest
-    MAN-* MNET-* SCHEMA-*
+Lifecycle Administration
+    LIFE-004..LIFE-010
 
-Optional integrity
-    INT-*
+Reference Resolver
+    reference-profile SHOULD cases + LIFE-011
 
-Extension compatibility
-    EXT-*
+Manifest Producer / Endpoint
+    MAN-* producer/endpoint subset + MNET-001
 
-Resource hardening
-    LIMIT-*
+Manifest Consumer
+    MAN-* consumer subset + MNET-* + NET-* + EXT-* + LIMIT-* + SCHEMA-*
+
+Optional Integrity Verification
+    INT-002 INT-003 INT-004 INT-006 INT-007 INT-008
 ```
 
 本catalogは、後続の `relink-testbed` 実装へ渡すprotocol-side handoff contractです。
