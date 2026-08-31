@@ -10,7 +10,7 @@ English | [日本語](README.ja.md)
 
 Specification-first design phase.
 
-Resolver Core 0.1 remains a draft specification. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31** and form the stable Manifest 0.1 baseline for implementation and conformance work.
+Resolver Core 0.1 and Resolver Lifecycle 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31** and form the stable Manifest 0.1 baseline for implementation and conformance work.
 
 For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to standard members, wire semantics, integrity semantics, extension compatibility, or security/trust semantics require a later Manifest version or separately versioned profile.
 
@@ -19,6 +19,9 @@ For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0
 - RELink Resolver Core 0.1 — Draft
   - [English](docs/specs/resolver-core-0.1.md)
   - [日本語](docs/specs/resolver-core-0.1.ja.md)
+- RELink Resolver Lifecycle 0.1 — Draft
+  - [English](docs/specs/resolver-lifecycle-0.1.md)
+  - [日本語](docs/specs/resolver-lifecycle-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
   - [English](docs/specs/manifest-0.1.md)
   - [日本語](docs/specs/manifest-0.1.ja.md)
@@ -85,6 +88,27 @@ Resolver Core does not interpret AR-XML and does not execute Entity capabilities
 
 Frozen Manifest 0.1 does not enlarge Resolver Core responsibility: normal ACTIVE L1 resolution must remain possible without retrieving or parsing a Manifest.
 
+## Lifecycle
+
+Resolver Lifecycle 0.1 defines the implementation-independent state-transition model for Resolver records while preserving Resolver Core public behavior.
+
+```text
+ACTIVE    → SUSPENDED
+SUSPENDED → ACTIVE
+ACTIVE    → RETIRED
+SUSPENDED → RETIRED
+```
+
+`RETIRED` is terminal in Lifecycle 0.1. Public L1 behavior remains:
+
+```text
+ACTIVE    → 303
+SUSPENDED → 404
+RETIRED   → 410
+```
+
+Lifecycle transition reasons and bounded history are administrative metadata. Lifecycle does not define authentication, authorization, ownership transfer, Trust, or capability execution.
+
 ## Manifest
 
 Manifest is a separate specification from Resolver Core.
@@ -137,6 +161,7 @@ Resolver Core does not:
 This repository is expected to contain:
 
 - Resolver Core 0.1 specification
+- Resolver Lifecycle 0.1 specification
 - Frozen Manifest 0.1 specification set
 - Reference Resolver design and implementation
 - Resolver interoperability test cases
