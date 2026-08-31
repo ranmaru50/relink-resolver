@@ -10,7 +10,7 @@ RELink Resolver は、既存の Web インフラストラクチャを用いて�
 
 現在は specification-first の設計段階です。
 
-Resolver Core 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされ、実装および conformance 作業のための安定した Manifest 0.1 baseline を構成します。
+Resolver Core 0.1 と Resolver Lifecycle 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされ、実装および conformance 作業のための安定した Manifest 0.1 baseline を構成します。
 
 Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の範囲で修正できます。一方、standard member、wire semantics、integrity semantics、extension compatibility、security / trust semantics に関する変更は、後続の Manifest version または別途 versioning された profile で扱います。
 
@@ -19,6 +19,9 @@ Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の
 - RELink Resolver Core 0.1 — Draft
   - [English](docs/specs/resolver-core-0.1.md)
   - [日本語](docs/specs/resolver-core-0.1.ja.md)
+- RELink Resolver Lifecycle 0.1 — Draft
+  - [English](docs/specs/resolver-lifecycle-0.1.md)
+  - [日本語](docs/specs/resolver-lifecycle-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
   - [English](docs/specs/manifest-0.1.md)
   - [日本語](docs/specs/manifest-0.1.ja.md)
@@ -85,6 +88,27 @@ Resolver Core は AR-XML を解釈せず、Entity capability を実行しませ�
 
 Frozen Manifest 0.1 によって Resolver Core の責務が拡大することもありません。通常の ACTIVE L1 resolution は、Manifest を取得・解析しなくても成立しなければなりません。
 
+## Lifecycle
+
+Resolver Lifecycle 0.1 は、Resolver Core の public behaviorを維持したまま、Resolver recordのimplementation-independentなstate-transition modelを定義します。
+
+```text
+ACTIVE    → SUSPENDED
+SUSPENDED → ACTIVE
+ACTIVE    → RETIRED
+SUSPENDED → RETIRED
+```
+
+Lifecycle 0.1では `RETIRED` はterminalです。Public L1 behaviorは次のままです。
+
+```text
+ACTIVE    → 303
+SUSPENDED → 404
+RETIRED   → 410
+```
+
+Lifecycle transition reasonやbounded historyはadministrative metadataです。Lifecycleはauthentication、authorization、ownership transfer、Trust、capability executionを定義しません。
+
 ## Manifest
 
 Manifest は Resolver Core とは分離された独立仕様です。
@@ -139,6 +163,7 @@ Resolver Core は次の処理を行いません。
 このリポジトリでは、次の成果物を扱う予定です。
 
 - Resolver Core 0.1 specification
+- Resolver Lifecycle 0.1 specification
 - Frozen Manifest 0.1 specification set
 - Reference Resolver design / implementation
 - Resolver interoperability test cases
