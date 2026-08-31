@@ -6,9 +6,14 @@ This repository is the home of the RELink Resolver and Manifest specifications, 
 
 ## Status
 
-Early design phase.
+Specification-first design phase.
 
-The current work focuses on specification, responsibility boundaries, state transitions, and HTTP semantics before implementation.
+Resolver Core 0.1 now has a normative draft. Implementation work should follow only after the relevant protocol and responsibility boundaries are sufficiently defined.
+
+## Specifications
+
+- [RELink Resolver Core 0.1](docs/specs/resolver-core-0.1.md)
+- RELink Manifest 0.1 — planned
 
 ## Architecture
 
@@ -113,8 +118,6 @@ This repository is expected to contain:
 - Web Runtime integration notes
 - Native deployment profile
 - Container deployment profile
-
-Implementation work will follow only after the relevant protocol and responsibility boundaries are sufficiently defined.
 
 ## Related projects
 
