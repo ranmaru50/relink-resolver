@@ -1,7 +1,8 @@
 # RELink Manifest 0.1 — Extension Policy
 
-Status: Normative supplement to Manifest 0.1  
+Status: Frozen normative supplement to Manifest 0.1  
 Version: 0.1  
+Freeze date: 2026-08-31  
 Applies to: `docs/specs/manifest-0.1.md` §12
 
 ## 1. Purpose
@@ -27,6 +28,10 @@ Vendor / profile namespace
 ```
 
 This supplement does not change Manifest 0.1 wire format, required members, Resolver Core behavior, AR-XML semantics, or Trust/L2 semantics.
+
+This Extension Policy is frozen together with Manifest 0.1. Editorial corrections and non-semantic errata MAY be applied within 0.1, but changes that alter interoperable extension behavior, namespace ownership, compatibility rules, or security semantics require a later Manifest version or separately versioned profile.
+
+The English text is normative. If an official project translation conflicts with this document, this English frozen text governs Manifest 0.1 extension conformance.
 
 ## 2. Unknown members
 
