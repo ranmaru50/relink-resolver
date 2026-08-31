@@ -105,10 +105,10 @@ Resolver Core 0.1 specifies the **L1 Resolution Security Profile**.
 
 L1 is a resolution transport/profile designation. It is not an Entity trust rating, safety rating, ownership assurance, or authenticity rating.
 
-When no `l` security-level query parameter is present, the request **MUST** be interpreted as an L1 request.
+An ordinary Core 0.1 L1 request contains neither `l` nor `p`.
 
 ```text
-no l parameter
+no l, no p
 = L1
 ```
 
@@ -121,24 +121,28 @@ https://{domain}/{resolver-service}/{uuid}?l={level}&p={public-parameter}
 The following rules are fixed for forward compatibility:
 
 - `l` represents the **requested RELink security level**, not an achieved or verified level;
-- Resolver Core 0.1 defines only the no-`l` L1 request form;
+- Resolver Core 0.1 defines only the no-`l`, no-`p` L1 request form;
 - a Core 0.1-only Resolver receiving an `l` value it does not support **MUST NOT** silently process that request as L1;
 - an unsupported `l` value **MUST** fail closed;
 - a Core 0.1-only Resolver receiving an unsupported `l` **SHOULD** return `501 Not Implemented`;
-- `p` has no semantics in Resolver Core 0.1;
+- `p` is reserved for semantics defined by a level that explicitly defines it;
+- a request containing `p` without an `l` value that defines its semantics **MUST NOT** be processed as ordinary L1 resolution;
+- a Core 0.1-only Resolver receiving `p` without a supported defining `l` **SHOULD** return `400 Bad Request`;
 - `p` **MUST NOT** cause an unsupported `l` request to be accepted as L1;
 - Resolver Core 0.1 clients **SHOULD** omit `l` and `p`;
 - the presence of query parameters **MUST NOT** be interpreted as evidence that a stronger security level was achieved.
 
-A deployment implementing later RELink levels **MAY** define additional query semantics without changing the meaning of an L1 request with no `l` parameter.
+A deployment implementing later RELink levels **MAY** define additional query semantics without changing the meaning of the ordinary L1 request form.
 
-The required downgrade rule is:
+The required downgrade behavior is:
 
 ```text
-no l              → L1
-supported l       → process under that supported level
-unsupported l     → fail closed
-unsupported l     ↛ L1
+no l, no p                 → L1
+supported l                → process under that supported level
+unsupported l              → fail closed
+p without defining l       → fail closed
+unsupported l              ↛ L1
+p without defining l       ↛ L1
 ```
 
 ## 6. Request target and UUID handling
@@ -231,9 +235,9 @@ For a GET request, HTTP semantics for `303 See Other` allow the `Location` targe
 Entity ≠ Location
 ```
 
-Clients **MAY** follow the `303` automatically subject to the consumer security requirements in this specification.
+Clients **MAY** follow the `303` automatically subject to the consumer and platform security requirements in this specification.
 
-## 10. Redirect chains and HTTPS downgrade resistance
+## 10. Redirect chains, HTTPS downgrade resistance, and trust boundary
 
 RELink does not require the Anchor URL to directly identify the Resolver endpoint.
 
@@ -251,7 +255,7 @@ HTTPS AR-XML Description Location
 HTTPS final AR-XML URL
 ```
 
-A consumer claiming L1 processing **MUST NOT** follow an HTTPS-to-HTTP redirect while dereferencing:
+A consumer claiming L1 processing **MUST NOT** permit an HTTPS-to-HTTP downgrade while dereferencing:
 
 - an Anchor URL on the path to a Resolver;
 - a Resolver response;
@@ -262,7 +266,9 @@ The final URL from which AR-XML is retrieved under L1 processing **MUST** use HT
 
 An HTTPS-to-HTTP redirect encountered during L1 processing **MUST** cause dereferencing to fail rather than downgrade transport security.
 
-Resolver Core places no protocol-specific requirement on the number of ordinary redirects a consumer must follow. Consumers **SHOULD** apply bounded redirect counts, loop detection, and normal HTTP safety limits.
+Resolver Core places no protocol-specific requirement on the number of ordinary redirects a consumer must follow. Consumers and execution environments **SHOULD** apply bounded redirect counts, loop detection, and normal HTTP safety limits.
+
+Ordinary redirect infrastructure preceding the Resolver is part of the L1 resolution path but is not cryptographically authenticated as the intended Resolver by Resolver Core 0.1. HTTPS authenticates each contacted Web origin according to ordinary Web PKI semantics; it does not prove that a shortener or intermediate redirect selected the intended RELink Resolver.
 
 The final AR-XML document URL is significant to Runtime processing. Relative AR-XML Interface endpoints are expected to be resolved against the final AR-XML document URL, not against the original Anchor URL or Resolver URL.
 
@@ -324,7 +330,7 @@ Lifecycle reasons, actors, timestamps, audit history, and richer lifecycle metad
 | Status | Resolver Core meaning |
 | --- | --- |
 | `303 See Other` | ACTIVE UUID successfully resolved |
-| `400 Bad Request` | Invalid UUID syntax or malformed Core request |
+| `400 Bad Request` | Invalid UUID syntax, malformed Core request, or reserved `p` used without a level that defines it |
 | `404 Not Found` | UUID is unknown, or known record is SUSPENDED |
 | `405 Method Not Allowed` | Method unsupported by public Resolver Core; determined independently of registration state |
 | `410 Gone` | UUID is known and RETIRED |
@@ -406,15 +412,21 @@ A Core 0.1 client **SHOULD NOT** require custom request headers for ordinary L1 
 
 CORS permission on the Resolver does not grant access to the final AR-XML resource. The AR-XML origin and relevant redirect path must independently satisfy browser Fetch/CORS requirements.
 
-## 16. Consumer network-security policy
+## 16. Consumer and platform network-security policy
 
 Resolver output is untrusted network input.
 
-A consumer **MUST** apply its own network and security policy before dereferencing a Description Location or any redirect target derived from it.
+Before or while dereferencing a Resolver-supplied Description Location or redirect target, a consumer **MUST** apply all applicable network-security controls available in its execution environment.
+
+This requirement does not imply that every consumer must be able to inspect each redirect target in application code before the platform follows it.
+
+For server-side and native consumers, the Runtime **SHOULD** evaluate destinations before network access where the HTTP stack permits that control.
+
+For browser-oriented consumers, conformance **MAY** rely on browser/platform protections that operate during dereferencing, including Fetch redirect processing, CORS, mixed-content protections, origin policy, and other browser network-security controls, together with any additional Runtime policy that is technically available.
 
 Successful resolution **MUST NOT** be interpreted to mean that the target is safe, public, non-local, trusted, authenticated, or authorized to access.
 
-A conforming consumer's network policy may consider, according to its execution environment:
+Applicable policy may consider, according to the execution environment:
 
 - destination scheme;
 - hostname and address ranges;
@@ -422,10 +434,11 @@ A conforming consumer's network policy may consider, according to its execution 
 - link-local destinations;
 - cloud or platform metadata endpoints;
 - DNS rebinding risk;
-- redirect destinations;
-- deployment-specific allowlists or denylists.
+- redirect destinations when observable or controllable;
+- deployment-specific allowlists or denylists;
+- browser/platform-enforced network restrictions.
 
-Resolver Core 0.1 intentionally does **not** prohibit private or local-network Description Locations at the Resolver level, because RELink deployments may legitimately describe local Entities. The access decision belongs to the consumer/runtime policy.
+Resolver Core 0.1 intentionally does **not** prohibit private or local-network Description Locations at the Resolver level, because RELink deployments may legitimately describe local Entities. The access decision belongs to the consumer and/or execution environment.
 
 Conceptually:
 
@@ -434,12 +447,12 @@ Resolver
 ↓
 Description Location
 ↓
-Consumer Network Policy
+Consumer / Platform Network Policy
 ↓
 Fetch
 ```
 
-This boundary is particularly important for server-side, native, agent, Python, Kotlin, .NET, and other non-browser consumers that do not inherit browser navigation/network protections.
+This boundary is particularly important for server-side, native, agent, Python, Kotlin, .NET, and other non-browser consumers that do not inherit browser network protections.
 
 ## 17. Transport security and referrer minimization
 
@@ -447,7 +460,7 @@ Conforming L1 production Resolver URLs **MUST** use HTTPS.
 
 Successful L1 Description Locations **MUST** use HTTPS.
 
-L1 consumers **MUST** preserve HTTPS throughout the dereference chain as specified in §10.
+L1 consumers **MUST** preserve HTTPS throughout the dereference chain as specified in §10, using consumer or execution-environment controls as applicable.
 
 A public L1 Resolver **SHOULD** send:
 
@@ -459,7 +472,7 @@ on redirect responses to reduce unnecessary propagation of Anchor URLs and futur
 
 The Reference Resolver profile **SHOULD** enable `Referrer-Policy: no-referrer` by default.
 
-HTTPS provides transport security to the contacted Web origin. Resolver Core 0.1 does not claim that HTTPS authenticates the Physical Entity, ownership, AR-XML semantics, physical Anchor attachment, or administrative authority.
+HTTPS provides transport security to the contacted Web origin. Resolver Core 0.1 does not claim that HTTPS authenticates the Physical Entity, ownership, AR-XML semantics, physical Anchor attachment, intended Resolver selection through preceding redirect infrastructure, or administrative authority.
 
 HSTS and related origin-hardening controls belong to deployment profiles rather than Core protocol semantics.
 
@@ -513,7 +526,7 @@ GET
 UUID lookup
 HTTPS-only dereference chain
 303 to current AR-XML Description Location
-consumer-controlled network policy
+consumer/platform network-security policy
 ```
 
 Resolver Core 0.1 leaves the following for later levels/specifications:
@@ -528,7 +541,7 @@ Resolver Core 0.1 leaves the following for later levels/specifications:
 - higher-level security negotiation;
 - trust-chain validation.
 
-Core 0.1 nevertheless defines one mandatory forward-security rule: an unsupported requested `l` **MUST NOT** be silently downgraded to L1.
+Core 0.1 nevertheless defines mandatory forward-security rules: unsupported requested `l` values and `p` values without defining level semantics **MUST NOT** be silently downgraded to L1.
 
 A later level **MUST NOT** redefine an existing Anchor UUID merely because a stronger security level is requested.
 
@@ -541,6 +554,7 @@ Resolver Core 0.1 does **not** provide:
 - owner authentication;
 - AR-XML authenticity verification;
 - AR-XML integrity verification beyond transport mechanisms supplied by HTTP/TLS;
+- cryptographic authentication that preceding redirect infrastructure selected the intended Resolver;
 - Resolver trust-chain establishment;
 - device authorization;
 - capability authorization;
@@ -551,7 +565,7 @@ Resolver Core 0.1 does **not** provide:
 - device configuration;
 - management-console construction.
 
-A consumer **MUST NOT** treat `303 See Other`, an Anchor UUID, or an L1 result as proof of any of those properties.
+A consumer **MUST NOT** treat `303 See Other`, an Anchor UUID, an HTTPS-only path, or an L1 result as proof of any of those properties.
 
 ```text
 L1
@@ -618,7 +632,7 @@ Reference implementations **SHOULD** use ordinary operational controls such as:
 
 These controls are implementation/deployment guidance and do not expand Core protocol responsibility.
 
-## 25. Reference interaction
+## 25. Reference interactions
 
 A successful L1 interaction is:
 
@@ -635,7 +649,7 @@ Access-Control-Allow-Origin: *
 Referrer-Policy: no-referrer
 ```
 
-The consumer then applies its own network policy before dereferencing the Description Location.
+The consumer and/or its execution environment then applies applicable network-security controls while dereferencing the Description Location.
 
 An unsupported higher-level request against a Core 0.1-only Resolver is expected to fail closed, for example:
 
@@ -649,6 +663,18 @@ HTTP/1.1 501 Not Implemented
 Cache-Control: no-store
 ```
 
+A reserved `p` without a defining level also fails closed:
+
+```http
+GET /relink/550e8400-e29b-41d4-a716-446655440000?p=example HTTP/1.1
+Host: resolver.example
+```
+
+```http
+HTTP/1.1 400 Bad Request
+Cache-Control: no-store
+```
+
 ## 26. Conformance
 
 A deployment claiming **RELink Resolver Core 0.1 L1 conformance** **MUST**, at minimum:
@@ -657,20 +683,23 @@ A deployment claiming **RELink Resolver Core 0.1 L1 conformance** **MUST**, at m
 2. treat the UUID as opaque and never as a credential;
 3. return `303 See Other` with a validated absolute HTTPS current AR-XML Description Location for ACTIVE records;
 4. fail closed for unsupported requested `l` values rather than silently processing them as L1;
-5. apply the status semantics defined for malformed, unknown/SUSPENDED, unsupported-method, RETIRED, unsupported-level, and server-failure cases;
-6. process unsupported methods independently of UUID registration state;
-7. keep public resolution read-only;
-8. preserve Entity/Location, Resolution/Authentication, and Description/Execution separation;
-9. avoid requiring Manifest, Trust, capability execution, device-network discovery, or AR-XML fetch/parse for ordinary resolution;
-10. send explicit cache behavior as required by this specification.
+5. fail closed when reserved `p` is present without supported level semantics rather than processing it as ordinary L1;
+6. apply the status semantics defined for malformed, unknown/SUSPENDED, unsupported-method, RETIRED, unsupported-level, reserved-parameter, and server-failure cases;
+7. process unsupported methods independently of UUID registration state;
+8. keep public resolution read-only;
+9. preserve Entity/Location, Resolution/Authentication, and Description/Execution separation;
+10. avoid requiring Manifest, Trust, capability execution, device-network discovery, or AR-XML fetch/parse for ordinary resolution;
+11. send explicit cache behavior as required by this specification.
 
 A consumer claiming **RELink Resolver Core 0.1 L1 processing conformance** **MUST**, at minimum:
 
-1. reject HTTPS-to-HTTP downgrade throughout Anchor, Resolver, Description, and AR-XML redirect dereferencing;
+1. prevent or reject HTTPS-to-HTTP downgrade throughout Anchor, Resolver, Description, and AR-XML dereferencing using controls available in the consumer and/or execution environment;
 2. require the final AR-XML document URL to use HTTPS;
-3. apply its own network/security policy before dereferencing Resolver-supplied locations and redirect targets;
+3. apply all applicable network-security controls available in its execution environment before or while dereferencing Resolver-supplied locations and redirects;
 4. not interpret successful resolution as authentication, authorization, trust, or safety proof;
 5. use the final AR-XML document URL as the base for subsequent AR-XML relative-URL processing where applicable.
+
+A browser consumer is not required to expose redirect targets to application code when the browser platform follows them internally. Browser/platform security enforcement combined with any additional Runtime policy that is technically available can satisfy the network-security-policy requirement.
 
 CORS support is RECOMMENDED for browser-oriented public deployments but is not required for non-browser consumers unless a deployment profile requires it.
 
@@ -703,11 +732,15 @@ Input:
     /{resolver-service}/{uuid}
 
 Default profile:
-    no l = L1
+    no l, no p = L1
 
 Unsupported requested level:
     fail closed
     SHOULD return 501
+
+Reserved p without defining level:
+    fail closed
+    SHOULD return 400
 
 Identifier:
     RFC 9562 UUID
@@ -734,10 +767,11 @@ Resolver failure:
 Redirect security:
     HTTPS-only for L1
     no HTTPS→HTTP downgrade
+    preceding redirect infrastructure is not authenticated as the intended Resolver by Core 0.1
 
 Consumer boundary:
     Resolver Location = untrusted network input
-    consumer Network Policy decides whether to fetch
+    consumer / platform Network Policy governs dereferencing
 
 Core responsibility:
     UUID → current description location
