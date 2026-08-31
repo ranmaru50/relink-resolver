@@ -8,16 +8,24 @@ This repository is the home of the RELink Resolver and Manifest specifications, 
 
 Specification-first design phase.
 
-Resolver Core 0.1 and Manifest 0.1 have normative drafts. Implementation work should follow only after the relevant protocol and responsibility boundaries are sufficiently defined.
+Resolver Core 0.1 remains a draft specification. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31** and form the stable Manifest 0.1 baseline for implementation and conformance work.
+
+For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to standard members, wire semantics, integrity semantics, extension compatibility, or security/trust semantics require a later Manifest version or separately versioned profile.
 
 ## Specifications
 
-- RELink Resolver Core 0.1
+- RELink Resolver Core 0.1 — Draft
   - [English](docs/specs/resolver-core-0.1.md)
   - [日本語](docs/specs/resolver-core-0.1.ja.md)
-- RELink Manifest 0.1
-  - [Specification](docs/specs/manifest-0.1.md)
+- RELink Manifest 0.1 — **Frozen 2026-08-31**
+  - [English](docs/specs/manifest-0.1.md)
+  - [日本語](docs/specs/manifest-0.1.ja.md)
   - [JSON Schema](docs/specs/manifest-0.1.schema.json)
+- RELink Manifest 0.1 Extension Policy — **Frozen 2026-08-31**
+  - [English](docs/specs/manifest-0.1-extension-policy.md)
+  - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
+
+The English Frozen Manifest documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs Manifest 0.1 conformance.
 
 ## Architecture
 
@@ -73,9 +81,11 @@ L1 is intended to be public, GET-only, read-only, and HTTPS-based.
 
 Resolver Core does not interpret AR-XML and does not execute Entity capabilities.
 
+Frozen Manifest 0.1 does not enlarge Resolver Core responsibility: normal ACTIVE L1 resolution must remain possible without retrieving or parsing a Manifest.
+
 ## Manifest
 
-Manifest is designed as a separate specification from Resolver Core.
+Manifest is a separate specification from Resolver Core.
 
 A minimal L1 resolver may redirect directly to AR-XML without requiring a Manifest.
 
@@ -85,9 +95,10 @@ A richer deployment may expose a Manifest containing Entity-level resolution met
 Anchor UUID
 Canonical Entity Identity
 Current AR-XML Location
+Optional Description integrity metadata
 Lifecycle metadata
 Version information
-Future extension metadata
+Extensions
 ```
 
 The default Manifest retrieval resource is separate from Resolver Core:
@@ -98,9 +109,11 @@ GET /{resolver-service}/{uuid}/manifest
 
 Manifest must not turn Resolver Core into an execution, management, or trust service.
 
+Manifest 0.1 uses strict JSON for the wire representation, forbids duplicate object-member names, keeps vendor/profile metadata under the `extensions` namespace, and optionally supports AR-XML content pinning through `description.integrity`. Integrity verification is not authentication, freshness, anti-rollback, authorization, or L2.
+
 ## Trust and Security
 
-Trust, authentication, signatures, authenticated mutation, ownership transfer, and related mechanisms are outside Resolver Core 0.1 and Manifest 0.1.
+Trust, authentication, signatures, authenticated mutation, ownership transfer, freshness/anti-rollback mechanisms, and related authority mechanisms are outside Resolver Core 0.1 and Manifest 0.1.
 
 They are expected to be designed as later layers without redefining the L1 identity and resolution model.
 
@@ -122,7 +135,7 @@ Resolver Core does not:
 This repository is expected to contain:
 
 - Resolver Core 0.1 specification
-- Manifest 0.1 specification
+- Frozen Manifest 0.1 specification set
 - Reference Resolver design and implementation
 - Resolver interoperability test cases
 - RELink Testbed integration definitions
