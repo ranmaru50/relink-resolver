@@ -104,6 +104,8 @@ Changing the Resolver deployment URL MUST NOT require changing `entity.id`.
 
 Manifest MUST NOT contain executable capability semantics that belong in AR-XML.
 
+Optional integrity or operational-hardening features defined by this specification MUST NOT be interpreted as authentication, authority proof, or evidence that a higher RELink security level has been achieved.
+
 ## 5. JSON representation
 
 Manifest 0.1 is a JSON object.
@@ -137,6 +139,8 @@ The following top-level members are REQUIRED:
 - `lifecycle`
 
 An optional `extensions` object MAY be present.
+
+The optional members defined in this specification, including `description.mediaType` and `description.integrity`, MUST NOT become prerequisites for baseline Manifest 0.1 or Resolver Core 0.1 interoperability.
 
 ## 6. `manifestVersion`
 
@@ -240,6 +244,84 @@ if it has a known media type for the description representation.
 Manifest 0.1 does not define or register a dedicated AR-XML media type and therefore does not require a specific `description.mediaType` value.
 
 Consumers MUST NOT treat `description.mediaType` as a substitute for validating the retrieved representation according to the applicable AR-XML specification.
+
+### 9.2 `description.integrity`
+
+A Manifest MAY include optional content-integrity metadata for a Description whose representation is suitable for content pinning.
+
+Example:
+
+```json
+{
+  "description": {
+    "location": "https://entity.example/arxml/entity.xml",
+    "integrity": {
+      "algorithm": "sha-256",
+      "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  }
+}
+```
+
+When present, `description.integrity` MUST be an object containing both `algorithm` and `digest`.
+
+`description.integrity` is OPTIONAL. Producers SHOULD omit it when the AR-XML representation is intentionally dynamic, personalized, generated per request, or otherwise unsuitable for stable content pinning.
+
+The field has the following limited semantics:
+
+```text
+description.location
+= where the current description is retrieved
+
+description.integrity
+= which representation content the Manifest expects
+```
+
+It does not identify who authored, approved, owns, or is authorized to modify the AR-XML document.
+
+#### 9.2.1 `algorithm`
+
+`algorithm` MUST be a non-empty lowercase ASCII identifier naming the digest algorithm.
+
+Manifest 0.1 defines `sha-256` as the initial interoperable algorithm identifier and RECOMMENDS it when a producer chooses to publish integrity metadata.
+
+Manifest 0.1 does not prohibit later specifications or profiles from defining additional algorithms. A Manifest 0.1 consumer is not required to implement every future algorithm identifier.
+
+No algorithm identifier, including `sha-256`, is an authentication mechanism or security-level indicator.
+
+#### 9.2.2 `digest`
+
+`digest` MUST contain the lowercase hexadecimal encoding of the digest bytes produced by `algorithm`.
+
+For `sha-256`, `digest` MUST contain exactly 64 lowercase hexadecimal characters.
+
+The digest input is the octet sequence exposed by the consumer's HTTP/fetch layer as the retrieved response body before character decoding, XML parsing, or application-level normalization.
+
+This definition is intended to avoid dependence on XML canonicalization rules and MUST NOT require AR-XML canonicalization merely to use Manifest integrity metadata.
+
+#### 9.2.3 Consumer behavior
+
+A baseline Manifest 0.1 consumer that does not implement `description.integrity` MAY ignore the field and remains conforming to Manifest 0.1.
+
+A consumer that claims support for Manifest 0.1 integrity verification:
+
+- MUST NOT report integrity as verified when it does not recognize or implement the declared `algorithm`;
+- MUST compute the declared digest over the retrieved response-body octets before AR-XML parsing when verification is enabled;
+- MUST treat a digest mismatch as an integrity verification failure;
+- MUST NOT continue AR-XML capability discovery or invocation on the mismatching representation when its policy requires integrity verification;
+- MAY treat an unsupported algorithm as unverifiable rather than invalidating the entire Manifest, according to local policy.
+
+The presence or successful verification of `description.integrity` MUST NOT be treated as:
+
+- Physical Entity authentication;
+- owner authentication;
+- Resolver authentication;
+- Manifest authenticity proof;
+- authorization;
+- proof of a higher RELink security level;
+- a substitute for future L2 or Trust semantics.
+
+A producer or administrative system MAY calculate and register the digest when publishing the AR-XML representation. Resolver Core and public Manifest retrieval MUST NOT be required to fetch AR-XML in order to calculate, refresh, or verify the digest.
 
 ## 10. `lifecycle`
 
@@ -381,7 +463,7 @@ Manifest 0.1 intentionally does not claim an unregistered RELink-specific media 
 
 A future specification MAY register or define a dedicated structured-syntax-suffix media type. Such future work MUST NOT change the JSON member semantics defined by Manifest 0.1 without a corresponding Manifest version change.
 
-## 14. Cache and CORS guidance
+## 14. Cache, change detection, and CORS guidance
 
 A public Manifest endpoint SHOULD send an explicit cache policy.
 
@@ -398,6 +480,14 @@ Cache-Control: no-store
 ```
 
 For `410 Gone`, a finite cache lifetime MAY be used because retirement is terminal under Resolver Core 0.1.
+
+A Manifest endpoint MAY expose ordinary HTTP validators such as `ETag` and/or `Last-Modified` to support efficient change detection and conditional retrieval.
+
+Such validators:
+
+- MUST retain their ordinary HTTP semantics;
+- MUST NOT be interpreted as Entity authentication, Manifest signature, authority proof, or a RELink security-level indicator;
+- MUST NOT be required for Manifest 0.1 conformance.
 
 Browser-oriented public Manifest endpoints SHOULD return:
 
@@ -453,13 +543,56 @@ Manifest 0.1 does not provide:
 - authorization to mutate Resolver state;
 - capability authorization or execution.
 
-A consumer MUST NOT treat the presence of `entity.id`, `anchor.id`, `description.location`, or `lifecycle.status` as proof of any of those properties.
+A consumer MUST NOT treat the presence of `entity.id`, `anchor.id`, `description.location`, `description.integrity`, or `lifecycle.status` as proof of any of those properties.
 
-Future Trust specifications MAY reference Manifest fields or add Trust metadata, but MUST define verification and failure semantics separately.
+Future Trust or L2 specifications MAY reference Manifest fields or add Trust metadata, but MUST define verification and failure semantics separately.
 
 Manifest 0.1 MUST NOT define a field whose mere presence claims that a stronger RELink security level has been achieved.
 
-## 17. Resolver / Manifest responsibility boundary
+The optional integrity mechanism in §9.2 is intentionally limited to content pinning and change detection. It MUST NOT constrain future L2 specifications from defining signatures, authenticated key binding, certificate-based mechanisms, Web-native authentication mechanisms, or other authentication and authorization models.
+
+## 17. Optional pre-L2 operational hardening
+
+Deployments MAY selectively use ordinary operational controls before introducing a formal L2 or Trust protocol.
+
+These controls are deployment guidance, not additional Manifest 0.1 requirements, and MUST NOT alter the minimal public resolution contract.
+
+### 17.1 Administrative authentication
+
+Administrative creation, update, suspension, retirement, and metadata-management surfaces SHOULD use deployment-appropriate authentication and authorization independent of public L1 resolution.
+
+Manifest 0.1 does not prescribe a Web authentication technology, identity provider, credential type, session mechanism, MFA mechanism, certificate model, or authorization framework.
+
+Knowledge of an Anchor UUID MUST NOT by itself authorize administrative mutation.
+
+### 17.2 Audit history
+
+Administrative systems SHOULD retain a bounded operational history of material record changes where practical, such as changes to:
+
+- Description Location;
+- optional Description integrity metadata;
+- lifecycle state;
+- Canonical Entity Identity administrative mapping.
+
+Audit storage format, retention period, actor identity model, immutability mechanism, and external logging system are deployment choices and are not required by Manifest 0.1.
+
+Manifest 0.1 does not require append-only ledgers, transparency logs, blockchains, third-party timestamping services, or other specialized audit infrastructure.
+
+### 17.3 Origin and privilege separation
+
+Deployments SHOULD consider separating public Resolver/Manifest serving privileges from administrative mutation privileges.
+
+Where operationally reasonable, deployments MAY also separate AR-XML hosting from Resolver administration so that compromise of one component does not automatically imply write access to all components.
+
+Manifest 0.1 does not require distinct DNS names, hosting providers, certificate authorities, networks, processes, or products. The exact topology remains a deployment choice.
+
+### 17.4 Low-dependency design rule
+
+A Manifest 0.1 deployment MUST NOT require proprietary cryptographic schemes, licensed authentication products, external trust services, specialized hardware, or patent-dependent mechanisms merely to claim baseline Manifest 0.1 conformance.
+
+Optional deployment products or services MAY be used when independently selected by the operator, but their use MUST NOT redefine Manifest 0.1 wire semantics or become a prerequisite for other conforming implementations.
+
+## 18. Resolver / Manifest responsibility boundary
 
 Resolver Core may internally know only enough to perform resolution:
 
@@ -475,6 +608,7 @@ Manifest may expose a richer Entity-level view:
 Anchor UUID
 Canonical Entity Identity
 Current Description Location
+Optional Description integrity metadata
 Lifecycle metadata
 Version information
 Extensions
@@ -492,13 +626,15 @@ Manifest MUST NOT require Resolver Core to understand:
 
 Manifest generation SHOULD be possible from Resolver/administrative metadata without dereferencing the Description Location.
 
-## 18. AR-XML boundary
+## 19. AR-XML boundary
 
 AR-XML describes what an Entity can do and how a Runtime can interact with it.
 
-Manifest describes identity/location/lifecycle metadata around resolution.
+Manifest describes identity/location/lifecycle metadata around resolution and MAY optionally provide a representation digest for content pinning.
 
 Therefore Manifest 0.1 MUST NOT duplicate AR-XML capability definitions, interface endpoints, input schemas, result mappings, or invocation semantics.
+
+`description.integrity` applies to the retrieved representation bytes and does not require any change to AR-XML syntax, semantics, canonicalization, generation method, or capability model.
 
 The relationship is:
 
@@ -506,13 +642,16 @@ The relationship is:
 Manifest
   entity.id
   description.location
+  description.integrity (optional)
         ↓
       AR-XML
         ↓
   Capability / Interface description
 ```
 
-## 19. Reference example
+## 20. Reference examples
+
+### 20.1 Minimal Manifest
 
 ```json
 {
@@ -532,9 +671,35 @@ Manifest
 }
 ```
 
-The example does not imply that `https://identity.example/entities/thermostat-42` must be dereferenceable or operational. It is the Canonical Entity Identity URI.
+### 20.2 Manifest with optional content pinning
 
-## 20. Conformance
+```json
+{
+  "manifestVersion": "0.1",
+  "anchor": {
+    "id": "550e8400-e29b-41d4-a716-446655440000"
+  },
+  "entity": {
+    "id": "https://identity.example/entities/thermostat-42"
+  },
+  "description": {
+    "location": "https://entity.example/descriptions/thermostat-42.arxml",
+    "integrity": {
+      "algorithm": "sha-256",
+      "digest": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  },
+  "lifecycle": {
+    "status": "active"
+  }
+}
+```
+
+The examples do not imply that `https://identity.example/entities/thermostat-42` must be dereferenceable or operational. It is the Canonical Entity Identity URI.
+
+The second example does not imply authentication. Its integrity object only pins the expected AR-XML representation content declared by that Manifest.
+
+## 21. Conformance
 
 A representation claiming **RELink Manifest 0.1 conformance** MUST:
 
@@ -549,9 +714,13 @@ A representation claiming **RELink Manifest 0.1 conformance** MUST:
 9. not define capability execution, device discovery, management UI, or Trust verification as Manifest 0.1 semantics;
 10. remain optional to successful Resolver Core 0.1 L1 resolution.
 
-A consumer claiming Manifest 0.1 conformance MUST reject an unsupported `manifestVersion`, validate required fields, and treat `description.location` as untrusted network input.
+If `description.integrity` is present, it MUST contain `algorithm` and `digest` as specified in §9.2. Its presence MUST NOT be required for Manifest 0.1 conformance.
 
-## 21. Design summary
+A consumer claiming baseline Manifest 0.1 conformance MUST reject an unsupported `manifestVersion`, validate required fields, and treat `description.location` as untrusted network input. It is not required to implement optional integrity verification.
+
+A consumer claiming **Manifest 0.1 integrity-verification support** MUST satisfy the verification and reporting rules in §9.2.3.
+
+## 22. Design summary
 
 ```text
 Manifest 0.1
@@ -563,6 +732,18 @@ Required:
     entity.id        = absolute URI
     description.location = HTTPS URI
     lifecycle.status = active | suspended | retired
+
+Optional:
+    description.mediaType
+    description.integrity
+        algorithm
+        digest
+
+Integrity meaning:
+    content pinning / change detection
+    not authentication
+    not authorization
+    not L2
 
 Canonical Entity Identity:
     stable
@@ -587,10 +768,16 @@ RETIRED:
 Core rule:
     Manifest failure MUST NOT break ordinary L1 resolution
 
+Optional pre-L2 hardening:
+    ordinary HTTP validators
+    authenticated admin surface
+    bounded audit history
+    privilege/origin separation where useful
+
 Not Manifest responsibility:
     Trust
-    authentication
-    authorization
+    authentication protocol
+    authorization protocol
     signatures
     ownership transfer
     device IP discovery
@@ -599,4 +786,4 @@ Not Manifest responsibility:
     AR-XML capability semantics
 ```
 
-Manifest 0.1 preserves the RELink principle that Entity identity is stable while description location may change, without enlarging Resolver Core into a metadata, Trust, or execution service.
+Manifest 0.1 preserves the RELink principle that Entity identity is stable while description location may change, while allowing low-cost optional integrity and operational-hardening measures without enlarging Resolver Core or constraining future AR-XML, L2, Trust, or Web authentication designs.
