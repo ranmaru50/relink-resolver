@@ -99,7 +99,11 @@
       "additionalProperties": true
     },
     "extensions": {
-      "type": "object"
+      "type": "object",
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true
