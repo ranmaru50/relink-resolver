@@ -4,6 +4,8 @@ RELink Resolver is the resolution layer for RELink (Real Entity Link), an experi
 
 This repository is the home of the RELink Resolver and Manifest specifications, the future reference resolver, and resolver interoperability test definitions.
 
+English | [日本語](README.ja.md)
+
 ## Status
 
 Specification-first design phase.
