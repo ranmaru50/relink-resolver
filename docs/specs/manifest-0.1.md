@@ -108,7 +108,21 @@ Optional integrity or operational-hardening features defined by this specificati
 
 ## 5. JSON representation
 
-Manifest 0.1 is a JSON object.
+Manifest 0.1 is a JSON object and its published/wire representation MUST conform to standard JSON syntax.
+
+JSON5 and other JSON-compatible authoring syntaxes are not conforming Manifest 0.1 wire representations. In particular, a published Manifest MUST NOT require support for JSON5-only syntax such as comments, trailing commas, single-quoted strings, or unquoted object-member names.
+
+Implementations MAY accept JSON5, YAML, or other implementation-defined local authoring formats before producing a conforming Manifest, provided that the publicly retrieved Manifest representation is serialized as conforming JSON.
+
+```text
+Authoring format
+= implementation-defined
+
+Published Manifest representation
+= strict JSON
+```
+
+A consumer claiming baseline Manifest 0.1 conformance is required to parse conforming JSON only and MUST NOT be required to implement JSON5 or another authoring syntax.
 
 The minimal conforming representation is:
 
@@ -459,6 +473,8 @@ Manifest 0.1 representations SHOULD be served as:
 Content-Type: application/json
 ```
 
+A representation served as `application/json` MUST contain conforming JSON and MUST NOT rely on JSON5 syntax.
+
 Manifest 0.1 intentionally does not claim an unregistered RELink-specific media type.
 
 A future specification MAY register or define a dedicated structured-syntax-suffix media type. Such future work MUST NOT change the JSON member semantics defined by Manifest 0.1 without a corresponding Manifest version change.
@@ -703,7 +719,7 @@ The second example does not imply authentication. Its integrity object only pins
 
 A representation claiming **RELink Manifest 0.1 conformance** MUST:
 
-1. be a JSON object;
+1. be serialized using conforming JSON syntax as defined in §5;
 2. contain `manifestVersion` equal to `"0.1"`;
 3. contain `anchor.id` as an RFC 9562 UUID;
 4. contain `entity.id` as an absolute URI;
@@ -714,9 +730,11 @@ A representation claiming **RELink Manifest 0.1 conformance** MUST:
 9. not define capability execution, device discovery, management UI, or Trust verification as Manifest 0.1 semantics;
 10. remain optional to successful Resolver Core 0.1 L1 resolution.
 
+JSON5 syntax is not a conforming Manifest 0.1 wire representation. Local authoring tools MAY accept JSON5 or another source format, but MUST emit conforming JSON when publishing a Manifest 0.1 representation.
+
 If `description.integrity` is present, it MUST contain `algorithm` and `digest` as specified in §9.2. Its presence MUST NOT be required for Manifest 0.1 conformance.
 
-A consumer claiming baseline Manifest 0.1 conformance MUST reject an unsupported `manifestVersion`, validate required fields, and treat `description.location` as untrusted network input. It is not required to implement optional integrity verification.
+A consumer claiming baseline Manifest 0.1 conformance MUST reject an unsupported `manifestVersion`, validate required fields, and treat `description.location` as untrusted network input. It is not required to implement JSON5 or optional integrity verification.
 
 A consumer claiming **Manifest 0.1 integrity-verification support** MUST satisfy the verification and reporting rules in §9.2.3.
 
@@ -725,6 +743,11 @@ A consumer claiming **Manifest 0.1 integrity-verification support** MUST satisfy
 ```text
 Manifest 0.1
 = optional Entity-level resolution metadata
+
+Wire format:
+    strict JSON
+    JSON5 not conforming
+    local authoring format implementation-defined
 
 Required:
     manifestVersion = "0.1"
