@@ -10,7 +10,7 @@ RELink Resolver は、既存の Web インフラストラクチャを用いて�
 
 現在は specification-first の設計段階です。
 
-Resolver Core 0.1 と Resolver Lifecycle 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされ、実装および conformance 作業のための安定した Manifest 0.1 baseline を構成します。
+Resolver Core 0.1、Resolver Lifecycle 0.1、Resolver / Manifest Conformance Catalog 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされ、実装および conformance 作業のための安定した Manifest 0.1 baseline を構成します。
 
 Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の範囲で修正できます。一方、standard member、wire semantics、integrity semantics、extension compatibility、security / trust semantics に関する変更は、後続の Manifest version または別途 versioning された profile で扱います。
 
@@ -22,6 +22,9 @@ Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の
 - RELink Resolver Lifecycle 0.1 — Draft
   - [English](docs/specs/resolver-lifecycle-0.1.md)
   - [日本語](docs/specs/resolver-lifecycle-0.1.ja.md)
+- RELink Resolver / Manifest Conformance Catalog 0.1 — Draft
+  - [English](docs/specs/resolver-manifest-conformance-0.1.md)
+  - [日本語](docs/specs/resolver-manifest-conformance-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
   - [English](docs/specs/manifest-0.1.md)
   - [日本語](docs/specs/manifest-0.1.ja.md)
@@ -109,6 +112,20 @@ RETIRED   → 410
 
 Lifecycle transition reasonやbounded historyはadministrative metadataです。Lifecycleはauthentication、authorization、ownership transfer、Trust、capability executionを定義しません。
 
+## Conformance Catalog
+
+Resolver / Manifest Conformance Catalog 0.1 は、Resolver Core、Lifecycle、Frozen Manifest 0.1、OPTIONAL integrity verification、extension compatibility、transport、cache/CORS、resource boundaryについて、実装に依存しないprotocol test caseを定義します。
+
+Protocol expectationを定義するためcatalog自体はこのリポジトリで管理します。一方、実行可能test、fixture、runner、CI integration、report生成は `relink-testbed` 側へ委譲します。
+
+```text
+relink-resolver
+= conformance definition
+
+relink-testbed
+= executable conformance implementation
+```
+
 ## Manifest
 
 Manifest は Resolver Core とは分離された独立仕様です。
@@ -164,9 +181,9 @@ Resolver Core は次の処理を行いません。
 
 - Resolver Core 0.1 specification
 - Resolver Lifecycle 0.1 specification
+- Resolver / Manifest Conformance Catalog 0.1
 - Frozen Manifest 0.1 specification set
 - Reference Resolver design / implementation
-- Resolver interoperability test cases
 - RELink Testbed integration definitions
 - Web Runtime integration notes
 - Native deployment profile
