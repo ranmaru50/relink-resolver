@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://relink.example/specs/manifest-0.1.schema.json",
+  "title": "RELink Manifest 0.1",
+  "type": "object",
+  "required": [
+    "manifestVersion",
+    "anchor",
+    "entity",
+    "description",
+    "lifecycle"
+  ],
+  "properties": {
+    "manifestVersion": {
+      "const": "0.1"
+    },
+    "anchor": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "additionalProperties": true
+    },
+    "entity": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uri"
+        }
+      },
+      "additionalProperties": true
+    },
+    "description": {
+      "type": "object",
+      "required": ["location"],
+      "properties": {
+        "location": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "mediaType": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["active", "suspended", "retired"]
+        }
+      },
+      "additionalProperties": true
+    },
+    "extensions": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}
