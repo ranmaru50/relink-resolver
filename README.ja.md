@@ -10,7 +10,7 @@ RELink Resolver は、既存の Web インフラストラクチャを用いて�
 
 現在は specification-first の設計段階です。
 
-Resolver Core 0.1、Resolver Lifecycle 0.1、Reference Resolver Architecture 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされています。Resolver / Manifest Conformance Catalog 0.1 と Web Runtime Integration Contract 0.1 は、実装/Testbedへ引き渡す安定したbaselineとして **2026-09-01 に Frozen** とされました。
+Resolver Core 0.1、Resolver Lifecycle 0.1、Reference Resolver Architecture 0.1、Reference Resolver Deployment Profiles 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされています。Resolver / Manifest Conformance Catalog 0.1 と Web Runtime Integration Contract 0.1 は、実装/Testbedへ引き渡す安定したbaselineとして **2026-09-01 に Frozen** とされました。
 
 Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の範囲で修正できます。一方、standard member、wire semantics、integrity semantics、extension compatibility、security / trust semantics に関する変更は、後続の Manifest version または別途 versioning された profile で扱います。
 
@@ -35,6 +35,9 @@ Frozen Web Runtime Integration Contract 0.1では、編集上または非semanti
 - RELink Reference Resolver Architecture 0.1 — Draft
   - [English](docs/specs/reference-resolver-architecture-0.1.md)
   - [日本語](docs/specs/reference-resolver-architecture-0.1.ja.md)
+- RELink Reference Resolver Deployment Profiles 0.1 — Draft
+  - [English](docs/specs/reference-resolver-deployment-profiles-0.1.md)
+  - [日本語](docs/specs/reference-resolver-deployment-profiles-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
   - [English](docs/specs/manifest-0.1.md)
   - [日本語](docs/specs/manifest-0.1.ja.md)
@@ -176,6 +179,20 @@ SQLite
 
 同一applicationでdeployする場合もpublic/adminの責務を分離します。ArchitectureはUUID registration、Description Location/lifecycle maintenance、search/list/detail/history、resolution test、persistence boundary、bounded history、security requirement、implementation non-goalを定義しますが、具体的PHP classやSQLite DDLは固定しません。
 
+## Deployment profiles
+
+Reference Resolver Deployment Profiles 0.1は、RELink protocol semanticsを変更せず、NativeとDockerの等価なpackaging/operations profileを定義します。
+
+```text
+Native
+Apache + PHP + SQLite
+
+Container
+Docker-packaged Reference Resolver + persistent SQLite storage
+```
+
+両profileは同じprotocol-visible behavior、public/admin separation、durable Resolver state、configuration responsibility、TLS/proxy boundary、backup/restore、migration semanticsを維持します。DockerはOPTIONALであり、protocol requirementではありません。
+
 ## Manifest
 
 Manifest は Resolver Core とは分離された独立仕様です。
@@ -237,10 +254,9 @@ Resolver Core は次の処理を行いません。
 - Frozen Web Runtime Integration Contract 0.1
 - Frozen Manifest 0.1 specification set
 - Reference Resolver Architecture 0.1
+- Reference Resolver Deployment Profiles 0.1
 - Reference Resolver implementation
 - RELink Testbed integration definitions
-- Native deployment profile
-- Container deployment profile
 
 ## 関連プロジェクト
 
