@@ -1,8 +1,13 @@
 # RELink Reference Resolver Architecture 0.1
 
-Status: Draft reference architecture  
+Status: Frozen reference architecture  
 Version: 0.1  
+Freeze date: 2026-09-01  
 Scope: First Reference Resolver implementation
+
+The English document is the normative source text for Reference Resolver Architecture 0.1. The Japanese document is the official project translation.
+
+Reference Resolver Architecture 0.1 is frozen. Editorial/non-semantic errata MAY be corrected within 0.1. Changes to public/admin responsibility boundaries, administrative transport/authentication/authorization semantics, CSRF requirements, outbound-fetch/SSRF policy semantics, integrity-publishing consistency rules, database/input/output security requirements, persistence/private-file boundaries, or implementation security acceptance expectations require a later architecture version or separately versioned profile.
 
 ## 1. Purpose
 
