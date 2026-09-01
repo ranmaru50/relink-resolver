@@ -263,6 +263,10 @@ Administrative list/detail views MAY expose internal maintenance metadata that i
 
 Public APIs MUST NOT expose administrative history or internal database metadata merely because the Maintenance UI can display it.
 
+Administrative search, list, detail, history, diagnostics, and mutation surfaces MUST require the deployment's administrative access controls unless a resource is explicitly defined as public by another applicable specification.
+
+Authenticated administrative pages and APIs containing maintenance or internal metadata SHOULD use a non-cacheable policy such as `Cache-Control: no-store` unless a deployment has an explicitly justified equivalent policy.
+
 ## 14. Resolution test
 
 The Maintenance UI SHOULD provide a resolution test for an administrator to inspect the externally observable result that the current record would produce.
@@ -335,7 +339,7 @@ Public redirect emission MUST prevent response-splitting/header-injection.
 
 Public Manifest JSON MUST be generated as strict JSON and MUST NOT allow duplicate object-member names.
 
-SQLite access SHOULD use parameterized queries or equivalent safe data-binding mechanisms when implemented.
+All database operations incorporating untrusted values MUST use parameterized queries or an equivalently injection-safe data-binding mechanism.
 
 ## 18. Administrative outbound fetch security
 
@@ -363,7 +367,9 @@ Administrative fetch tooling MUST use bounded resource controls, including:
 
 Administrative outbound fetches SHOULD avoid attaching ambient credentials, cookies, client certificates, or other unrelated credentials by default. Credentials MAY be supplied only when explicitly selected by an applicable deployment policy or future authenticated profile.
 
-Implementations SHOULD account for DNS rebinding and name-to-address changes when applying destination policy. Loopback, private, link-local, cloud-metadata, internal-service, or similar destinations MUST be governed by deployment policy rather than globally assumed safe merely because they are syntactically valid URLs.
+When outbound policy depends on resolved IP addresses or address ranges, the policy decision MUST apply to the network address actually used for the connection, or the implementation MUST provide an equivalent mechanism that prevents DNS rebinding or name-to-address changes from bypassing the configured decision.
+
+Loopback, private, link-local, cloud-metadata, internal-service, or similar destinations MUST be governed by deployment policy rather than globally assumed safe merely because they are syntactically valid URLs.
 
 This architecture does not impose a protocol-wide ban on local/private Entity resources. A deployment MAY intentionally permit them. The required invariant is:
 
@@ -382,6 +388,8 @@ A successful reachability result MUST NOT be represented as Trust, Entity authen
 The Reference Resolver SHOULD maintain operational logs sufficient for troubleshooting and abuse analysis without treating logs as protocol state.
 
 Logs SHOULD minimize unnecessary sensitive data. Query strings, IP addresses, user-agent data, administrator identities, submitted URLs, and outbound-fetch diagnostics may have privacy implications and SHOULD follow documented retention/access policy.
+
+Untrusted values written to logs SHOULD be structured or encoded so embedded newlines, control characters, or delimiter material cannot forge additional log entries or corrupt structured-log fields.
 
 Public resolution logging MUST NOT become a requirement that an Entity periodically report its current network address.
 
@@ -507,11 +515,14 @@ Security acceptance SHOULD include tests or review coverage for at least:
 
 ```text
 admin HTTPS/protected-channel enforcement
+admin read-surface access control
 CSRF-resistant browser mutation
 GET/HEAD administrative read-only behavior
 stored-XSS/output-encoding resistance
+SQL injection resistance through parameterized/data-bound operations
 private SQLite/config/backup non-addressability
 outbound-fetch policy and redirect re-evaluation
+DNS/address-policy rebinding resistance
 bounded outbound fetches
 integrity publishing conflict/TOCTOU handling
 ```
@@ -551,6 +562,7 @@ Maintenance UI
 Administrative Fetch Tooling
     = separate privileged SSRF-sensitive boundary
     + configured outbound policy
+    + address-effective policy enforcement
     + bounded fetch behavior
 
 SQLite / secrets / backups
