@@ -10,13 +10,15 @@ RELink Resolver は、既存の Web インフラストラクチャを用いて�
 
 現在は specification-first の設計段階です。
 
-Resolver Core 0.1、Resolver Lifecycle 0.1、Reference Resolver Architecture 0.1、Reference Resolver Deployment Profiles 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされています。Resolver / Manifest Conformance Catalog 0.1 と Web Runtime Integration Contract 0.1 は、実装/Testbedへ引き渡す安定したbaselineとして **2026-09-01 に Frozen** とされました。
+Resolver Core 0.1、Resolver Lifecycle 0.1、Reference Resolver Deployment Profiles 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされています。Resolver / Manifest Conformance Catalog 0.1、Web Runtime Integration Contract 0.1、Reference Resolver Architecture 0.1 は、実装/Testbedへ引き渡す安定したbaselineとして **2026-09-01 に Frozen** とされました。
 
 Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の範囲で修正できます。一方、standard member、wire semantics、integrity semantics、extension compatibility、security / trust semantics に関する変更は、後続の Manifest version または別途 versioning された profile で扱います。
 
 Frozen Conformance Catalog 0.1 では、編集上または非semanticな errata は 0.1 内で修正できます。Conformance target、result semantics、case identifier、normative case expectation、baseline / optional 分類、security / network-policy semantics の変更は、後続 catalog version または別途 versioning された profile で扱います。
 
 Frozen Web Runtime Integration Contract 0.1では、編集上または非semanticなerrataは0.1内で修正できます。Final URL semantics、retrieval ordering、Manifest association/integrity semantics、network-policy semantics、error boundary、L0/L1 classification、RT handoff expectationの変更は後続contract versionまたは別途versioningされたprofileで扱います。
+
+Frozen Reference Resolver Architecture 0.1では、編集上または非semanticなerrataは0.1内で修正できます。Public/Admin責務境界、administrative transport/authentication/authorization semantics、CSRF requirement、outbound-fetch/SSRF policy semantics、integrity publishing consistency rule、database/input/output security requirement、persistence/private-file boundary、implementation security acceptance expectationの変更は、後続architecture versionまたは別途versioningされたprofileで扱います。
 
 ## 仕様
 
@@ -32,7 +34,7 @@ Frozen Web Runtime Integration Contract 0.1では、編集上または非semanti
 - RELink Web Runtime Integration Contract 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/web-runtime-integration-0.1.md)
   - [日本語](docs/specs/web-runtime-integration-0.1.ja.md)
-- RELink Reference Resolver Architecture 0.1 — Draft
+- RELink Reference Resolver Architecture 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/reference-resolver-architecture-0.1.md)
   - [日本語](docs/specs/reference-resolver-architecture-0.1.ja.md)
 - RELink Reference Resolver Deployment Profiles 0.1 — Draft
@@ -46,7 +48,7 @@ Frozen Web Runtime Integration Contract 0.1では、編集上または非semanti
   - [English](docs/specs/manifest-0.1-extension-policy.md)
   - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
 
-Frozen Manifest、Conformance Catalog、Web Runtime Integration Contractの英語文書がnormative source textです。日本語文書は公式プロジェクト翻訳であり、解釈に差異がある場合は英語Frozen文書をconformanceの基準とします。
+Frozen Manifest、Conformance Catalog、Web Runtime Integration Contract、Reference Resolver Architectureの英語文書がnormative source textです。日本語文書は公式プロジェクト翻訳であり、解釈に差異がある場合は英語Frozen文書をconformanceの基準とします。
 
 ## アーキテクチャ
 
@@ -156,7 +158,7 @@ Direct AR-XML loadはL0/direct path、Resolver-mediated loadはL1 pathです。R
 
 ## Reference Resolver architecture
 
-Reference Resolver Architecture 0.1は、最初のApache/PHP/SQLite実装に対する非コード要件を定義します。
+Frozen Reference Resolver Architecture 0.1は、最初のApache/PHP/SQLite実装に対する非コード要件を定義します。
 
 ```text
 Public
@@ -177,7 +179,7 @@ maintenance services + history
 SQLite
 ```
 
-同一applicationでdeployする場合もpublic/adminの責務を分離します。ArchitectureはUUID registration、Description Location/lifecycle maintenance、search/list/detail/history、resolution test、persistence boundary、bounded history、security requirement、implementation non-goalを定義しますが、具体的PHP classやSQLite DDLは固定しません。
+同一applicationでdeployする場合もpublic/adminの責務を分離します。ArchitectureはUUID registration、Description Location/lifecycle maintenance、search/list/detail/history、resolution test、persistence boundary、bounded history、administrative Web security、outbound-fetch/SSRF control、integrity-publishing consistency、implementation security acceptanceを定義しますが、具体的PHP classやSQLite DDLは固定しません。
 
 ## Deployment profiles
 
@@ -253,7 +255,7 @@ Resolver Core は次の処理を行いません。
 - Frozen Resolver / Manifest Conformance Catalog 0.1
 - Frozen Web Runtime Integration Contract 0.1
 - Frozen Manifest 0.1 specification set
-- Reference Resolver Architecture 0.1
+- Frozen Reference Resolver Architecture 0.1
 - Reference Resolver Deployment Profiles 0.1
 - Reference Resolver implementation
 - RELink Testbed integration definitions
