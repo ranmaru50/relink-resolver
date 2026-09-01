@@ -20,6 +20,7 @@ final class ResolverService
     {
     }
 
+    /** @param array<string, mixed> $query */
     public function resolve(string $method, string $uuid, array $query): ResolutionResult
     {
         try {
@@ -58,9 +59,14 @@ final class ResolverService
         }
     }
 
+    /** @return array<string, mixed>|null */
     public function manifest(string $uuid): ?array
     {
-        $record = $this->repository->find(new AnchorUuid($uuid));
+        try {
+            $record = $this->repository->find(new AnchorUuid($uuid));
+        } catch (\Throwable $error) {
+            throw new ApplicationException('PERSISTENCE_FAILURE', 'Manifest persistence failure', 0, $error);
+        }
         if ($record === null) {
             return null;
         }
@@ -80,6 +86,7 @@ final class ResolverService
         ];
     }
 
+    /** @param array<string, mixed> $input */
     public function register(array $input): ResolverRecord
     {
         $algorithm = isset($input['integrity_algorithm']) && $input['integrity_algorithm'] !== '' ? (string) $input['integrity_algorithm'] : null;
@@ -95,15 +102,33 @@ final class ResolverService
             $digest,
             1,
         );
-        $this->repository->insert($record);
+        try {
+            $this->repository->insert($record);
+        } catch (ApplicationException $error) {
+            throw $error;
+        } catch (\Throwable $error) {
+            if ($error->getMessage() === 'RECORD_EXISTS') {
+                throw new ApplicationException('RECORD_EXISTS', 'Record already exists', 0, $error);
+            }
+            throw new ApplicationException('PERSISTENCE_FAILURE', 'Record persistence failure', 0, $error);
+        }
         return $record;
     }
 
     public function updateLocation(string $uuid, string $location, ?string $entityId = null): ResolverRecord
     {
         $record = $this->requireRecord($uuid);
-        $updated = $this->repository->update($record, new DescriptionLocation($location), $entityId !== null && $entityId !== '' ? $this->validateEntityId($entityId) : $record->entityId, $record->integrityAlgorithm, $record->integrityDigest);
-        return $updated;
+        try {
+            // Location と対応しない digest の保存を防ぐため、変更時は整合性情報を破棄する。
+            return $this->repository->update($record, new DescriptionLocation($location), $entityId !== null && $entityId !== '' ? $this->validateEntityId($entityId) : $record->entityId, null, null);
+        } catch (ApplicationException $error) {
+            throw $error;
+        } catch (\Throwable $error) {
+            if ($error->getMessage() === 'STATE_CONFLICT') {
+                throw new ApplicationException('STATE_CONFLICT', 'Record was changed concurrently', 0, $error);
+            }
+            throw new ApplicationException('PERSISTENCE_FAILURE', 'Record update failure', 0, $error);
+        }
     }
 
     public function transition(string $uuid, string $target, string $reason = '', string $actor = 'admin'): ResolverRecord
@@ -122,13 +147,26 @@ final class ResolverService
         if (!in_array($record->state->value . ':' . $next->value, $allowed, true)) {
             throw new RuntimeException('INVALID_TRANSITION');
         }
-        return $this->repository->transition($record, $next, $reason, $actor);
+        try {
+            return $this->repository->transition($record, $next, $reason, $actor);
+        } catch (ApplicationException $error) {
+            throw $error;
+        } catch (\Throwable $error) {
+            if ($error->getMessage() === 'STATE_CONFLICT') {
+                throw new ApplicationException('STATE_CONFLICT', 'Record was changed concurrently', 0, $error);
+            }
+            throw new ApplicationException('PERSISTENCE_FAILURE', 'Lifecycle persistence failure', 0, $error);
+        }
     }
 
     private function requireRecord(string $uuid): ResolverRecord
     {
-        $record = $this->repository->find(new AnchorUuid($uuid));
-        return $record ?? throw new RuntimeException('NOT_FOUND');
+        try {
+            $record = $this->repository->find(new AnchorUuid($uuid));
+        } catch (\Throwable $error) {
+            throw new ApplicationException('PERSISTENCE_FAILURE', 'Record lookup failure', 0, $error);
+        }
+        return $record ?? throw new ApplicationException('NOT_FOUND', 'Record not found');
     }
 
     private function validateEntityId(string $entityId): string

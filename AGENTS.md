@@ -16,11 +16,11 @@ Authoritative specification set for implementation:
 - `docs/specs/reference-resolver-architecture-0.1.md` — Frozen
 - `docs/specs/reference-resolver-deployment-profiles-0.1.md` — Frozen
 - `docs/specs/resolver-lifecycle-0.1.md` — Frozen by recorded immutable blob / Issue #3 freeze record
-- `docs/specs/resolver-core-0.1.md` — currently Draft until separately frozen
+- `docs/specs/resolver-core-0.1.md` — Frozen (2026-09-01; immutable commit `8fe279395b1ee13202c52d01659d631c9f6c0b90`, blob `6b8fba7aece07d5886f20e0887eb97ae347fa7fa`)
 
 The English specification text governs interpretation. Japanese documents are official translations.
 
-**Implementation blocker:** production implementation work MUST NOT claim Resolver Core 0.1 conformance until `resolver-core-0.1.md` is formally frozen. Preparatory scaffolding MAY be done only when it cannot prejudge unresolved Core semantics.
+Resolver Core 0.1 の実装は、上記の凍結版と整合する範囲で conformance を主張できる。意味論の変更は後続 Core version/profile で扱う。
 
 ## 2. Product boundary
 
@@ -244,13 +244,63 @@ AR-XML Runtime behavior
 
 Use **test-driven development** for behavior changes.
 
+### 9.1 テスト環境と実行コマンド
+
+リファレンス実装では、PHP の単体テストフレームワークとして PHPUnit 11 を使用する。依存関係とバージョンは `composer.json` に宣言し、`composer.lock` で固定する。テスト設定は `phpunit.xml.dist` に定義する。
+
+ネイティブテスト環境:
+
+- PHP 8.3 以降
+- PHP 拡張 `pdo_sqlite`、`dom`、`mbstring`、`xml`、`zip`
+- Composer 2
+
+リポジトリルートで、ネイティブのテストスイートを次のように実行する:
+
+```sh
+composer install
+vendor/bin/phpunit
+```
+
+Container プロファイルでは、同じテスト依存関係をイメージ内にインストールする。次のように実行する:
+
+```sh
+docker compose build
+docker compose run --rm resolver vendor/bin/phpunit
+```
+
+PHPStan 2 をレベル 6 で使用し、`src`、`public`、`bin`、`bootstrap.php` を静的解析する。リポジトリルートでは次のように実行する:
+
+```sh
+composer analyse
+```
+
+Container で確認する場合は、次のコマンドで同じ解析を実行する:
+
+```sh
+docker compose run --rm resolver composer analyse
+```
+
+テストスイートは、アプリケーションおよびドメインの振る舞いを検証する PHPUnit 単体テストと、マイグレーション、履歴トランザクション、楽観的同時実行制御を検証する PHPUnit SQLite 統合テストで構成する。HTTP/Apache、Native/Container 同等性、管理画面の認証・CSRF、バックアップ/リストア、外部ネットワークポリシー、Frozen Conformance Catalog 全件実行については、引き続き `relink-testbed` を正とする。ローカル PHPUnit の結果を、これらの testbed 専用ケースの合格結果として報告してはならない。
+
+### 9.2 実装後の確認フロー
+
+実装またはテストを変更した場合は、次の順序で確認する:
+
+1. `composer validate --no-check-publish` で Composer 設定とロックファイルを検証する。
+2. `composer test` で PHPUnit の全テストを実行する。
+3. `composer analyse` で PHPStan レベル6のエラーがないことを確認する。
+4. `find src public tests bin -name '*.php' -print0 | xargs -0 -n1 php -l` で PHP 構文を検査する。
+5. `git diff --check` で空白エラーを検査する。
+
+Container を使用する場合は、1〜4をそれぞれ `docker compose run --rm resolver <command>` で実行する。PHPUnit、PHPStan、構文検査のいずれかが失敗した場合は合格として報告せず、原因を修正してから再実行する。`relink-testbed` の対象ケースは、このローカル確認フローの合格結果に含めない。
+
 For every normative behavior:
 
 1. identify the governing specification section and, where applicable, Frozen Conformance Catalog case ID;
 2. write or update a failing test first;
 3. implement the smallest change that makes the test pass;
 4. refactor while keeping tests green;
-5. run the relevant test suite and static checks.
+5. run the confirmation flow in 9.2 and keep all applicable checks green.
 
 Do not invent new `RES-*`, `LIFE-*`, `MAN-*`, `INT-*`, `NET-*`, or other Frozen Catalog case identifiers. The Frozen Conformance Catalog owns those IDs.
 

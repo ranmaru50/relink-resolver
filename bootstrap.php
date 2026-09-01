@@ -19,16 +19,18 @@ spl_autoload_register(static function (string $class): void {
 
 // Web ルートから到達できない既定のデータディレクトリを使用する。
 $dataDirectory = getenv('RELINK_DATA_DIR') ?: (__DIR__ . DIRECTORY_SEPARATOR . 'var' . DIRECTORY_SEPARATOR . 'data');
-if (!is_dir($dataDirectory)) {
-    mkdir($dataDirectory, 0770, true);
-}
-
 $databasePath = getenv('RELINK_DB_PATH') ?: ($dataDirectory . DIRECTORY_SEPARATOR . 'resolver.sqlite');
+$allowHttp = strtolower((string) (getenv('RELINK_ADMIN_ALLOW_HTTP') ?: '0'));
+$environment = strtolower((string) (getenv('RELINK_ENV') ?: 'development'));
+$adminPassword = getenv('RELINK_ADMIN_PASSWORD') ?: '';
 
 return [
     'database_path' => $databasePath,
     'admin_username' => getenv('RELINK_ADMIN_USERNAME') ?: 'admin',
-    'admin_password' => getenv('RELINK_ADMIN_PASSWORD') ?: '',
+    'admin_password' => $adminPassword,
+    'environment' => $environment,
+    'configuration_error' => $environment === 'production' && ($adminPassword === '' || $adminPassword === 'change-me'),
+    'admin_allow_http' => in_array($allowHttp, ['1', 'true', 'yes'], true),
     'cache_max_age' => (int) (getenv('RELINK_CACHE_MAX_AGE') ?: 60),
     'service_prefix' => getenv('RELINK_SERVICE_PREFIX') ?: '/relink',
 ];

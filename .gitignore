@@ -2,7 +2,9 @@
 # ローカルの秘密情報と永続データをコミットしない。
 .env
 var/data/
+var/phpstan/
 var/*.sqlite
 *.sqlite-wal
 *.sqlite-shm
 backups/
+vendor/

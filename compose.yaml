@@ -4,7 +4,8 @@ services:
   resolver:
     build: .
     ports:
-      - "8080:80"
+      # 開発用の loopback 公開。本番は TLS 終端プロキシ配下へ配置する。
+      - "127.0.0.1:8080:80"
     env_file:
       - .env
     environment:

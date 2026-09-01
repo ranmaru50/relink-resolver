@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- phpunit.xml.dist -->
+<!-- PHPUnit による単体・SQLite 統合テストの設定。 -->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd" bootstrap="tests/bootstrap.php" colors="true" failOnWarning="true" failOnRisky="true">
+    <testsuites>
+        <testsuite name="RELink Resolver">
+            <directory>tests</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>

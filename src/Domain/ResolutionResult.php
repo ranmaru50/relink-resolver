@@ -8,6 +8,7 @@ namespace Relink\Resolver\Domain;
 
 final readonly class ResolutionResult
 {
+    /** @param array<string, string> $headers */
     public function __construct(public int $status, public array $headers = [])
     {
     }

@@ -1,0 +1,11 @@
+# phpstan.neon.dist
+# リファレンス実装の PHPStan 静的解析設定。
+
+parameters:
+    level: 6
+    paths:
+        - src
+        - public
+        - bin
+        - bootstrap.php
+    tmpDir: var/phpstan

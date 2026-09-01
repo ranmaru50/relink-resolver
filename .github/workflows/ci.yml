@@ -14,8 +14,13 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: pdo_sqlite
+          extensions: pdo_sqlite, dom, mbstring, xml, zip
+          tools: composer
+      - name: PHPUnit 依存関係
+        run: composer install --no-interaction --prefer-dist
       - name: 構文検査
-        run: find src public tests -name '*.php' -print0 | xargs -0 -n1 php -l
+        run: find src public tests bin -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: PHPStan 静的解析
+        run: composer analyse
       - name: スモークテスト
-        run: php tests/run.php
+        run: composer test

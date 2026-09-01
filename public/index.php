@@ -8,8 +8,6 @@ use Relink\Resolver\Adapters\SqliteResolverRepository;
 use Relink\Resolver\Application\ResolverService;
 
 $config = require dirname(__DIR__) . '/bootstrap.php';
-
-$service = new ResolverService(new SqliteResolverRepository($config['database_path']), $config['cache_max_age']);
 $requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 $prefix = rtrim($config['service_prefix'], '/');
 $relative = ($requestPath === $prefix || str_starts_with($requestPath, $prefix . '/')) ? substr($requestPath, strlen($prefix)) : '';
@@ -21,6 +19,11 @@ header('Access-Control-Allow-Origin: *');
 header('Referrer-Policy: no-referrer');
 
 if (count($parts) === 2 && $parts[1] === 'manifest') {
+    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $parts[0])) {
+        http_response_code(400);
+        header('Cache-Control: no-store');
+        exit;
+    }
     if ($method !== 'GET') {
         http_response_code(405);
         header('Allow: GET');
@@ -28,6 +31,7 @@ if (count($parts) === 2 && $parts[1] === 'manifest') {
         exit;
     }
     try {
+        $service = new ResolverService(new SqliteResolverRepository($config['database_path']), $config['cache_max_age']);
         $manifest = $service->manifest($parts[0]);
     } catch (\InvalidArgumentException) {
         http_response_code(400);
@@ -66,7 +70,20 @@ if (count($parts) !== 1 || $parts[0] === '') {
     exit;
 }
 
-$result = $service->resolve($method, $parts[0], $_GET);
+if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $parts[0])) {
+    http_response_code(400);
+    header('Cache-Control: no-store');
+    exit;
+}
+
+try {
+    $service = new ResolverService(new SqliteResolverRepository($config['database_path']), $config['cache_max_age']);
+    $result = $service->resolve($method, $parts[0], $_GET);
+} catch (Throwable) {
+    http_response_code(503);
+    header('Cache-Control: no-store');
+    exit;
+}
 http_response_code($result->status);
 foreach ($result->headers as $name => $value) {
     header($name . ': ' . $value);

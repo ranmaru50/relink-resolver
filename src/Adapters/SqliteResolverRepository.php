@@ -21,16 +21,11 @@ final class SqliteResolverRepository implements ResolverRepository
 
     public function __construct(string $databasePath)
     {
-        $parent = dirname($databasePath);
-        if (!is_dir($parent)) {
-            mkdir($parent, 0770, true);
-        }
         $this->pdo = new PDO('sqlite:' . $databasePath, null, null, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
         $this->pdo->exec('PRAGMA foreign_keys = ON');
-        $this->migrate();
     }
 
     public function find(AnchorUuid $anchor): ?ResolverRecord
@@ -119,11 +114,13 @@ final class SqliteResolverRepository implements ResolverRepository
         }
     }
 
+    /** @return list<ResolverRecord> */
     public function all(): array
     {
         return array_map(fn (array $row): ResolverRecord => $this->map($row), $this->pdo->query('SELECT * FROM resolver_records ORDER BY anchor_uuid')->fetchAll());
     }
 
+    /** @return list<array<string, mixed>> */
     public function history(AnchorUuid $anchor): array
     {
         $statement = $this->pdo->prepare('SELECT * FROM resolver_history WHERE anchor_uuid = :uuid ORDER BY id DESC LIMIT 100');
@@ -131,27 +128,13 @@ final class SqliteResolverRepository implements ResolverRepository
         return $statement->fetchAll();
     }
 
-    private function migrate(): void
-    {
-        $this->pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
-        $version = (int) $this->pdo->query('SELECT COALESCE(MAX(version), 0) FROM schema_migrations')->fetchColumn();
-        if ($version < 1) {
-            $this->pdo->beginTransaction();
-            $migration = file_get_contents(dirname(__DIR__, 2) . '/migrations/001_initial.sql');
-            if ($migration === false) {
-                throw new RuntimeException('MIGRATION_NOT_FOUND');
-            }
-            $this->pdo->exec($migration);
-            $this->pdo->exec('INSERT INTO schema_migrations (version, applied_at) VALUES (1, CURRENT_TIMESTAMP)');
-            $this->pdo->commit();
-        }
-    }
-
+    /** @param array<string, mixed> $row */
     private function map(array $row): ResolverRecord
     {
         return new ResolverRecord(new AnchorUuid($row['anchor_uuid']), LifecycleState::fromInput($row['state']), new DescriptionLocation($row['description_location']), $row['entity_id'], $row['media_type'], $row['integrity_algorithm'], $row['integrity_digest'], (int) $row['version']);
     }
 
+    /** @return array<string, mixed> */
     private function params(ResolverRecord $record): array
     {
         return ['uuid' => $record->anchor->value, 'state' => $record->state->value, 'location' => $record->location->value, 'entity' => $record->entityId, 'media' => $record->mediaType, 'algorithm' => $record->integrityAlgorithm, 'digest' => $record->integrityDigest];

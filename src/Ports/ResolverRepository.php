@@ -21,7 +21,9 @@ interface ResolverRepository
 
     public function transition(ResolverRecord $record, LifecycleState $target, string $reason, string $actor): ResolverRecord;
 
+    /** @return list<ResolverRecord> */
     public function all(): array;
 
+    /** @return list<array<string, mixed>> */
     public function history(AnchorUuid $anchor): array;
 }

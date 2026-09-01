@@ -2,11 +2,13 @@
 
 ## 起動
 
-Native profile では Apache の DocumentRoot を `public/` に設定し、PHP 8.3 以上の `pdo_sqlite` 拡張を有効にします。SQLite ファイルは `RELINK_DATA_DIR`（既定は `var/data`）に作成され、`public/` 配下には置かれません。
+Native profile では Apache の DocumentRoot を `public/` に設定し、PHP 8.3 以上の `pdo_sqlite` 拡張を有効にします。SQLite ファイルは `RELINK_DATA_DIR`（既定は `var/data`）に作成され、`public/` 配下には置かれません。初回起動・更新時は Web リクエストに依存せず、`php bin/migrate.php` を実行します。
 
-Container profile は `docker compose --env-file .env up --build` で起動します。`.env` は `.env.example` をコピーして作成し、本番パスワードを Secret 管理から注入してください。
+Container profile は `docker compose --env-file .env up --build` で起動します。イメージには Composer と PHPUnit を含み、entrypoint が Apache 起動前に `bin/migrate.php` を実行します。`.env` は `.env.example` をコピーして作成し、本番パスワードを Secret 管理から注入してください。Compose の 8080 公開は loopback の開発用です。
 
-初回管理ログインには `RELINK_ADMIN_USERNAME` と `RELINK_ADMIN_PASSWORD` を使用します。空パスワードではログインできません。運用時は TLS、管理ネットワーク制限、プロキシ設定を別途構成してください。
+初回管理ログインには `RELINK_ADMIN_USERNAME` と `RELINK_ADMIN_PASSWORD` を使用します。空パスワードではログインできません。管理面は既定で HTTPS 必須です。ローカル HTTP の確認時だけ `.env` の `RELINK_ADMIN_ALLOW_HTTP=1` を設定し、本番では TLS、管理ネットワーク制限、プロキシ設定を構成してください。
+
+`RELINK_ENV=production` では空パスワードおよび `change-me` を拒否します。本番 Secret を必ず注入してください。
 
 ## 公開エンドポイント
 
@@ -14,11 +16,11 @@ Container profile は `docker compose --env-file .env up --build` で起動し�
 
 ## バックアップと復元
 
-`bin/backup.sh /secure/backup/resolver.sqlite` は SQLite の `.backup` を使用し、journal/WAL を考慮した一貫性のあるバックアップを作成します。復元前に `bin/restore.sh /secure/backup/resolver.sqlite` を実行し、`PRAGMA integrity_check` とアプリケーションの UUID・状態・場所・履歴確認を行ってください。バックアップ先は Web ルート外のアクセス制御された場所に限定します。
+`bin/backup.sh /secure/backup/resolver.sqlite` は SQLite の `.backup` を使用し、journal/WAL を考慮した一貫性のあるバックアップを作成します。Container では `docker compose run --rm resolver /var/www/bin/backup.sh /secure/backup/resolver.sqlite` のように実行します。復元時は先にアプリケーションを停止し、`bin/restore.sh` 実行後に `PRAGMA integrity_check` と UUID・状態・場所・履歴を確認してから再起動してください。バックアップ先は Web ルート外のアクセス制御された場所に限定します。
 
 ## Issue #9 の適合性
 
-公開 Resolver、Lifecycle 状態遷移、Manifest 生成、SQLite の明示的 migration、CSRF と HTML エスケープを含む最小管理面を実装しています。管理面の到達制御（TLS、IP 制限、認証基盤）と高度な outbound reachability/integrity publishing はデプロイメントで有効化する任意機能であり、公開解決からは分離されています。
+公開 Resolver、Lifecycle 状態遷移、Manifest 生成、SQLite の明示的 migration、CSRF と HTML エスケープを含む最小管理面を実装しています。管理面は HTTPS 必須（開発時のみ明示的に緩和可能）で、公開解決から分離されています。Frozen Conformance Catalog の全ケースをこのリポジトリ単独で実行したものではありません。
 
 ## 既知の制限
 

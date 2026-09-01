@@ -9,8 +9,26 @@ use Relink\Resolver\Application\ResolverService;
 
 $config = require dirname(__DIR__) . '/bootstrap.php';
 
-session_start(['cookie_httponly' => true, 'cookie_secure' => isset($_SERVER['HTTPS']), 'cookie_samesite' => 'Strict']);
+if ($config['configuration_error']) {
+    error_log('RELink admin configuration is invalid for production');
+    http_response_code(503);
+    header('Cache-Control: no-store');
+    header('X-Content-Type-Options: nosniff');
+    exit('管理サービスの設定を確認してください。');
+}
 
+$secureRequest = isset($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== '' && strtolower((string) $_SERVER['HTTPS']) !== 'off';
+if (!$secureRequest && !$config['admin_allow_http']) {
+    http_response_code(403);
+    header('Cache-Control: no-store');
+    header('X-Content-Type-Options: nosniff');
+    exit('HTTPS is required for administration');
+}
+session_start(['cookie_httponly' => true, 'cookie_secure' => $secureRequest, 'cookie_samesite' => 'Strict']);
+
+/**
+ * @param array<string, mixed> $config
+ */
 function admin_authenticated(array $config): bool
 {
     if (isset($_SESSION['admin'])) {
@@ -23,6 +41,9 @@ function admin_authenticated(array $config): bool
         $_SESSION['admin'] = $username;
         $_SESSION['csrf'] = bin2hex(random_bytes(32));
         return true;
+    }
+    if ($username !== '' || $password !== '') {
+        error_log('RELink admin authentication failure');
     }
     return false;
 }
@@ -39,13 +60,24 @@ if ($action === 'logout') {
     exit;
 }
 if (!admin_authenticated($config)) {
+    header('Cache-Control: no-store');
+    header('X-Content-Type-Options: nosniff');
+    header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'");
     header('Content-Type: text/html; charset=utf-8');
     echo '<!doctype html><meta charset="utf-8"><title>RELink Admin</title><form method="post"><label>ユーザー名 <input name="username" required></label><label>パスワード <input type="password" name="password" required></label><button>ログイン</button></form>';
     exit;
 }
 
 // 認証後にだけ永続化アダプタを初期化し、未認証 GET が DB を作成しないようにする。
-$repository = new SqliteResolverRepository($config['database_path']);
+try {
+    $repository = new SqliteResolverRepository($config['database_path']);
+} catch (Throwable $error) {
+    error_log('RELink admin persistence initialization failed');
+    http_response_code(503);
+    header('Cache-Control: no-store');
+    header('X-Content-Type-Options: nosniff');
+    exit('管理サービスを利用できません。');
+}
 $service = new ResolverService($repository, $config['cache_max_age']);
 
 // 読み取り専用の JSON 管理 API（認証後のみ）を提供する。
@@ -102,10 +134,22 @@ try {
         $message = '公開解決テスト結果: HTTP ' . $result->status;
     }
 } catch (Throwable $error) {
-    $message = '操作に失敗しました: ' . htmlspecialchars($error->getMessage(), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $code = $error instanceof \Relink\Resolver\Application\ApplicationException ? $error->errorCode : $error->getMessage();
+    $messages = [
+        'INVALID_INPUT' => '入力が不正です。',
+        'INVALID_TRANSITION' => '許可されていない状態遷移です。',
+        'STATE_CONFLICT' => '別の操作で更新されたため、再読み込みしてください。',
+        'NOT_FOUND' => '対象レコードが見つかりません。',
+        'RECORD_EXISTS' => '同じ UUID は既に登録されています。',
+        'PERSISTENCE_FAILURE' => '永続化処理に失敗しました。',
+    ];
+    $message = '操作に失敗しました: ' . ($messages[$code] ?? '要求を処理できませんでした。');
+    error_log('RELink admin operation failed: ' . preg_replace('/[^A-Z_]/', '', (string) $code));
 }
 
 header('Cache-Control: no-store');
+header('X-Content-Type-Options: nosniff');
+header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'");
 header('Content-Type: text/html; charset=utf-8');
 $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $esc = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');

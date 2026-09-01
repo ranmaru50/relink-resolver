@@ -278,4 +278,4 @@ The project should preserve this separation as implementation begins.
 
 ## Reference implementation
 
-The first Apache/PHP/SQLite reference implementation is provided in `public/`, `src/`, `migrations/`, and `deploy/`. Setup, security boundaries, Native/Container profiles, and backup/restore guidance are documented in [docs/implementation.md](docs/implementation.md). The dependency-free smoke tests are described in [docs/testing.md](docs/testing.md).
+The first Apache/PHP/SQLite reference implementation is provided in `public/`, `src/`, `migrations/`, and `deploy/`. Setup, security boundaries, Native/Container profiles, and backup/restore guidance are documented in [docs/implementation.md](docs/implementation.md). PHPUnit unit and SQLite integration tests are described in [docs/testing.md](docs/testing.md).
