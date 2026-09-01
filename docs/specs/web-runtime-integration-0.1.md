@@ -1,8 +1,13 @@
 # RELink Web Runtime Integration Contract 0.1
 
-Status: Draft integration specification  
+Status: Frozen integration specification  
 Version: 0.1  
+Freeze date: 2026-09-01  
 Scope: Resolver Core 0.1 ↔ RELink Web Runtime integration
+
+The English document is the normative source text for Web Runtime Integration Contract 0.1. The Japanese document is the official project translation.
+
+Web Runtime Integration Contract 0.1 is frozen. Editorial/non-semantic errata MAY be corrected within 0.1. Changes to final-URL semantics, retrieval ordering, Manifest association/integrity semantics, network-policy semantics, error boundaries, L0/L1 classification, or RT handoff expectations require a later contract version or separately versioned profile.
 
 ## 1. Purpose
 
