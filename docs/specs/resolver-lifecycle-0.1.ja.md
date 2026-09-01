@@ -1,10 +1,12 @@
 # RELink Resolver Lifecycle 0.1 日本語版
 
-Status: Draft specification  
+Status: Frozen 2026-09-01  
 Version: 0.1  
 Scope: Resolver record lifecycle and state-transition model
 
-> この文書は `resolver-lifecycle-0.1.md` の日本語版です。仕様上の要件語は英語版と同じ **MUST / SHOULD / MAY** を保持します。解釈に差異がある場合は英語版を基準とします。
+Freeze policy: Resolver Lifecycle 0.1 は 2026-09-01 に Frozen とされました。0.1 内で許容されるのは editorial / non-semantic errata のみです。Lifecycle state、permitted transition、RETIRED terminal semantics、permitted-transition support requirement、administrative failure semantics、same-state no-op/history semantics、initial-registration semantics、public lifecycle mapping/non-distinction、cache semantics、Manifest lifecycle mapping、conformance derivation semantics の変更は、後続 Lifecycle version または別途 versioning された profile で扱います。
+
+> この文書は `resolver-lifecycle-0.1.md` の公式日本語版です。仕様上の要件語は英語版と同じ **MUST / SHOULD / MAY** を保持します。解釈に差異がある場合は Frozen 英語版を基準とします。
 
 ## 1. 目的
 
