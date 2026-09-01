@@ -263,6 +263,10 @@ Admin list/detailはpublic endpointにないinternal maintenance metadataを表�
 
 Maintenance UIが表示できるという理由だけでpublic APIへhistory/internal DB metadataを公開してはなりません。
 
+Administrative search、list、detail、history、diagnostic、mutation surfaceは、別の適用仕様でpublicと明示されていない限り、deploymentのadministrative access controlを要求しなければなりません。
+
+Maintenance/internal metadataを含むauthenticated admin page/APIは、明示的に正当化された同等policyがない限り、`Cache-Control: no-store`等のnon-cacheable policyを使用することを推奨します。
+
 ## 14. Resolution test
 
 Maintenance UIは現在recordが生成するexternally observable resultを確認するresolution testを提供することを推奨します。
@@ -335,7 +339,7 @@ Public redirect emissionはresponse splitting/header injectionを防止しなけ
 
 Public Manifest JSONはstrict JSONで生成し、duplicate object-member nameを生成してはなりません。
 
-SQLiteアクセス実装ではparameterized query等のsafe data bindingを使用することを推奨します。
+Untrusted valueを組み込むすべてのdatabase operationは、parameterized queryまたは同等にinjection-safeなdata-binding mechanismを使用しなければなりません。
 
 ## 18. Administrative outbound fetch security
 
@@ -363,7 +367,9 @@ Administrative fetch toolingは少なくとも次のbounded resource controlを�
 
 Administrative outbound fetchは、ambient cookie、client certificate、その他無関係なcredentialをdefaultで付与しないことを推奨します。Credentialは明示的なdeployment policyまたは将来のauthenticated profileが選択した場合のみ使用できます。
 
-Destination policyを適用する際はDNS rebinding/name-to-address changeを考慮することを推奨します。Loopback/private/link-local/cloud metadata/internal service等は、syntactically validであるだけでsafeと仮定せずdeployment policyで制御しなければなりません。
+Outbound policyがresolved IP address/address rangeに依存する場合、そのpolicy decisionは実際にconnectionで使用されるnetwork addressへ適用されなければなりません。あるいはDNS rebinding/name-to-address changeでconfigured decisionを迂回できない同等mechanismを実装しなければなりません。
+
+Loopback/private/link-local/cloud metadata/internal service等は、syntactically validであるだけでsafeと仮定せずdeployment policyで制御しなければなりません。
 
 Local/private Entity resourceをprotocol-wideに禁止しません。Deploymentは意図的に許可して構いません。必要なinvariantは次です。
 
@@ -382,6 +388,8 @@ Reachability成功をTrust、Entity authentication、authorization、ownership p
 Reference Resolverはtroubleshooting/abuse analysisに必要なoperational logを保持することを推奨しますが、logをprotocol stateとして扱いません。
 
 Logは不要なsensitive dataを最小化すべきです。Query string、IP address、user-agent、administrator identity、submitted URL、outbound-fetch diagnostic等にはprivacy impactがあるため、documented retention/access policyに従うことを推奨します。
+
+Logへ書くuntrusted valueは、embedded newline/control character/delimiterによって追加log entryを偽造したりstructured-log fieldを破壊したりできないよう、structuredまたはencoded formで扱うことを推奨します。
 
 Public resolution loggingを、Entityがcurrent network addressを定期reportする要件へ変えてはなりません。
 
@@ -507,11 +515,14 @@ Security acceptanceでは少なくとも次をtest/review対象とすること�
 
 ```text
 admin HTTPS/protected-channel enforcement
+admin read-surface access control
 CSRF-resistant browser mutation
 GET/HEAD administrative read-only behavior
 stored-XSS/output-encoding resistance
+SQL injection resistance through parameterized/data-bound operations
 private SQLite/config/backup non-addressability
 outbound-fetch policy and redirect re-evaluation
+DNS/address-policy rebinding resistance
 bounded outbound fetches
 integrity publishing conflict/TOCTOU handling
 ```
@@ -551,6 +562,7 @@ Maintenance UI
 Administrative Fetch Tooling
     = separate privileged SSRF-sensitive boundary
     + configured outbound policy
+    + address-effective policy enforcement
     + bounded fetch behavior
 
 SQLite / secrets / backups
