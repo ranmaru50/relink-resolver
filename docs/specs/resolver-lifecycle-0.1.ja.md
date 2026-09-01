@@ -370,24 +370,22 @@ Lifecycle 0.1を実装するReference Resolverは、administrative capabilityと
 
 これらはadministrative requirementsでありpublic mutation APIを定義しません。
 
-## 20. 本仕様から導出されるConformance cases
+## 20. Conformance derivation とCatalog ownership
 
-Resolver Testbedには少なくとも次のexternally observable caseを含めることが推奨されます。
+Lifecycle 0.1はlifecycle semanticsと、そこからconformance testを導出するbehaviorを定義します。ただしconformance case identifier自体は割り当てず、所有もしません。
 
-```text
-LIFE-001  ACTIVE resolves with 303
-LIFE-002  ACTIVE → SUSPENDED changes origin behavior to 404
-LIFE-003  SUSPENDED → ACTIVE restores 303 behavior
-LIFE-004  ACTIVE → RETIRED changes origin behavior to 410
-LIFE-005  SUSPENDED → RETIRED changes origin behavior to 410
-LIFE-006  RETIRED → ACTIVE is rejected administratively
-LIFE-007  RETIRED → SUSPENDED is rejected administratively
-LIFE-008  unknown and SUSPENDED both expose 404 publicly
-LIFE-009  lifecycle change does not require Description Location change
-LIFE-010  cached previous responses may remain until ordinary freshness expires
-LIFE-011  public GET never mutates lifecycle state
-LIFE-012  Manifest lifecycle mapping remains consistent with Resolver state
-```
+Frozen Resolver / Manifest Conformance Catalog 0.1が、lifecycle case identifier、target、strength、expected resultのauthoritative registryです。Implementation、Testbed fixture、report、将来の参照は、Lifecycle-localな競合番号を新設・再利用せず、Frozen Catalogの`LIFE-*` identifierを使用しなければなりません（MUST）。
+
+Lifecycle由来のconformance coverageには、適用可能な範囲で少なくとも次を含めることを推奨します（SHOULD）。
+
+- ACTIVE / SUSPENDED / RETIREDのpublic mapping
+- 許可/禁止されたlifecycle transition
+- RETIRED terminal behavior
+- unknown / SUSPENDEDのpublic non-distinction
+- lifecycle stateとDescription Locationの独立性
+- committed state change後のorigin behaviorとordinary cache freshness
+- relevant conformance targetで扱われるadministrative concurrency/history behavior
+- Resolver stateとFrozen Manifest lifecycle semanticsの整合性
 
 Internal database layout、framework behavior、storage technologyはprotocol conformance testingに含めてはなりません（MUST NOT）。
 
