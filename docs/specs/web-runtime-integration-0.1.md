@@ -11,22 +11,22 @@ This document defines how a RELink Web Runtime consumes an Anchor/Resolver URL u
 ```text
 Anchor / Resolver URL
     ↓
-ordinary HTTPS redirect(s)
+policy-controlled HTTPS redirect(s)
     ↓
 Resolver Core
     ↓ 303
 Description Location
     ↓
-optional HTTPS redirect(s)
+policy-controlled HTTPS redirect(s)
     ↓
-final AR-XML response
+final successful AR-XML response
     ↓
 Runtime parse / validate / expose capabilities
 ```
 
 The integration contract is protocol-facing. It does not prescribe a particular TypeScript implementation, browser framework, fetch library, or internal class layout.
 
-## 2. Architectural boundary
+## 2. Architectural boundary and L0/L1 paths
 
 A conforming integration MUST preserve:
 
@@ -40,7 +40,23 @@ Entity Identity ≠ Description Location
 
 Resolver-specific knowledge MUST NOT be introduced into AR-XML syntax, parser semantics, capability definitions, or invocation semantics merely to support Resolver redirects.
 
-The Runtime MAY start from a direct AR-XML URL, an Anchor URL, or a Resolver URL, provided the resulting dereference process satisfies the applicable L1 transport and network-policy requirements.
+Direct AR-XML loading remains the direct/L0 path. Resolver-mediated loading is the L1 integration path.
+
+```text
+L0 / direct
+Direct AR-XML URL
+    ↓
+final AR-XML representation
+
+L1 / Resolver-mediated
+Anchor / Resolver URL
+    ↓
+Resolver / redirects
+    ↓
+final AR-XML representation
+```
+
+Both paths converge at the final representation boundary. This distinction does not require a particular Runtime API or internal mode flag.
 
 ## 3. Ordinary Web dereference model
 
@@ -50,12 +66,12 @@ A Runtime consumer MAY encounter:
 
 ```text
 Anchor URL
-→ ordinary 301/302/303/307/308 redirect(s)
+→ ordinary 301/302/303/307/308 HTTPS redirect(s)
 → Resolver URL
 → 303 See Other
 → Description Location
 → ordinary HTTPS redirect(s)
-→ final AR-XML representation
+→ final successful AR-XML representation
 ```
 
 The Runtime MUST NOT assume that the originally supplied URL is the AR-XML document URL.
@@ -65,6 +81,7 @@ The Runtime MUST distinguish at least conceptually:
 ```text
 requested URL
 final response URL
+terminal HTTP status
 representation body
 ```
 
@@ -108,12 +125,14 @@ https://cdn.example/entity/a/actions/start
 
 The integration SHOULD fit the Runtime's existing Ports-and-Adapters architecture at the resource-fetch boundary.
 
-The resource-fetch abstraction used for document loading MUST make enough retrieval metadata available to the Runtime load pipeline to distinguish the originally requested URL from the final response URL.
+The resource-fetch abstraction used for document loading MUST make enough retrieval metadata available to the Runtime load pipeline to distinguish the originally requested URL from the final response URL and terminal HTTP status.
 
 A fetch result suitable for this contract conceptually contains:
 
 ```text
+requested URL or equivalent request context
 final response URL
+terminal HTTP status
 representation body
 ```
 
@@ -121,19 +140,29 @@ When optional integrity verification is supported, the boundary MUST additionall
 
 This contract does not prescribe a concrete interface signature or data structure.
 
-## 6. Text decoding and AR-XML parsing
+## 6. Retrieval success, representation bytes, and parsing order
 
-Without optional Manifest integrity verification, the Runtime MAY process the final AR-XML representation through the implementation's ordinary HTTP/text decoding path before XML parsing, subject to AR-XML requirements.
+A terminal non-success HTTP response MUST be handled as an HTTP/retrieval failure and MUST NOT be passed to the AR-XML parser as if it were a successful Description representation.
+
+Where AR-XML or deployment rules require representation/media compatibility checks, those checks MUST occur before the representation is accepted as AR-XML input.
+
+Without optional Manifest integrity verification, the Runtime MAY process the successful final AR-XML representation through the implementation's ordinary HTTP/text decoding path before XML parsing, subject to AR-XML requirements.
 
 When integrity verification is enabled, the processing order MUST preserve Frozen Manifest 0.1 byte semantics:
 
 ```text
-HTTP dereference / redirects complete
+policy-controlled HTTP dereference / redirects
+↓
+terminal successful HTTP response
+↓
+representation/media compatibility checks where applicable
 ↓
 HTTP content-coding processing
 ↓
 final representation body octets
-↓  optional digest verification
+↓
+digest verification
+↓
 character decoding
 ↓
 XML parsing
@@ -142,6 +171,8 @@ AR-XML validation
 ```
 
 The digest MUST NOT be computed over an intermediate redirect response body, decoded character string, parsed XML tree, normalized XML, or reserialized XML.
+
+The exact representation octets whose digest is verified MUST be the same representation octets subsequently decoded and parsed as the AR-XML document. An implementation MUST NOT verify one fetched representation and then silently substitute or re-fetch a different representation for parsing under the same verification result.
 
 ## 7. Manifest independence
 
@@ -163,23 +194,37 @@ A Runtime MAY implement optional Manifest retrieval for richer metadata or integ
 
 The Runtime MUST NOT fetch a Manifest merely to discover the Description Location when ordinary Resolver Core resolution already supplies it.
 
-## 8. Optional integrity verification
+This contract does not define implicit Manifest discovery from an arbitrary Anchor redirect chain, nor does it define discovering a Manifest by reverse inference from the final AR-XML URL.
+
+If Manifest processing is selected, the Manifest source/association MUST be explicit or otherwise defined by a separate applicable profile, such as an explicit Manifest URL, a known Resolver resource, or caller-provided association metadata.
+
+## 8. Optional Manifest integrity verification and binding
 
 If the Runtime claims Frozen Manifest 0.1 integrity-verification support, Manifest retrieval and AR-XML retrieval remain distinct operations.
 
 Conceptually:
 
 ```text
-Manifest
-    ↓
+Manifest retrieval
+↓
+Manifest 0.1 baseline validation
+↓
+applicable association/binding checks
+↓
 expected description.integrity
 
-Description Location
-    ↓
+Description retrieval
+↓
 final AR-XML representation octets
-    ↓
+↓
 verification
 ```
+
+Integrity metadata MUST be consumed only from a Manifest that has successfully passed applicable Manifest 0.1 baseline validation and association checks.
+
+For deterministic Resolver Manifest retrieval, the path UUID / `anchor.id` consistency requirement defined by Frozen Manifest 0.1 MUST be satisfied before integrity metadata from that Manifest is relied upon.
+
+Where the selected integration profile or caller supplies an association between a Manifest and a Description load, that association MUST be validated according to that profile/policy before applying the Manifest's integrity metadata. This contract does not invent an implicit association rule for arbitrary redirect chains.
 
 A successful digest comparison establishes content-integrity/pinning only. It MUST NOT be surfaced as Entity authentication, Manifest authenticity, Resolver authority, ownership proof, freshness, anti-rollback protection, authorization, or L2 achievement.
 
@@ -187,17 +232,36 @@ A mismatch MUST be exposed as an integrity verification failure. If local policy
 
 This contract does not require automatic capability invocation, nor does it prescribe a specific Runtime API for representing integrity state.
 
-## 9. Network-security policy
+## 9. Network-security policy and dereference ordering
 
-Resolver and Manifest supplied destinations are untrusted network input.
+Resolver- and Manifest-supplied destinations are untrusted network input.
 
-Before or while dereferencing those destinations, the Runtime and/or execution environment MUST apply the network-security controls available in that environment.
+Network/platform policy MUST be applied before or while each dereference occurs, to the extent that the execution environment exposes such control.
+
+Conceptually:
+
+```text
+input URL
+↓
+network/platform policy
+↓
+HTTPS dereference
+↓
+redirect target
+↓
+network/platform policy
+↓
+next HTTPS dereference
+...
+↓
+final response
+```
 
 The integration MUST NOT treat successful Resolver `303`, successful Manifest parsing, valid `anchor.id`, valid `entity.id`, or successful integrity verification as permission to bypass network policy.
 
 For native/server adapters, implementations SHOULD evaluate redirect destinations and policy-denied targets before network access where the HTTP stack permits such control.
 
-For browser adapters, conformance MAY rely on Fetch redirect handling, mixed-content restrictions, CORS/origin policy, browser network protections, and additional Runtime policy that is technically available.
+For browser adapters, conformance MAY rely on Fetch redirect handling, mixed-content restrictions, CORS/origin policy, browser network protections, and additional Runtime policy that is technically available. Browser application code is not required to inspect redirect targets that the browser platform does not expose.
 
 This specification does not globally forbid loopback/private/local Description Locations. Local Entity access remains deployment/policy dependent.
 
@@ -211,7 +275,13 @@ The final AR-XML Document URL used by L1 MUST use HTTPS.
 
 If optional Manifest retrieval is performed for L1, its complete redirect chain and final Manifest URL MUST independently satisfy Frozen Manifest 0.1 HTTPS requirements.
 
-## 11. Browser CORS behavior
+## 11. Public L1 credentials and browser CORS
+
+Baseline public Resolver Core L1 resolution MUST NOT require credentials. Baseline public Manifest retrieval likewise MUST NOT require credentials merely to satisfy Manifest 0.1 interoperability.
+
+Implementations SHOULD avoid attaching ambient credentials such as cookies to public Resolver/Manifest requests unless explicitly selected by caller or deployment policy.
+
+This guidance does not impose a universal credential rule on Description retrieval or future authenticated profiles.
 
 Resolver integration MUST remain compatible with browser Fetch/CORS semantics.
 
@@ -232,12 +302,15 @@ network / transport failure
 HTTPS downgrade failure
 network-policy rejection
 HTTP terminal failure
+representation/media compatibility failure
 representation retrieval failure
 integrity verification failure
 XML parse failure
 AR-XML validation failure
 capability invocation failure
 ```
+
+A terminal non-success HTTP response MUST remain an HTTP/retrieval failure and MUST NOT be transformed into an XML/AR-XML parse failure by parsing its error body as a Description.
 
 Resolver-specific HTTP errors MUST NOT be transformed into AR-XML parse errors.
 
@@ -253,7 +326,7 @@ After successful loading, the Runtime's document-facing URL SHOULD identify the 
 
 Any public/document property used as the base for relative Interface resolution MUST expose or internally use the final AR-XML response URL rather than the caller-supplied Anchor/Resolver URL.
 
-An implementation MAY separately retain the original requested URL and redirect diagnostics for observability, but they MUST NOT replace the final AR-XML Document URL in AR-XML semantics.
+An implementation MAY separately retain the original requested URL, Resolver/Anchor input, and redirect diagnostics for observability, but they MUST NOT replace the final AR-XML Document URL in AR-XML semantics.
 
 ## 14. Capability invocation boundary
 
@@ -273,17 +346,19 @@ The Runtime MUST resolve relative capability Interface endpoints using the final
 
 Resolver integration MUST NOT remove support for direct AR-XML URLs.
 
-Both paths SHOULD converge before parsing:
+Direct AR-XML loading is the direct/L0 path; Resolver-mediated loading is the L1 path. Both SHOULD converge before parsing:
 
 ```text
-Direct AR-XML URL ───────────────┐
-                                 ↓
-Anchor/Resolver URL → redirects → final representation + final URL
-                                 ↓
-                           AR-XML parse/validate
+Direct AR-XML URL (L0) ──────────┐
+                                  ↓
+Anchor/Resolver URL (L1) → redirects → final successful representation + final URL
+                                  ↓
+                            AR-XML parse/validate
 ```
 
 The parser SHOULD receive the same representation semantics regardless of whether the original input was direct or Resolver-mediated.
+
+Direct/L0 loading MUST NOT require Resolver or Manifest behavior merely because the Runtime also supports L1 integration.
 
 ## 16. Testbed expectations
 
@@ -306,17 +381,21 @@ RT-011 integrity match uses defined final body octets
 RT-012 integrity mismatch is distinct from parse/validation failure
 RT-013 intermediate redirect body is excluded from digest
 RT-014 content-coding semantics match Frozen Manifest 0.1
+RT-015 terminal non-success HTTP response is not passed to XML parser
+RT-016 verified representation octets are the same octets decoded/parsed
+RT-017 Manifest integrity metadata is used only after applicable Manifest validation/binding succeeds
+RT-018 direct AR-XML load remains L0/direct-compatible and Resolver/Manifest-independent
 ```
 
 These identifiers are integration handoff identifiers, not additions to Frozen Resolver / Manifest Conformance Catalog 0.1.
 
 ## 17. Implementation handoff requirements
 
-The subsequent `relink-web-runtime` implementation task SHOULD examine the current document-loading resource port and adapt it so the load pipeline can obtain the final response URL.
+The subsequent `relink-web-runtime` implementation task SHOULD examine the current document-loading resource port and adapt it so the load pipeline can obtain the final response URL and terminal response status.
 
-The current implementation model in which a fetch abstraction returns only decoded text is insufficient to implement final-response-URL semantics without additional retrieval metadata.
+The current implementation model in which a fetch abstraction returns only decoded text is insufficient to implement final-response-URL semantics, HTTP-terminal-status separation, or byte-identity integrity semantics without additional retrieval metadata.
 
-For optional integrity support, an implementation will also need access to the defined final representation body octets before character decoding/XML parsing.
+For optional integrity support, an implementation will also need access to the defined final representation body octets before character decoding/XML parsing and MUST ensure those verified octets are exactly those subsequently consumed by the decoder/parser.
 
 Implementation work MUST remain localized to appropriate Runtime/application/adapter boundaries and MUST NOT add Resolver-specific parsing behavior to the AR-XML parser or capability invoker.
 
@@ -328,6 +407,7 @@ This integration contract does not define:
 - a new Resolver protocol;
 - Resolver internals or database behavior;
 - Manifest as a mandatory L1 dependency;
+- implicit Manifest discovery from arbitrary redirect chains;
 - automatic capability execution;
 - L2 authentication, signatures, ownership, key binding, or Trust;
 - AR-XML syntax changes;
@@ -340,15 +420,17 @@ A Runtime integration conforming to this contract preserves the following pipeli
 ```text
 input URL
 ↓
-ordinary HTTPS dereference + redirects
+policy-controlled HTTPS dereference
 ↓
-network/platform policy
+redirect target → policy-controlled HTTPS dereference (repeat as needed)
 ↓
-final AR-XML response URL + representation
+terminal successful AR-XML response + final response URL
 ↓
-optional integrity verification
+representation/media compatibility checks where applicable
 ↓
-character decoding / XML parse
+optional Manifest validation/association + integrity verification
+↓
+character decoding / XML parse of the same verified representation bytes
 ↓
 AR-XML validation
 ↓
@@ -359,11 +441,13 @@ relative Interface resolution against final AR-XML URL
 separate capability invocation
 ```
 
-The central integration rule is:
+The central integration rules are:
 
 ```text
 Requested URL ≠ necessarily AR-XML Document URL
 Final AR-XML response URL = AR-XML document base URL
+Verified representation bytes = parsed representation bytes
+HTTP terminal failure ≠ AR-XML parse failure
 ```
 
 This keeps Resolver integration aligned with ordinary Web semantics and preserves RELink's architectural responsibility boundaries.
