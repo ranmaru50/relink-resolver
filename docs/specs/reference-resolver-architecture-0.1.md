@@ -40,6 +40,7 @@ Resolver Core     ≠ Manifest
 Manifest          ≠ Trust
 Resolution        ≠ Capability execution
 Persistence model ≠ Public protocol
+Public resolution ≠ Administrative outbound fetch
 ```
 
 Conceptually:
@@ -58,6 +59,8 @@ SQLite
 Administrative surface
 /admin/
         ↓
+protected transport
+        ↓
 authentication + authorization
         ↓
 Maintenance application boundary
@@ -65,9 +68,15 @@ Maintenance application boundary
 Repository / history port
         ↓
 SQLite
+
+Optional administrative fetch tooling
+        ↓
+outbound network policy
+        ↓
+external resource
 ```
 
-The public and administrative surfaces MAY run in the same deployable application, but their routes, authorization requirements, and responsibilities MUST remain distinct.
+The public and administrative surfaces MAY run in the same deployable application, but their routes, authorization requirements, privileges, outbound-network capabilities, and responsibilities MUST remain distinct.
 
 ## 4. Public Resolver surface
 
@@ -87,6 +96,8 @@ Unsupported methods, malformed UUIDs, unsupported `l`, reserved `p`, cache heade
 The public Core path MUST NOT perform administrative mutation.
 
 The public Core path MUST NOT require administrator authentication or use the Anchor UUID as an authorization credential.
+
+The public Core path MUST NOT fetch the Description resource merely to perform resolution.
 
 ## 5. Manifest surface
 
@@ -125,6 +136,18 @@ The database schema, primary-key layout, table names, row IDs, indexes, or migra
 
 The Anchor UUID is the public Resolver record identifier; it MUST NOT be treated as a secret or bearer credential.
 
+SQLite databases, database journals/WAL files, backups, secret-bearing configuration, administrative export files, and equivalent private persistence artifacts MUST NOT be directly web-addressable from the public or administrative document root.
+
+Deployments MUST maintain a filesystem/deployment boundary equivalent to:
+
+```text
+web-served application files
+≠
+persistent/private data and secrets
+```
+
+Concrete filesystem paths remain deployment-defined.
+
 ## 7. Description Location validation
 
 Administrative creation/update MUST validate Description Location before committing it as the current public mapping.
@@ -142,7 +165,7 @@ CR/LF or header-injection material
 
 Validation of the URI syntax and safe header emission does not establish trust, authorization, reachability, or AR-XML validity.
 
-The maintenance surface MAY provide an explicit reachability/validation tool, but such a tool MUST remain separate from Resolver Core resolution semantics.
+The maintenance surface MAY provide an explicit reachability/validation tool, but such a tool MUST remain separate from Resolver Core resolution semantics and MUST follow the administrative outbound-fetch requirements in Section 18.
 
 ## 8. Lifecycle administration
 
@@ -159,7 +182,7 @@ SUSPENDED → RETIRED
 
 `RETIRED` is terminal in Lifecycle 0.1.
 
-A lifecycle transition and its material history event SHOULD be committed atomically from the perspective of subsequent public reads.
+When the configured history policy requires a corresponding material history event, the lifecycle transition and its history event SHOULD be committed atomically from the perspective of subsequent reads. Reference implementations are strongly encouraged to use one persistence transaction for this operation.
 
 The administration layer MUST NOT silently reactivate a RETIRED record.
 
@@ -179,6 +202,8 @@ The first Reference Resolver maintenance surface SHOULD provide at least:
 Where Manifest is enabled, record detail SHOULD also expose the current Canonical Entity Identity and optional Manifest metadata relevant to maintenance.
 
 The UI MAY provide convenience validation, but convenience results MUST NOT be represented as Trust, authentication, ownership proof, or capability authorization.
+
+Administrative GET operations MUST be read-only. State-changing administrative operations MUST NOT be performed merely by following a GET link or loading a GET resource.
 
 ## 10. UUID registration
 
@@ -254,9 +279,11 @@ Manifest result where enabled
 
 A resolution test SHOULD exercise the public behavior or an equivalent application boundary rather than infer success solely from raw database state.
 
-An optional AR-XML reachability check MUST be labeled separately from Resolver resolution success.
+An optional AR-XML reachability check MUST be labeled separately from Resolver resolution success and, if it performs server-side network access, MUST follow Section 18.
 
-## 15. Administrative authentication and authorization
+## 15. Administrative authentication, authorization, and transport
+
+Administrative authentication, session establishment, authenticated inspection of sensitive maintenance data, and mutation requests MUST use HTTPS or an equivalently protected deployment channel in production deployments.
 
 Administrative mutation surfaces MUST be protected by deployment-appropriate authentication and authorization.
 
@@ -266,25 +293,41 @@ Baseline L1 public resolution authentication rules do not define Maintenance UI 
 
 The first Reference Resolver does not mandate a specific identity provider, password scheme, WebAuthn mechanism, reverse-proxy authentication method, or external authorization service. The deployment choice MUST nevertheless provide meaningful protection against unauthenticated mutation.
 
-Administrative sessions SHOULD use standard Web security controls appropriate to the deployment, including secure transport, CSRF protection where relevant, session expiry, and privilege checks.
+Authentication success MUST NOT by itself be interpreted as authorization for every administrative operation when the deployment defines differentiated privileges.
 
-## 16. Public/admin privilege separation
+Browser-session implementations SHOULD use standard Web session controls appropriate to the deployment, including Secure and HttpOnly cookies where cookies are used, an appropriate SameSite policy, session expiry, and session-identifier rotation after authentication.
+
+Deployments SHOULD apply reasonable login abuse controls such as rate limiting or equivalent mechanisms.
+
+## 16. Administrative CSRF and mutation semantics
+
+Administrative mutation endpoints that rely on browser ambient credentials, including cookies or automatically attached authentication state, MUST implement CSRF protection appropriate to the deployment.
+
+The implementation mechanism is not fixed by this architecture. Suitable controls may include anti-CSRF tokens, Origin validation, browser fetch-metadata validation, appropriate SameSite cookie policy, or combinations of controls.
+
+A SameSite cookie attribute alone SHOULD NOT be assumed to replace all CSRF defenses for every deployment model.
+
+Administrative mutation MUST use a method and request flow intended for state change. GET and HEAD MUST remain safe/read-only administrative operations.
+
+## 17. Public/admin privilege separation and UI output security
 
 Deployments SHOULD minimize the privileges available to the public request path.
 
 Where practical:
 
 - public Resolver handlers SHOULD have no mutation capability;
-- administrative mutation code SHOULD be reachable only through authenticated administrative paths;
+- administrative mutation code SHOULD be reachable only through authenticated and authorized administrative paths;
 - database/file permissions SHOULD follow least privilege;
 - public and admin routing SHOULD be explicitly distinguishable;
 - administrative errors SHOULD NOT expose sensitive implementation details publicly.
 
 A deployment MAY use separate virtual hosts, processes, filesystem permissions, or reverse-proxy rules, but no specific mechanism is required for protocol conformance.
 
-## 17. Input/output security
-
 All public and administrative input MUST be treated as untrusted.
+
+All untrusted values rendered into administrative HTML MUST be escaped or safely encoded according to the output context. Stored values such as Description Location, `entity.id`, history notes, actor identifiers, and extension metadata MUST NOT be inserted into HTML/attribute/script/URL contexts as unescaped active markup.
+
+Administrative implementations SHOULD avoid raw HTML rendering APIs for untrusted values and SHOULD consider a restrictive Content Security Policy as defense in depth.
 
 The Reference Resolver SHOULD apply bounded limits to request sizes, field lengths, list/search pagination, and generated Manifest size.
 
@@ -292,27 +335,63 @@ Public redirect emission MUST prevent response-splitting/header-injection.
 
 Public Manifest JSON MUST be generated as strict JSON and MUST NOT allow duplicate object-member names.
 
-Administrative output SHOULD be context-escaped to prevent UI injection.
-
 SQLite access SHOULD use parameterized queries or equivalent safe data-binding mechanisms when implemented.
 
-These are reference implementation security requirements; they do not alter Resolver protocol meaning.
+## 18. Administrative outbound fetch security
 
-## 18. Logging and privacy
+Administrative reachability checks, AR-XML diagnostics, integrity publishing, or any other feature that causes the Reference Resolver server to dereference a supplied or stored URL form a separate outbound-fetch security boundary.
+
+```text
+Public Resolver resolution
+= no Description fetch
+
+Administrative fetch tooling
+= explicit privileged operation
++ outbound network policy
+```
+
+Every administrative outbound destination and redirect target MUST be treated as untrusted network input.
+
+Such tooling MUST apply deployment-configured outbound network policy before or while dereferencing destinations, to the extent supported by the HTTP/network stack. Redirect targets MUST be re-evaluated against that policy where the stack exposes redirect control.
+
+Administrative fetch tooling MUST use bounded resource controls, including:
+
+- a finite redirect limit;
+- connect and response/read timeouts;
+- a finite maximum response-body size;
+- bounded processing time and memory use appropriate to the operation.
+
+Administrative outbound fetches SHOULD avoid attaching ambient credentials, cookies, client certificates, or other unrelated credentials by default. Credentials MAY be supplied only when explicitly selected by an applicable deployment policy or future authenticated profile.
+
+Implementations SHOULD account for DNS rebinding and name-to-address changes when applying destination policy. Loopback, private, link-local, cloud-metadata, internal-service, or similar destinations MUST be governed by deployment policy rather than globally assumed safe merely because they are syntactically valid URLs.
+
+This architecture does not impose a protocol-wide ban on local/private Entity resources. A deployment MAY intentionally permit them. The required invariant is:
+
+```text
+configured outbound network policy
+↓
+allow or deny destination
+↓
+actual fetch behavior follows that decision
+```
+
+A successful reachability result MUST NOT be represented as Trust, Entity authentication, authorization, ownership proof, or L2 achievement.
+
+## 19. Logging and privacy
 
 The Reference Resolver SHOULD maintain operational logs sufficient for troubleshooting and abuse analysis without treating logs as protocol state.
 
-Logs SHOULD minimize unnecessary sensitive data. Query strings, IP addresses, user-agent data, administrator identities, and submitted URLs may have privacy implications and SHOULD follow documented retention/access policy.
+Logs SHOULD minimize unnecessary sensitive data. Query strings, IP addresses, user-agent data, administrator identities, submitted URLs, and outbound-fetch diagnostics may have privacy implications and SHOULD follow documented retention/access policy.
 
 Public resolution logging MUST NOT become a requirement that an Entity periodically report its current network address.
 
-## 19. Availability and abuse controls
+## 20. Availability and abuse controls
 
 The implementation SHOULD support deployment-appropriate abuse controls such as request-size limits, rate limiting, connection/time limits, and bounded administrative queries.
 
 Availability controls MUST NOT silently change protocol semantics. For example, overload or temporary backend unavailability should be surfaced using the applicable HTTP failure behavior rather than a fabricated successful mapping.
 
-## 20. Backup, restore, and migration
+## 21. Backup, restore, migration, and private-file placement
 
 Because SQLite contains current mappings and administrative history, deployments SHOULD define backup and restore procedures.
 
@@ -320,20 +399,46 @@ Restore procedures SHOULD preserve UUID identity, lifecycle state, current Descr
 
 Schema migration is an implementation concern. Migration MUST NOT change public Resolver semantics merely because internal storage representation changes.
 
-## 21. Optional publishing/integrity tooling
+SQLite database files, SQLite journal/WAL files, backups, migration snapshots, administrative exports, and secret-bearing configuration MUST remain outside directly web-addressable storage or be protected by an equivalent mechanism that prevents HTTP retrieval through both public and administrative routes.
+
+Backup and migration artifacts SHOULD receive access controls at least as restrictive as the live database because they may contain historical or otherwise sensitive administrative data.
+
+## 22. Optional publishing/integrity tooling
 
 A Maintenance UI MAY provide an explicit publishing operation that computes or updates Manifest `description.integrity` for a selected AR-XML representation.
 
 Such tooling:
 
 - MUST be separate from the public resolution request path;
+- MUST follow the outbound-fetch controls in Section 18;
 - MUST use Frozen Manifest 0.1 byte semantics;
 - SHOULD make it clear which representation/location was processed;
 - MUST NOT label digest success as Entity authentication, ownership proof, freshness, anti-rollback protection, authorization, or L2.
 
+An integrity publishing operation MUST bind the computed digest to the Description Location and logical record state selected for that operation.
+
+The implementation MUST NOT commit a digest if the associated current Description Location changed between selection/fetch and commit. Where another material record version/state is used for concurrency control, the implementation MUST detect a conflicting change before committing the integrity metadata.
+
+Conceptually:
+
+```text
+select Location A + logical version V
+↓
+fetch A under outbound policy
+↓
+compute digest
+↓
+commit only if current Location == A
+and applicable version/state still matches V
+↓
+otherwise conflict / retry
+```
+
+The Description Location association and resulting integrity metadata SHOULD be committed as one logically consistent administrative update.
+
 The Reference Resolver MUST NOT automatically fetch every Description during public resolution to keep integrity metadata current.
 
-## 22. No AR-XML interpretation in Resolver Core
+## 23. No AR-XML interpretation in Resolver Core
 
 The public Resolver Core path MUST NOT parse AR-XML in order to resolve a UUID.
 
@@ -347,9 +452,9 @@ The Reference Resolver MUST NOT:
 - redirect to a management console as a substitute for Description resolution;
 - require periodic device-IP reporting.
 
-Optional administrative diagnostics that fetch AR-XML MUST remain explicitly separate from Core resolution behavior.
+Optional administrative diagnostics that fetch AR-XML MUST remain explicitly separate from Core resolution behavior and MUST follow Section 18.
 
-## 23. Manifest extensions and vendor metadata
+## 24. Manifest extensions and vendor metadata
 
 Reference-implementation-specific public Manifest metadata SHOULD use the Frozen Manifest Extension Policy.
 
@@ -359,7 +464,7 @@ An extension MUST NOT override standard `description.location`, lifecycle, integ
 
 Administrative-only metadata need not be exposed in Manifest at all.
 
-## 24. Configuration responsibilities
+## 25. Configuration responsibilities
 
 Deployment configuration MAY include:
 
@@ -367,6 +472,7 @@ Deployment configuration MAY include:
 public base path
 admin base path
 SQLite database location
+outbound network policy
 cache defaults within allowed profile
 logging policy
 rate limits
@@ -377,9 +483,9 @@ history retention policy
 
 Configuration MUST NOT permit a Core-only implementation to silently reinterpret unsupported security levels as L1.
 
-Secrets MUST NOT be committed to repository defaults or exposed through public diagnostic output.
+Secrets MUST NOT be committed to repository defaults, exposed through public diagnostic output, or stored in directly web-addressable paths.
 
-## 25. Implementation handoff
+## 26. Implementation handoff
 
 The subsequent implementation task may choose concrete PHP structure and SQLite schema, but SHOULD preserve at least these logical boundaries:
 
@@ -389,6 +495,7 @@ HTTP/admin adapter
 Core resolution service
 Manifest representation service
 Maintenance service
+Administrative outbound-fetch service/policy
 Persistence/repository boundary
 History/audit boundary
 Authentication/authorization adapter
@@ -396,7 +503,20 @@ Authentication/authorization adapter
 
 Implementation acceptance SHOULD include the Frozen Resolver / Manifest Conformance Catalog 0.1 as the protocol baseline and separate tests for authenticated maintenance behavior.
 
-## 26. Non-goals
+Security acceptance SHOULD include tests or review coverage for at least:
+
+```text
+admin HTTPS/protected-channel enforcement
+CSRF-resistant browser mutation
+GET/HEAD administrative read-only behavior
+stored-XSS/output-encoding resistance
+private SQLite/config/backup non-addressability
+outbound-fetch policy and redirect re-evaluation
+bounded outbound fetches
+integrity publishing conflict/TOCTOU handling
+```
+
+## 27. Non-goals
 
 Reference Resolver Architecture 0.1 does not define:
 
@@ -409,22 +529,33 @@ Reference Resolver Architecture 0.1 does not define:
 - concrete database DDL;
 - concrete PHP framework or class names;
 - Docker/native packaging details;
+- a globally mandatory private-network denylist;
 - a legal patent/FTO conclusion.
 
-## 27. Summary
+## 28. Summary
 
 ```text
 Public Resolver
     = minimal GET-only resolution
+    = no Description fetch
 
 Optional Manifest Endpoint
     = stored Entity-level metadata representation
 
 Maintenance UI
-    = authenticated administrative mutation and inspection
+    = protected transport
+    + authentication / authorization
+    + CSRF-safe mutation
+    + context-safe output
 
-SQLite
-    = implementation persistence, not protocol semantics
+Administrative Fetch Tooling
+    = separate privileged SSRF-sensitive boundary
+    + configured outbound policy
+    + bounded fetch behavior
+
+SQLite / secrets / backups
+    = private persistence
+    ≠ web-addressable content
 
 History
     = bounded administrative trace, not Trust
