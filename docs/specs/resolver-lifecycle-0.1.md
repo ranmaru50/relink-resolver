@@ -61,6 +61,8 @@ Lifecycle 0.1 does not redefine Resolver Core public response semantics. A confo
 
 The public interface intentionally does not distinguish an unknown UUID from a SUSPENDED UUID.
 
+Public error representations SHOULD avoid deliberately revealing whether a `404 Not Found` corresponds to an unknown UUID or a SUSPENDED record. Lifecycle 0.1 does not require complete timing or side-channel indistinguishability.
+
 Lifecycle reason, transition history, actor metadata, timestamps, or administrative annotations MUST NOT alter the public status-code mapping above unless a later versioned RELink specification explicitly defines another profile.
 
 ## 5. State-transition model
@@ -89,11 +91,31 @@ ACTIVE ─────────────→ SUSPENDED
                RETIRED
 ```
 
+An implementation claiming Lifecycle 0.1 administrative-transition conformance MUST support each permitted transition applicable to an existing record. This requirement means that the transition edge is implemented and available to the administrative transition function; it does not require every individual request to succeed when authorization, concurrency, validation, persistence, or other applicable preconditions fail.
+
 A request to perform any transition not listed above MUST be rejected by the maintenance layer.
 
 A transition whose source state is not the record's actual current state MUST NOT be silently coerced into another transition.
 
-Repeatedly setting a record to its already-current state MAY be treated as an idempotent no-op by an administrative implementation, but such a no-op MUST NOT be represented as a different lifecycle transition.
+Administrative transition processing MUST preserve the semantic distinction between at least the following failure classes, even when an implementation maps them to implementation-specific errors or transport responses:
+
+```text
+INVALID_TRANSITION
+    requested edge is not permitted by the Lifecycle 0.1 state machine
+
+STATE_CONFLICT
+    the expected/source state is stale or no longer matches the current record state
+
+AUTHORIZATION_FAILURE
+    the caller is not authorized to perform the requested administrative operation
+
+PERSISTENCE_FAILURE
+    an otherwise permitted operation could not be committed safely
+```
+
+Lifecycle 0.1 does not standardize exception names, response bodies, or HTTP status codes for these administrative failure classes. An implementation MUST NOT treat a stale-state conflict as if the requested edge were permanently forbidden by the lifecycle state machine.
+
+Repeatedly setting a record to its already-current state MAY be treated as an idempotent no-op by an administrative implementation, but such a no-op MUST NOT be represented as a different lifecycle transition. An idempotent same-state no-op MUST NOT be recorded as a lifecycle transition event. It MAY be recorded separately as an administrative request, audit, or diagnostic event.
 
 ## 6. RETIRED is terminal
 
@@ -113,6 +135,8 @@ A future versioned RELink specification MAY define migration or recovery semanti
 ## 7. Initial registration state
 
 A newly registered Resolver record MUST have an explicit lifecycle state before it becomes externally observable.
+
+Initial registration establishes that initial lifecycle state. It is not a Lifecycle 0.1 transition from an implicit `NONEXISTENT` state, and implementations MUST NOT extend the Lifecycle 0.1 state machine by treating `NONEXISTENT` as a fourth lifecycle state.
 
 A Reference Resolver SHOULD support initial registration as either:
 
@@ -313,7 +337,7 @@ validate permitted transition
 commit new state
 ```
 
-If the actual current state changed before commit, the administrative operation SHOULD fail or be retried against the new state rather than silently applying a transition based on stale assumptions.
+If the actual current state changed before commit, the administrative operation SHOULD fail or be retried against the new state rather than silently applying a transition based on stale assumptions. Such a failure is a state conflict, not evidence that the requested transition edge is invalid under the Lifecycle 0.1 state machine.
 
 Lifecycle 0.1 does not mandate optimistic locking, database row locking, ETags, compare-and-swap, or any specific concurrency mechanism.
 
@@ -368,7 +392,7 @@ A Reference Resolver implementing Lifecycle 0.1 SHOULD provide administrative ca
 - distinguish lifecycle mutation from Description Location mutation;
 - test the public response corresponding to the current state.
 
-These are administrative requirements only. They do not define a public mutation API.
+These are administrative requirements only. They do not define a public mutation API. A Reference Resolver claiming the Frozen Catalog's lifecycle-administration conformance target remains subject to the MUST-support rule in Section 5.
 
 ## 20. Conformance derivation and catalog ownership
 
@@ -420,6 +444,10 @@ History:
     bounded transition history recommended
     time + previous/new state
     reason/actor metadata optional
+    same-state no-op is not a lifecycle transition event
+
+Administrative failure semantics:
+    invalid transition ≠ stale-state conflict
 
 Cache:
     origin state changes immediately after commit
