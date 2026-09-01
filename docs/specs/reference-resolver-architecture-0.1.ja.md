@@ -1,10 +1,13 @@
 # RELink Reference Resolver Architecture 0.1 日本語版
 
-Status: Draft reference architecture  
+Status: Frozen reference architecture（公式日本語版）  
 Version: 0.1  
+Freeze date: 2026-09-01  
 Scope: First Reference Resolver implementation
 
-> この文書は `reference-resolver-architecture-0.1.md` の公式日本語版です。解釈に差異がある場合は英語版を基準とします。
+> この文書は `reference-resolver-architecture-0.1.md` の公式日本語版です。解釈に差異がある場合は英語Frozen版を基準とします。
+
+Reference Resolver Architecture 0.1はFrozenです。編集上または非semanticなerrataは0.1内で修正できます。Public/Admin責務境界、administrative transport/authentication/authorization semantics、CSRF requirement、outbound-fetch/SSRF policy semantics、integrity publishing consistency rule、database/input/output security requirement、persistence/private-file boundary、implementation security acceptance expectationの変更は、後続architecture versionまたは別途versioningされたprofileで扱います。
 
 ## 1. 目的
 
