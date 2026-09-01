@@ -47,8 +47,8 @@ final class RestoreScriptTest extends TestCase
     public function testEmptyDataDirectoryRestoreUsesServiceOwnership(): void
     {
         $targetPath = $this->targetDirectory . DIRECTORY_SEPARATOR . 'resolver.sqlite';
-        $serviceUid = function_exists('posix_getpwnam') ? posix_getpwnam('www-data')['uid'] : 33;
-        $serviceGid = function_exists('posix_getpwnam') ? posix_getpwnam('www-data')['gid'] : 33;
+        $serviceUid = fileowner($this->targetDirectory);
+        $serviceGid = filegroup($this->targetDirectory);
         $script = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'restore.sh';
         $command = sprintf(
             'RELINK_DB_PATH=%s RELINK_SERVICE_UID=%d RELINK_SERVICE_GID=%d sh %s %s',
@@ -70,5 +70,17 @@ final class RestoreScriptTest extends TestCase
         $this->assertSame($serviceUid, fileowner($targetPath));
         $this->assertSame(0660, fileperms($targetPath) & 0777);
         $this->assertSame($serviceUid, fileowner($this->targetDirectory));
+        $this->assertSame(0770, fileperms($this->targetDirectory) & 0777);
+
+        // 実行ユーザーとしてトランザクションとWAL/SHM作成まで確認する。
+        $database = new PDO('sqlite:' . $targetPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $this->assertSame('wal', strtolower((string) $database->query('PRAGMA journal_mode = WAL')->fetchColumn()));
+        $database->beginTransaction();
+        $database->exec("INSERT INTO resolver_records (anchor_uuid, state, description_location, entity_id, version, created_at, updated_at) VALUES ('550e8400-e29b-41d4-a716-446655440032', 'ACTIVE', 'https://entity.example/32.xml', 'urn:relink:entity:32', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)");
+        $database->commit();
+        $this->assertSame(1, (int) $database->query("SELECT COUNT(*) FROM resolver_records WHERE anchor_uuid = '550e8400-e29b-41d4-a716-446655440032'")->fetchColumn());
+        $this->assertFileExists($targetPath . '-wal');
+        $this->assertFileExists($targetPath . '-shm');
+        $database = null;
     }
 }

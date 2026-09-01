@@ -12,11 +12,55 @@ SERVICE_USER="${RELINK_SERVICE_USER:-www-data}"
 SERVICE_UID="${RELINK_SERVICE_UID:-}"
 SERVICE_GID="${RELINK_SERVICE_GID:-}"
 DB_MODE="${RELINK_DB_MODE:-660}"
+DATA_DIR_MODE="${RELINK_DATA_DIR_MODE:-770}"
 
 cleanup() {
     rm -f "$TEMP_PATH" "$RECOVERY_TEMP_PATH"
 }
 trap cleanup EXIT INT TERM
+
+ensure_owner() {
+    expected_uid="$1"
+    expected_gid="$2"
+    target_path="$3"
+    actual_uid="$(stat -c '%u' "$target_path")"
+    actual_gid="$(stat -c '%g' "$target_path")"
+    if test "$actual_uid" != "$expected_uid" || test "$actual_gid" != "$expected_gid"; then
+        chown "$expected_uid:$expected_gid" "$target_path"
+    fi
+}
+
+validate_numeric() {
+    value_name="$1"
+    value="$2"
+    case "$value" in
+        ''|*[!0-9]*)
+            echo "$value_name must be a non-negative integer" >&2
+            exit 1
+            ;;
+    esac
+}
+
+validate_octal_mode() {
+    value_name="$1"
+    value="$2"
+    case "$value" in
+        [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
+        *)
+            echo "$value_name must be an octal file mode" >&2
+            exit 1
+            ;;
+    esac
+}
+
+if test -n "$SERVICE_UID"; then
+    validate_numeric RELINK_SERVICE_UID "$SERVICE_UID"
+fi
+if test -n "$SERVICE_GID"; then
+    validate_numeric RELINK_SERVICE_GID "$SERVICE_GID"
+fi
+validate_octal_mode RELINK_DB_MODE "$DB_MODE"
+validate_octal_mode RELINK_DATA_DIR_MODE "$DATA_DIR_MODE"
 
 test -f "$SOURCE"
 sqlite3 "$SOURCE" "PRAGMA integrity_check;" | grep -qx ok
@@ -30,7 +74,8 @@ sqlite3 "$TEMP_PATH" "SELECT COUNT(*) FROM resolver_records WHERE anchor_uuid IS
 
 if test -e "$DB_PATH"; then
     # アプリケーション停止済みを前提にWALを確定し、現DBを別ファイルへ安全に退避する。
-    sqlite3 "$DB_PATH" "PRAGMA wal_checkpoint(TRUNCATE);"
+    checkpoint_result="$(sqlite3 "$DB_PATH" "PRAGMA wal_checkpoint(TRUNCATE);")"
+    test "${checkpoint_result%%|*}" = 0
     sqlite3 "$DB_PATH" ".backup '$RECOVERY_TEMP_PATH'"
     sqlite3 "$RECOVERY_TEMP_PATH" "PRAGMA integrity_check;" | grep -qx ok
     mv "$RECOVERY_TEMP_PATH" "$RECOVERY_PATH"
@@ -46,8 +91,11 @@ else
     if test -z "$SERVICE_GID"; then
         SERVICE_GID="$(id -g "$SERVICE_USER")"
     fi
-    chown "$SERVICE_UID:$SERVICE_GID" "$DB_DIR"
-    chown "$SERVICE_UID:$SERVICE_GID" "$TEMP_PATH"
+    validate_numeric RELINK_SERVICE_UID "$SERVICE_UID"
+    validate_numeric RELINK_SERVICE_GID "$SERVICE_GID"
+    ensure_owner "$SERVICE_UID" "$SERVICE_GID" "$DB_DIR"
+    chmod "$DATA_DIR_MODE" "$DB_DIR"
+    ensure_owner "$SERVICE_UID" "$SERVICE_GID" "$TEMP_PATH"
     chmod "$DB_MODE" "$TEMP_PATH"
 fi
 

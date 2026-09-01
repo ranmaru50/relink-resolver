@@ -24,3 +24,16 @@ jobs:
         run: composer analyse
       - name: スモークテスト
         run: composer test
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Container設定
+        run: cp .env.example .env
+      - name: Containerイメージ構築
+        run: docker compose build
+      - name: Container PHPUnit
+        run: docker compose run --rm resolver composer test
+      - name: Container PHPStan
+        run: docker compose run --rm resolver composer analyse

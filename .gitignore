@@ -8,3 +8,18 @@ var/*.sqlite
 *.sqlite-shm
 backups/
 vendor/
+
+# テスト・復元・エディタが生成する一時ファイルをコミット対象外にする。
+.tmp/
+tmp/
+temp/
+coverage/
+.phpunit.cache/
+.phpunit.result.cache
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+*.restore.*
+*.pre-restore.*
