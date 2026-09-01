@@ -35,6 +35,10 @@ final class TrustedProxyPolicyTest extends TestCase
             'REMOTE_ADDR' => '10.12.0.8',
             'HTTP_X_FORWARDED_PROTO' => 'http, https',
         ], ['10.0.0.0/8']));
+        self::assertFalse(TrustedProxyPolicy::isSecureRequest([
+            'REMOTE_ADDR' => '10.12.0.8',
+            'HTTP_X_FORWARDED_PROTO' => 'https, http',
+        ], ['10.0.0.0/8']));
     }
 
     /** IPv6 の信頼済み CIDR も同じ規則で評価する。 */

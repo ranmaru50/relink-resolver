@@ -26,8 +26,12 @@ final class TrustedProxyPolicy
             return false;
         }
 
-        // 先頭要素だけを使い、プロキシ側でクライアント入力を上書きする運用を前提にする。
-        $forwardedProto = strtolower(trim(explode(',', (string) ($server['HTTP_X_FORWARDED_PROTO'] ?? ''), 2)[0]));
+        // 複数値はプロキシ設定不備やクライアント入力の混入を判別できないため拒否する。
+        $forwardedProtoHeader = trim((string) ($server['HTTP_X_FORWARDED_PROTO'] ?? ''));
+        if ($forwardedProtoHeader === '' || str_contains($forwardedProtoHeader, ',')) {
+            return false;
+        }
+        $forwardedProto = strtolower($forwardedProtoHeader);
         return $forwardedProto === 'https';
     }
 
