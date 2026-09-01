@@ -8,9 +8,13 @@ English | [日本語](README.ja.md)
 
 ## Status
 
-Specification-first design phase.
+Specification-first design phase transitioning into reference implementation.
 
-Resolver Core 0.1 and Resolver Lifecycle 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1, Web Runtime Integration Contract 0.1, Reference Resolver Architecture 0.1, and Reference Resolver Deployment Profiles 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
+RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. Resolver Core 0.1, Resolver Lifecycle 0.1, the Resolver / Manifest Conformance Catalog 0.1, Web Runtime Integration Contract 0.1, Reference Resolver Architecture 0.1, and Reference Resolver Deployment Profiles 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
+
+For frozen Resolver Core 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to L1 request semantics, `l`/`p` downgrade behavior, HTTP status or processing-order semantics, Description Location validation, HTTPS/network-policy semantics, lifecycle mappings, Manifest independence, public/admin responsibility boundaries, Trust/L2 exclusions, or Core conformance expectations require a later Core version or separately versioned profile.
+
+For frozen Resolver Lifecycle 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to lifecycle states, permitted transitions, RETIRED terminal semantics, permitted-transition support requirements, administrative failure semantics, same-state no-op/history semantics, initial-registration semantics, public lifecycle mapping/non-distinction, cache semantics, Manifest lifecycle mapping, or conformance-derivation semantics require a later Lifecycle version or separately versioned profile.
 
 For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to standard members, wire semantics, integrity semantics, extension compatibility, or security/trust semantics require a later Manifest version or separately versioned profile.
 
@@ -24,10 +28,10 @@ For frozen Reference Resolver Deployment Profiles 0.1, editorial/non-semantic er
 
 ## Specifications
 
-- RELink Resolver Core 0.1 — Draft
+- RELink Resolver Core 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/resolver-core-0.1.md)
   - [日本語](docs/specs/resolver-core-0.1.ja.md)
-- RELink Resolver Lifecycle 0.1 — Draft
+- RELink Resolver Lifecycle 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/resolver-lifecycle-0.1.md)
   - [日本語](docs/specs/resolver-lifecycle-0.1.ja.md)
 - RELink Resolver / Manifest Conformance Catalog 0.1 — **Frozen 2026-09-01**
@@ -50,7 +54,7 @@ For frozen Reference Resolver Deployment Profiles 0.1, editorial/non-semantic er
   - [English](docs/specs/manifest-0.1-extension-policy.md)
   - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
 
-The English Frozen Manifest, Conformance Catalog, Web Runtime Integration Contract, Reference Resolver Architecture, and Reference Resolver Deployment Profiles documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
+The English Frozen Resolver Core, Resolver Lifecycle, Manifest, Conformance Catalog, Web Runtime Integration Contract, Reference Resolver Architecture, and Reference Resolver Deployment Profiles documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
 
 ## Architecture
 
@@ -102,9 +106,9 @@ UUID lookup
 Location: https://...
 ```
 
-L1 is intended to be public, GET-only, read-only, and HTTPS-based.
+L1 is public, GET-only, read-only, and HTTPS-based. Unsupported requested `l` values and reserved `p` without defining level semantics fail closed rather than silently falling back to L1.
 
-Resolver Core does not interpret AR-XML and does not execute Entity capabilities.
+Resolver Core does not interpret or fetch AR-XML and does not execute Entity capabilities.
 
 Frozen Manifest 0.1 does not enlarge Resolver Core responsibility: normal ACTIVE L1 resolution must remain possible without retrieving or parsing a Manifest.
 
@@ -248,15 +252,8 @@ Resolver Core does not:
 
 ## Planned deliverables
 
-This repository is expected to contain:
+This repository contains the frozen 0.1 specification baseline and is expected to add:
 
-- Resolver Core 0.1 specification
-- Resolver Lifecycle 0.1 specification
-- Frozen Resolver / Manifest Conformance Catalog 0.1
-- Frozen Web Runtime Integration Contract 0.1
-- Frozen Manifest 0.1 specification set
-- Frozen Reference Resolver Architecture 0.1
-- Frozen Reference Resolver Deployment Profiles 0.1
 - Reference Resolver implementation
 - RELink Testbed integration definitions
 
@@ -277,4 +274,4 @@ Trust         = later security / authority layer
 Runtime       = consumer-facing interpretation and execution
 ```
 
-The project should preserve this separation as the specification evolves.
+The project should preserve this separation as implementation begins.
