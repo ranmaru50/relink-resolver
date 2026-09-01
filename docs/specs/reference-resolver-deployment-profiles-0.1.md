@@ -1,8 +1,10 @@
 # RELink Reference Resolver Deployment Profiles 0.1
 
-Status: Draft deployment profile  
+Status: Frozen 2026-09-01  
 Version: 0.1  
 Scope: Native and container deployment of the first Reference Resolver
+
+Freeze policy: editorial/non-semantic errata MAY be corrected within 0.1. Changes to deployment invariants, native/container equivalence, persistence/private-file semantics, trusted-proxy handling, administrative outbound-network policy, backup/restore semantics, security boundaries, or deployment acceptance expectations require a later version or separately versioned profile.
 
 ## 1. Purpose
 
