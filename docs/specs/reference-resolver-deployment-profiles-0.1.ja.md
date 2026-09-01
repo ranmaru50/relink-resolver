@@ -29,9 +29,9 @@ Deploymentは、適用されるRELink仕様とhandoff documentにconformしな�
 - Frozen Manifest 0.1 / Extension Policy
 - Frozen Resolver / Manifest Conformance Catalog 0.1
 - Frozen Web Runtime Integration Contract 0.1
-- Reference Resolver Architecture 0.1
+- Frozen Reference Resolver Architecture 0.1
 
-Deployment convenienceとprotocol semanticsが衝突する場合、protocol semanticsを優先します。
+Deployment convenienceとprotocol/architecture semanticsが衝突する場合、governing protocol/architecture semanticsを優先します。
 
 ## 3. Deployment invariants
 
@@ -41,9 +41,12 @@ SQLite persistence         ≠ container filesystem lifetime
 TLS termination            ≠ Resolver trust semantics
 Reverse proxy              ≠ Resolver protocol layer
 Admin authentication       ≠ public L1 authentication
+Containerization           ≠ sufficient security boundary
 ```
 
-TLS termination、reverse proxy、logging、rate limiting、authenticationを周辺infrastructureへ置いても構いませんが、外部から観測されるRELink behaviorはconformingでなければなりません。
+TLS termination、reverse proxy、logging、rate limiting、authenticationを周辺infrastructureへ置いても構いませんが、外部から観測されるRELink behaviorとReference Resolverのsecurity boundaryはconformingでなければなりません。
+
+Container packagingをapplication authentication、authorization、filesystem permission、outbound network policy、secret isolationの代替として扱ってはなりません。
 
 ## 4. Native profile
 
@@ -75,6 +78,8 @@ compose.yaml
 Apache/PHPを1 containerに含めても、内部的に等価なtopologyを使っても構いません。ただしexternally observable behaviorとpublic/admin separationはNative profileと同等でなければなりません。
 
 Docker、Compose、container networking、image registry、volume mechanismはRELink protocol requirementではありません。
+
+Container buildではdependency/version selectionをdocumentし、再現可能性を高めることを推奨します。Unmaintained base imageは避けることを推奨します。
 
 ## 6. Behavioral equivalence
 
@@ -108,11 +113,12 @@ rate limits
 trusted proxy configuration
 external/public origin information where required
 administrative authentication integration
+outbound network policy
 ```
 
 Container profileではenvironment variableを使用して構いません。`.env.example`にはexample/placeholderのみを含め、production secretを含めてはなりません。
 
-Protocol-visible behaviorに影響するconfigurationはdocumentされ、Native / Containerで同等の意味を持つことを推奨します。
+Protocol-visible behaviorまたはsecurity policyに影響するconfigurationはdocumentされ、Native / Containerで同等の意味を持つことを推奨します。
 
 ## 8. Persistent data
 
@@ -121,6 +127,8 @@ SQLite dataはdurable Resolver stateであり、process/container filesystem lif
 Native deploymentはSQLite DBをpersistent writable locationへ配置し、適切なownership/permissionを設定しなければなりません。
 
 Container deploymentは、container replacement/restart後もmapping/historyが維持されるpersistent storageを使用しなければなりません。
+
+Persistent storage layoutは、configured SQLite modeで必要なdatabase、journal/WAL、shared-memory、その他ancillary fileすべてと互換でなければなりません。SQLite modeがancillary fileを生成する場合、fragileなsingle-file bindよりpersistent data directory等のlayoutを推奨します。
 
 Container image layerをdurable DB storeとして扱ってはなりません。
 
@@ -134,7 +142,7 @@ SQLite locking/journalingに対してunsupportedまたはoperationally unsafeな
 
 Implementation/deployment documentationでは、operatorが維持すべきSQLite journal/WAL、backup、filesystem、concurrency assumptionを明示することを推奨します。
 
-## 10. TLS / HTTPS
+## 10. TLS / HTTPS / trusted proxy metadata
 
 Public L1 deploymentはResolver Coreの要求どおり外部からHTTPSで利用可能でなければなりません。
 
@@ -146,7 +154,13 @@ TLS terminationは以下のいずれでも構いません。
 
 TLSがapplication processより前でterminateされる場合、origin/scheme awarenessが必要な処理のため、trusted request contextを維持しなければなりません。
 
-Applicationはclient-supplied forwarding headerをblind trustしてはなりません。Trusted proxy / forwarded-header handlingを使用する場合、明示的configurationが必要です。
+Applicationはclient-supplied forwarding headerをblind trustしてはなりません。
+
+Security decisionまたはexternally visible URL constructionに使うforwarded/proxy metadataは、明示的にconfiguredされたtrusted proxy hopまたは同等のtrusted-ingress mechanismからのみ受理しなければなりません。
+
+Trusted ingressは、untrusted client-supplied forwarding fieldをapplicationへforwardする前にoverwrite/removeすることを推奨します。
+
+Canonical external originがconfiguredされている場合、externally visible administrative/application URLの生成にはarbitraryなclient-supplied `Host`、`Forwarded`、`X-Forwarded-Host`等よりconfigured originを優先することを推奨します。
 
 ## 11. HSTS / secure transport
 
@@ -168,6 +182,7 @@ Proxyは次を行ってはなりません。
 - public/admin route separationをbypass
 - L1でexternally visible HTTPS→HTTP downgradeを導入
 - internal admin serviceをdefaultでpublic exposure
+- untrusted client forwarding metadataでconfigured trusted-proxy boundaryをbypass
 
 Proxy-generated errorは可能な範囲でtemporary/unavailable failure classificationを維持することを推奨します。
 
@@ -177,20 +192,35 @@ Proxy-generated errorは可能な範囲でtemporary/unavailable failure classifi
 
 Public Resolver pathはResolver CoreどおりGET-only/read-onlyでなければなりません。
 
-Administrative mutation routeはdeployment-appropriate authentication / authorizationを必要とします。
+Administrative search、list、detail、history、diagnostic、mutation routeは、別仕様でpublicと明示されていない限りdeploymentのadministrative access controlを要求しなければなりません。
 
 Container profileはdeployment convenienceのためだけにadmin port/routeをNative profileより弱い保護でpublishしてはなりません。
 
 Operatorはapplication authに加え、network restriction、separate virtual host、reverse proxy policy、VPN等を使用して構いません。
 
+Internal/administrative metadataを含むauthenticated maintenance responseは、明示的に正当化された同等policyがない限り `Cache-Control: no-store` 等のnon-cacheable policyを使用することを推奨します。
+
 ## 14. File / process permission
 
 Least privilegeを推奨します。
 
+SQLite database、SQLite journal/WAL/shared-memory file、backup、migration snapshot、secret-bearing configuration、administrative export、その他equivalent private persistence artifactは、public/admin HTTP routeから直接取得可能であってはなりません。
+
+Deploymentは概念上次の境界を維持しなければなりません。
+
+```text
+web-served application files
+≠
+persistent SQLite/private data
+≠
+secret-bearing configuration
+```
+
+少なくとも:
+
 - public web processは必要最小限のfilesystem/database permission
-- secret/configurationはpublic static fileとしてserveしない
-- SQLite file / backup / historyをpublic document rootからdownload可能にしない
-- admin credential/session materialをpublic pathへ保存しない
+- secret/configurationをstatic/public fileとしてserveしてはならない
+- admin credential/session materialをpublicly served pathへ保存してはならない
 
 Architectureがread/write privilege分離を許す場合、それを使用することを推奨します。
 
@@ -204,6 +234,8 @@ Log destination差異でprotocol semanticsを変更してはなりません。
 
 Retention/access policyをdocumentし、不要なsensitive dataを最小化することを推奨します。Logはauthoritative Resolver stateではありません。
 
+Logへ書くuntrusted valueは、embedded control characterで追加log recordを偽造したりstructured-log fieldを破壊したりできないようstructured/encoded formで扱うことを推奨します。
+
 ## 16. Health / diagnostics
 
 RELink public protocol surfaceとは別にhealth/readiness diagnosticsを提供して構いません。
@@ -212,9 +244,15 @@ Resolver Core resource、Manifest resource、Entity health semanticsと混同し
 
 Sensitive configuration、DB contents、admin identity、secretをhealth endpointへ露出しないことを推奨します。
 
+Minimal liveness/readinessを超える詳細diagnosticはadministrative/internal accessへ制限することを推奨します。
+
 ## 17. Backup / Restore
 
 両profileはpersistent Resolver dataのbackup/restore手順をdocumentすることを推奨します。
+
+Backupは、configured journal modeとfilesystem arrangementに適したtransactionally consistent SQLite backup methodで生成しなければなりません。
+
+具体方式はimplementation/deployment-definedであり、SQLite Backup API、SQLite-aware backup tool、safe offline copy、journal/WAL-aware snapshot等を使用できます。
 
 Backupは少なくとも次を維持することを推奨します。
 
@@ -230,11 +268,13 @@ Documented persistence modelに従う限り、container replacement/image upgrad
 
 Restore時に既存recordへreplacement UUIDを生成せず、semantic identity/lifecycle consistencyを維持しなければなりません。
 
+Restore validationではUUID identity、lifecycle state、current Description Location、Manifest metadata、retained historyのlogical consistencyを確認することを推奨します。
+
 ## 18. Upgrade / Migration
 
 Internal storage migrationによってpublic Resolver semanticsを変更してはなりません。
 
-Persistence representationが変わるupgrade前にはrecoverable backupを作成することを推奨します。
+Persistence representationが変わるupgrade前にはrecoverableかつtransactionally consistentなbackupを作成することを推奨します。
 
 Migrationはexplicit/bounded/failure-awareであることを推奨します。Partial migration状態でfabricated/inconsistent successful mappingをsilentにserveしてはなりません。
 
@@ -263,13 +303,27 @@ Secret storage mechanismはdeployment-specificです。Container secret、enviro
 
 Public Anchor UUIDはsecretではありません。
 
-## 21. Network exposure
+## 21. Network exposure / administrative outbound fetch
 
 Container networkingはimplementation detailです。Internal portとpublic portが異なっても構いません。
 
 意図したpublic interfaceのみをexternal publishすることを推奨します。
 
 SQLiteはnetwork-exposed database serviceを必要としてはなりません。
+
+Administrative outbound-fetch toolingは、Frozen Reference Resolver Architecture 0.1が要求するoutbound-network policyをNative/Container両profileで維持しなければなりません。
+
+Container networking、bridge isolation、namespace separationだけを十分なoutbound-fetch/SSRF policyとして扱ってはなりません。
+
+両profileで:
+
+- configured outbound allow/deny policyは同等の意味を維持しなければならない
+- redirect targetも適用policyの対象でなければならない
+- resolved addressに基づくpolicyは実際にconnectionで使われるaddressへ適用するか、同等のDNS-rebinding-resistant mechanismを使わなければならない
+- host、loopback、private、link-local、cloud metadata、internal networkへの到達可能性はtopologyだけでsafeとみなさずdeployment policyで制御しなければならない
+- administrative outbound fetchへ、deployment環境が提供するという理由だけでambient credential、cookie、client certificate、その他無関係なcredentialを付与しないことを推奨する
+
+Containerからhost service/internal infrastructureへ到達可能であることは、そのdestinationをRELink policy上authorizeしません。
 
 どのdeployment profileも、Entityによるcurrent IP定期報告やResolverによるUUID→device control endpoint mappingを要求してはなりません。
 
@@ -280,6 +334,8 @@ SQLiteはnetwork-exposed database serviceを必要としてはなりません。
 Ordinary conforming Resolver/Manifest requestを妨げず、abusive/unbounded inputを制限するよう設定することを推奨します。
 
 Container resource limitを追加しても構いませんがprotocol semanticsにはしません。
+
+Administrative outbound-fetch operationは、Frozen Reference Resolver Architecture 0.1で要求されるbounded redirect、timeout、response-size、processing limitを維持しなければなりません。
 
 ## 23. Time / Clock
 
@@ -321,10 +377,16 @@ Deployment-specific acceptanceでは少なくとも次を確認します。
 
 ```text
 persistent state survives restart/redeployment
+SQLite ancillary files remain compatible with persistent storage layout
 admin surface remains protected
 public/admin routes remain distinct
+private DB/config/backup/export artifacts are not retrievable via HTTP
 HTTPS/proxy configuration preserves L1 semantics
-backup/restore preserves UUID/state/history
+untrusted forwarded headers cannot spoof the trusted-proxy boundary
+outbound fetch policy is equivalent across native/container profiles
+redirect/DNS changes cannot bypass configured outbound policy
+backup is transactionally consistent for the configured SQLite journal mode
+backup/restore preserves UUID/state/Manifest metadata/history
 profile migration preserves logical Resolver state
 ```
 
@@ -342,6 +404,7 @@ Deployment Profiles 0.1は次を定義しません。
 - device control / capability execution
 - database DDL
 - production implementation code
+- globally mandatoryなprivate-network denylist
 - patent/FTO clearance
 
 ## 27. Summary
@@ -358,6 +421,10 @@ same protocol semantics
 same logical configuration responsibilities
 same durable Resolver state
 same public/admin separation
+same private-file boundary
+same trusted-proxy boundary
+same outbound network-policy semantics
+same SQLite-consistent backup requirement
 ```
 
 Deploymentが変更するのはpackaging/operationsであり、RELink identity/resolution semanticsではありません。
