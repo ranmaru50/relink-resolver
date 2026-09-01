@@ -34,7 +34,7 @@ Reference実装の都合でprotocol semanticsを再定義してはなりませ�
 
 ## 3. Architecture separation
 
-次の分離を維持します。
+次の分離を維持しなければなりません。
 
 ```text
 Public resolution ≠ Maintenance administration
@@ -42,6 +42,7 @@ Resolver Core     ≠ Manifest
 Manifest          ≠ Trust
 Resolution        ≠ Capability execution
 Persistence model ≠ Public protocol
+Public resolution ≠ Administrative outbound fetch
 ```
 
 概念構造:
@@ -60,6 +61,8 @@ SQLite
 Administrative surface
 /admin/
         ↓
+protected transport
+        ↓
 authentication + authorization
         ↓
 Maintenance application boundary
@@ -67,9 +70,15 @@ Maintenance application boundary
 Repository / history port
         ↓
 SQLite
+
+Optional administrative fetch tooling
+        ↓
+outbound network policy
+        ↓
+external resource
 ```
 
-Public/Adminが同一deployable application内にあっても、route、authorization requirement、responsibilityは分離しなければなりません。
+Public/Adminが同一deployable application内にあっても、route、authorization requirement、privilege、outbound-network capability、responsibilityは分離しなければなりません。
 
 ## 4. Public Resolver surface
 
@@ -89,6 +98,8 @@ Unsupported method、malformed UUID、unsupported `l`、reserved `p`、cache/COR
 Public Core pathでadministrative mutationを行ってはなりません。
 
 Public Core pathはadministrator authenticationを要求してはならず、Anchor UUIDをauthorization credentialとして扱ってはなりません。
+
+Public Core pathはresolutionのためだけにDescription resourceをfetchしてはなりません。
 
 ## 5. Manifest surface
 
@@ -127,6 +138,18 @@ DB schema、primary key、table name、row ID、index、migration方式をpublic
 
 Anchor UUIDはpublic Resolver record identifierであり、secret/bearer credentialとして扱ってはなりません。
 
+SQLite DB、journal/WAL、backup、secret-bearing configuration、administrative export等のprivate persistence artifactは、public/admin document rootから直接Web-addressableであってはなりません。
+
+Deploymentは概念上次の境界を維持しなければなりません。
+
+```text
+web-served application files
+≠
+persistent/private data and secrets
+```
+
+具体的filesystem pathはdeployment-definedです。
+
 ## 7. Description Location validation
 
 Administrative create/updateは、current public mappingとしてcommitする前にDescription Locationをvalidateしなければなりません。
@@ -144,7 +167,7 @@ CR/LF / header injection material
 
 URI syntax/header安全性のvalidationはTrust、authorization、reachability、AR-XML validityを意味しません。
 
-Maintenance surfaceはreachability/validation toolを提供しても構いませんが、Resolver Core resolution semanticsとは分離しなければなりません。
+Maintenance surfaceはreachability/validation toolを提供しても構いませんが、Resolver Core resolution semanticsとは分離し、§18のadministrative outbound-fetch requirementsへ従わなければなりません。
 
 ## 8. Lifecycle administration
 
@@ -159,7 +182,7 @@ SUSPENDED → RETIRED
 
 Lifecycle 0.1では`RETIRED`はterminalです。
 
-Lifecycle transitionとmaterial history eventは、後続public readから見てatomicにcommitすることを推奨します。
+Configured history policyが対応するmaterial history eventを要求する場合、lifecycle transitionとhistory eventは後続readから見てatomicにcommitすることを推奨します。Reference実装では同一persistence transactionを強く推奨します。
 
 RETIRED recordをsilentにreactivateしてはなりません。
 
@@ -179,6 +202,8 @@ RETIRED recordをsilentにreactivateしてはなりません。
 Manifestを有効にする場合、record detailにはCanonical Entity Identityとmaintenanceに必要なoptional Manifest metadataも表示することを推奨します。
 
 Convenience validationを提供しても構いませんが、その結果をTrust、authentication、ownership proof、capability authorizationとして表現してはなりません。
+
+Administrative GET operationはread-onlyでなければなりません。GET linkのfollowやGET resource loadだけでstate changeを実行してはなりません。
 
 ## 10. UUID registration
 
@@ -254,9 +279,11 @@ Manifest result where enabled
 
 Resolution testはraw DB stateだけで成功判定せず、public behaviorまたは同等application boundaryを試験することを推奨します。
 
-AR-XML reachability checkを提供する場合はResolver resolution successと明確に分離表示しなければなりません。
+AR-XML reachability checkを提供する場合はResolver resolution successと明確に分離表示し、server-side network accessを行う場合は§18へ従わなければなりません。
 
-## 15. Administrative authentication / authorization
+## 15. Administrative authentication / authorization / transport
+
+Production deploymentでは、administrative authentication、session establishment、sensitive maintenance dataのauthenticated inspection、mutation requestはHTTPSまたは同等に保護されたdeployment channelを使用しなければなりません。
 
 Administrative mutation surfaceはdeployment-appropriateなauthentication / authorizationで保護しなければなりません。
 
@@ -266,25 +293,41 @@ Baseline L1 public auth ruleはMaintenance UI authenticationを定義しませ�
 
 最初のReference Resolverは特定IdP、password scheme、WebAuthn、reverse-proxy auth、external authorization serviceを必須とはしません。ただしdeployment choiceはunauthenticated mutationに対する実効的な保護を提供しなければなりません。
 
-Admin sessionはsecure transport、必要に応じたCSRF protection、session expiry、privilege checkなど標準Web security controlを使用することを推奨します。
+Deploymentがdifferentiated privilegeを定義する場合、authentication成功だけを全administrative operationへのauthorizationとして扱ってはなりません。
 
-## 16. Public/admin privilege separation
+Browser-session実装では、cookie利用時のSecure/HttpOnly、適切なSameSite、session expiry、authentication後のsession identifier rotation等の標準Web session controlを使用することを推奨します。
+
+Login rate limit等の合理的なlogin abuse controlも推奨します。
+
+## 16. Administrative CSRF / mutation semantics
+
+Cookie等のbrowser ambient credentialへ依存するadministrative mutation endpointは、deploymentに適したCSRF protectionを実装しなければなりません。
+
+具体方式は固定しません。anti-CSRF token、Origin validation、Fetch Metadata validation、適切なSameSite policy、またはこれらの組合せを使用できます。
+
+SameSite cookie属性だけですべてのdeploymentに対するCSRF defenseを代替できると仮定すべきではありません。
+
+Administrative mutationはstate changeを意図したmethod/request flowを使用しなければなりません。GET/HEADはsafe/read-only operationのままとします。
+
+## 17. Public/admin privilege separation / UI output security
 
 Deploymentはpublic request pathのprivilegeを最小化することを推奨します。
 
 可能な範囲で:
 
 - public handlerはmutation capabilityを持たない
-- admin mutation codeはauthenticated admin pathからのみ到達可能
+- admin mutation codeはauthenticated/authorized admin pathからのみ到達可能
 - DB/file permissionはleast privilege
 - public/admin routingを明確に区別
 - admin errorのsensitive implementation detailをpublicへ露出しない
 
 Separate virtual host/process/filesystem permission/reverse proxy rule等を使って構いませんが、特定mechanismはprotocol conformance要件ではありません。
 
-## 17. Input/output security
-
 Public/admin inputはすべてuntrustedとして扱います。
+
+Administrative HTMLへ表示するuntrusted valueは、output contextに応じてescapeまたはsafe encodingしなければなりません。Description Location、`entity.id`、history note、actor identifier、extension metadata等をHTML/attribute/script/URL contextへunescaped active markupとして挿入してはなりません。
+
+Admin実装はuntrusted valueにraw HTML rendering APIを避け、defense in depthとしてrestrictive CSPを検討することを推奨します。
 
 Request size、field length、list/search pagination、generated Manifest sizeにはbounded limitを設定することを推奨します。
 
@@ -292,27 +335,63 @@ Public redirect emissionはresponse splitting/header injectionを防止しなけ
 
 Public Manifest JSONはstrict JSONで生成し、duplicate object-member nameを生成してはなりません。
 
-Admin outputはUI injection防止のためcontext escapeすることを推奨します。
-
 SQLiteアクセス実装ではparameterized query等のsafe data bindingを使用することを推奨します。
 
-これらはReference実装security requirementであり、Resolver protocolの意味を変更しません。
+## 18. Administrative outbound fetch security
 
-## 18. Logging / privacy
+Administrative reachability check、AR-XML diagnostic、integrity publishing、その他Reference Resolver serverがsupplied/stored URLをdereferenceする機能は、独立したoutbound-fetch security boundaryです。
+
+```text
+Public Resolver resolution
+= no Description fetch
+
+Administrative fetch tooling
+= explicit privileged operation
++ outbound network policy
+```
+
+Administrative outbound destinationおよびredirect targetはすべてuntrusted network inputとして扱わなければなりません。
+
+Execution stackが制御を提供する範囲で、deployment-configured outbound network policyをdereference前またはその最中に適用しなければなりません。Redirect controlが利用可能な場合、redirect targetもpolicyで再評価しなければなりません。
+
+Administrative fetch toolingは少なくとも次のbounded resource controlを持たなければなりません。
+
+- finite redirect limit
+- connect / response(read) timeout
+- finite maximum response body size
+- operationに適したbounded processing time / memory use
+
+Administrative outbound fetchは、ambient cookie、client certificate、その他無関係なcredentialをdefaultで付与しないことを推奨します。Credentialは明示的なdeployment policyまたは将来のauthenticated profileが選択した場合のみ使用できます。
+
+Destination policyを適用する際はDNS rebinding/name-to-address changeを考慮することを推奨します。Loopback/private/link-local/cloud metadata/internal service等は、syntactically validであるだけでsafeと仮定せずdeployment policyで制御しなければなりません。
+
+Local/private Entity resourceをprotocol-wideに禁止しません。Deploymentは意図的に許可して構いません。必要なinvariantは次です。
+
+```text
+configured outbound network policy
+↓
+allow / deny destination
+↓
+actual fetch behavior follows that decision
+```
+
+Reachability成功をTrust、Entity authentication、authorization、ownership proof、L2 achievementとして表示してはなりません。
+
+## 19. Logging / privacy
 
 Reference Resolverはtroubleshooting/abuse analysisに必要なoperational logを保持することを推奨しますが、logをprotocol stateとして扱いません。
 
-Logは不要なsensitive dataを最小化すべきです。Query string、IP address、user-agent、administrator identity、submitted URL等にはprivacy impactがあるため、documented retention/access policyに従うことを推奨します。
+Logは不要なsensitive dataを最小化すべきです。Query string、IP address、user-agent、administrator identity、submitted URL、outbound-fetch diagnostic等にはprivacy impactがあるため、documented retention/access policyに従うことを推奨します。
 
 Public resolution loggingを、Entityがcurrent network addressを定期reportする要件へ変えてはなりません。
 
-## 19. Availability / abuse controls
+## 20. Availability / abuse controls
 
 Request size limit、rate limiting、connection/time limit、bounded admin query等のdeployment-appropriateなabuse controlを持つことを推奨します。
 
 Availability controlでprotocol semanticsをsilentに変更してはなりません。Overload/temp backend unavailable時はfabricated successful mappingではなく適用HTTP failure behaviorを返すべきです。
 
-## 20. Backup / restore / migration
+## 21. Backup / restore / migration / private-file placement
 
 SQLiteにはcurrent mappingとadministrative historyがあるため、deploymentはbackup/restore procedureを定義することを推奨します。
 
@@ -320,20 +399,46 @@ RestoreはUUID identity、lifecycle state、current Description Location、retai
 
 Schema migrationはimplementation concernです。Internal storage変更だけを理由にpublic Resolver semanticsを変更してはなりません。
 
-## 21. Optional publishing/integrity tooling
+SQLite DB、journal/WAL、backup、migration snapshot、administrative export、secret-bearing configは、public/admin routeからHTTP取得可能なstorageへ置いてはならず、または同等のmechanismで直接HTTP retrievalを防止しなければなりません。
+
+Backup/migration artifactはhistorical/sensitive administrative dataを含み得るため、live DBと同等以上にrestrictiveなaccess controlを持つことを推奨します。
+
+## 22. Optional publishing/integrity tooling
 
 Maintenance UIはselected AR-XML representationについてManifest `description.integrity`を計算/更新する明示的publishing operationを提供しても構いません。
 
 そのtoolは:
 
 - public resolution request pathと分離する
+- §18のoutbound-fetch controlへ従う
 - Frozen Manifest 0.1 byte semanticsを使用する
 - 処理対象representation/locationを明確化することを推奨
 - digest successをEntity authentication、ownership proof、freshness、anti-rollback、authorization、L2と表現しない
 
+Integrity publishing operationは、計算したdigestをそのoperationで選択したDescription Locationおよびlogical record stateへbindしなければなりません。
+
+Selection/fetchからcommitまでにcurrent Description Locationが変更された場合、そのdigestをcommitしてはなりません。別のmaterial record version/stateをconcurrency controlに使用する場合も、conflicting changeをcommit前に検出しなければなりません。
+
+概念的には次です。
+
+```text
+select Location A + logical version V
+↓
+fetch A under outbound policy
+↓
+compute digest
+↓
+commit only if current Location == A
+and applicable version/state still matches V
+↓
+otherwise conflict / retry
+```
+
+Description Location associationとintegrity metadataは、一つのlogically consistent administrative updateとしてcommitすることを推奨します。
+
 Public resolutionのたびにDescriptionをfetchしてintegrity metadataを自動更新してはなりません。
 
-## 22. Resolver CoreでAR-XMLを解釈しない
+## 23. Resolver CoreでAR-XMLを解釈しない
 
 Public Resolver Core pathはUUID解決のためにAR-XMLをparseしてはなりません。
 
@@ -347,9 +452,9 @@ Reference Resolverは次を行ってはなりません。
 - Description resolutionの代わりにmanagement console redirect
 - periodic device-IP reporting要求
 
-AR-XMLをfetchするoptional admin diagnosticはCore resolution behaviorと明示的に分離しなければなりません。
+AR-XMLをfetchするoptional admin diagnosticはCore resolution behaviorと明示的に分離し、§18へ従わなければなりません。
 
-## 23. Manifest extension / vendor metadata
+## 24. Manifest extension / vendor metadata
 
 Reference implementation固有のpublic Manifest metadataはFrozen Extension Policyを使用することを推奨します。
 
@@ -359,7 +464,7 @@ Extensionはstandard `description.location`、lifecycle、integrity、Core resol
 
 Administrative-only metadataはManifestへ公開する必要はありません。
 
-## 24. Configuration responsibilities
+## 25. Configuration responsibilities
 
 Deployment configurationは例えば次を含めて構いません。
 
@@ -367,6 +472,7 @@ Deployment configurationは例えば次を含めて構いません。
 public base path
 admin base path
 SQLite database location
+outbound network policy
 cache defaults within allowed profile
 logging policy
 rate limits
@@ -377,11 +483,11 @@ history retention policy
 
 Core-only implementationがunsupported security levelをL1へsilent reinterpretできるconfigurationにしてはなりません。
 
-Secretをrepository defaultへcommitしたりpublic diagnostic outputへ露出してはなりません。
+Secretをrepository defaultへcommitしたり、public diagnostic outputへ露出したり、直接Web-addressable pathへ保存してはなりません。
 
-## 25. Implementation handoff
+## 26. Implementation handoff
 
-後続実装taskは具体的PHP structure/SQLite schemaを選択できますが、少なくとも次のlogical boundaryを維持することを推奨します。
+後続実装は具体的PHP structure / SQLite schemaを選択できますが、少なくとも次のlogical boundaryを維持することを推奨します。
 
 ```text
 HTTP/public adapter
@@ -389,48 +495,73 @@ HTTP/admin adapter
 Core resolution service
 Manifest representation service
 Maintenance service
+Administrative outbound-fetch service/policy
 Persistence/repository boundary
 History/audit boundary
 Authentication/authorization adapter
 ```
 
-Implementation acceptanceではFrozen Resolver / Manifest Conformance Catalog 0.1をprotocol baselineとし、authenticated maintenance behaviorを別testすることを推奨します。
+Implementation acceptanceはFrozen Resolver / Manifest Conformance Catalog 0.1をprotocol baselineとして含み、authenticated maintenance behaviorを別途testすることを推奨します。
 
-## 26. Non-goals
+Security acceptanceでは少なくとも次をtest/review対象とすることを推奨します。
+
+```text
+admin HTTPS/protected-channel enforcement
+CSRF-resistant browser mutation
+GET/HEAD administrative read-only behavior
+stored-XSS/output-encoding resistance
+private SQLite/config/backup non-addressability
+outbound-fetch policy and redirect re-evaluation
+bounded outbound fetches
+integrity publishing conflict/TOCTOU handling
+```
+
+## 27. Non-goals
 
 Reference Resolver Architecture 0.1は次を定義しません。
 
 - L2 authentication protocol
 - ownership-transfer protocol
-- public-key binding/signature
+- public-key binding / signature
 - capability execution
 - device configuration protocol
 - dynamic device-IP lookup/reporting architecture
-- concrete DB DDL
+- concrete database DDL
 - concrete PHP framework/class name
-- Docker/native packaging detail
-- patent/FTOの法的結論
+- Docker/native packaging details
+- globally mandatoryなprivate-network denylist
+- legal patent/FTO conclusion
 
-## 27. Summary
+## 28. Summary
 
 ```text
 Public Resolver
     = minimal GET-only resolution
+    = no Description fetch
 
 Optional Manifest Endpoint
     = stored Entity-level metadata representation
 
 Maintenance UI
-    = authenticated administrative mutation and inspection
+    = protected transport
+    + authentication / authorization
+    + CSRF-safe mutation
+    + context-safe output
 
-SQLite
-    = implementation persistence, not protocol semantics
+Administrative Fetch Tooling
+    = separate privileged SSRF-sensitive boundary
+    + configured outbound policy
+    + bounded fetch behavior
+
+SQLite / secrets / backups
+    = private persistence
+    ≠ web-addressable content
 
 History
     = bounded administrative trace, not Trust
 ```
 
-Reference ResolverはRELinkの中心的な分離を維持しなければなりません。
+Reference Resolver実装はRELinkの中心的責務分離を維持しなければなりません。
 
 ```text
 Resolver Core = minimal resolution
