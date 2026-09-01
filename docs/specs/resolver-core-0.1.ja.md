@@ -1,16 +1,16 @@
 # RELink Resolver Core 0.1 日本語版
 
-Status: Draft specification  
+Status: Frozen 2026-09-01  
 Version: 0.1  
-Scope: L1 public resolution  
+Scope: L1 public resolution
 
-> この文書は `resolver-core-0.1.md` の日本語版です。仕様上の要件語は英語版と同じ **MUST / SHOULD / MAY** を保持します。解釈に差異がある場合は英語版を基準とします。
+Freeze policy: Resolver Core 0.1 は 2026-09-01 に Frozen とされました。0.1 内で許容されるのは editorial / non-semantic errata のみです。L1 request semantics、`l` / `p` downgrade behavior、HTTP status / processing order、Description Location validation、HTTPS / network-policy semantics、lifecycle mapping、Manifest independence、public/admin responsibility boundary、Trust/L2 exclusion、Core conformance expectation の変更は、後続 Resolver Core version または別途 versioning された profile で扱います。
+
+> この文書は `resolver-core-0.1.md` の公式日本語版です。仕様上の要件語は英語版と同じ **MUST / SHOULD / MAY** を保持します。解釈に差異がある場合は Frozen 英語版を基準とします。
 
 ## 1. 目的
 
-RELink Resolver Core は、永続的な RELink Anchor identifier を Entity の現在の AR-XML description location に対応付ける、最小の Web-facing resolution function を定義します。
-
-中核となる関係は次のとおりです。
+RELink Resolver Core は、永続的な RELink Anchor identifier を Entity の現在の AR-XML Description Location へ対応付ける最小の Web-facing resolution function を定義します。
 
 ```text
 Anchor UUID
@@ -20,70 +20,68 @@ Resolver Core
 Current AR-XML Description Location
 ```
 
-Resolver Core は RELink architecture 全体より意図的に小さく設計されています。Entity capability の記述、Trust の確立、ownership の認証、operation の実行は行いません。
-
-責務分離は次のとおりです。
+Resolver Core は意図的に小さく、Entity capability の記述、Trust の確立、ownership authentication、operation execution を行いません。
 
 ```text
 Resolver Core = minimal resolution
-Manifest      = richer metadata
+Manifest      = frozen richer Entity-level resolution metadata
 Trust         = later security / authority layer
 Runtime       = consumer-facing interpretation and execution
 ```
 
+RELink Manifest 0.1 は 2026-08-31 に別仕様として Frozen されています。Resolver Core 0.1 は Manifest retrieval から独立しており、ACTIVE Anchor は Manifest を必要とせず current AR-XML Description Location へ直接 resolution できなければなりません（MUST）。
+
 ## 2. 要件語
 
-本書中の **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **NOT RECOMMENDED**, **MAY**, **OPTIONAL** は、すべて大文字で記載されている場合に限り、BCP 14（RFC 2119 および RFC 8174）に従って解釈します。
+本書中の **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **NOT RECOMMENDED**, **MAY**, **OPTIONAL** は、すべて大文字で記載されている場合に限り BCP 14（RFC 2119 / RFC 8174）に従って解釈します。
 
 ## 3. 用語
 
 ### 3.1 Physical Anchor
 
-Physical Entity に関連付けられた、machine-readable または dereference 可能な物理的参照です。QR と NFC を主要な Anchor carrier と想定しますが、Resolver Core は特定の carrier technology に依存しません。
+Physical Entity に関連付けられた machine-readable または dereference 可能な物理的参照です。QR / NFC を想定できますが、Core は特定 carrier technology に依存しません。
 
 ### 3.2 Anchor URL
 
-Physical Anchor に格納される、または Physical Anchor から取得される URL です。
-
-典型的な direct Resolver URL は次の形式です。
+Physical Anchor に格納される、またはそこから取得される URL です。
 
 ```text
 https://{domain}/{resolver-service}/{uuid}
 ```
 
-Anchor URL は Resolver に到達する前に、URL shortening service など通常の Web redirect infrastructure を経由しても構いません（MAY）。
+Anchor URL は Resolver 到達前に ordinary Web redirect / URL shortener を経由しても構いません（MAY）。
 
 ### 3.3 Anchor UUID
 
-Resolver lookup key として使用する UUID です。
+Resolver lookup key として使用される UUID です。
 
-Anchor UUID は RELink resolution record を識別します。Resolver Core はこれを opaque identifier として扱い、UUID version や bit layout から semantics、timestamp、security property、ownership、device type、network location を導出しません。
+Anchor UUID は RELink resolution record を識別します。Resolver Core はこれを opaque identifier として扱い、UUID version / bit layout から semantics、timestamp、security property、ownership、device type、network location を導出しません。
+
+Anchor UUID の所持・知識を authentication / authorization とみなしてはなりません（MUST NOT）。Anchor UUID は password、bearer credential、access token、capability token ではありません。
 
 ### 3.4 Resolver Resource
 
-特定の Anchor UUID に対する Resolver request target が識別する HTTP resource です。
-
-Resolver Resource は AR-XML document でも Physical Entity 自体でもありません。
+Anchor UUID の Resolver request target が示す HTTP resource です。AR-XML documentでもPhysical Entity自体でもありません。
 
 ### 3.5 Description Location
 
-Entity の AR-XML description を取得することが期待される、現在の HTTPS URL です。
+Entity の AR-XML description を取得することが期待される現在の HTTPS URL です。Description Location は Anchor UUID を変更せず更新できます。
 
-Description Location は Anchor UUID を変更せずに変更可能です。
+Resolver が返す Description Location は consumer 観点では **untrusted network input** です。Resolution success は target が safe / authorized であることを意味しません。
 
 ### 3.6 Canonical Entity Identity
 
-Entity の location-independent identity です。具体的な表現形式は Resolver Core 0.1 の normative scope 外であり、Manifest specification で定義する予定です。
+Entity の location-independent identity です。Frozen Manifest 0.1 では `entity.id` として absolute URI / identifier-only semantics で表現されます。Resolver Core 0.1 は ordinary L1 resolution で Canonical Entity Identity を要求・返却・dereference しません。
 
-Resolver Core 0.1 は Resolver URL または Description Location を Canonical Entity Identity と同一視してはなりません（MUST NOT）。
+Resolver URL または Description Location を Canonical Entity Identity と同一視してはなりません（MUST NOT）。
 
-### 3.7 Runtime
+### 3.7 Runtime / Consumer
 
-RELink resource を dereference し、AR-XML を取得・解釈し、Capability を発見し、別途定義される Runtime semantics に従って将来的に Capability を実行し得る consumer です。
+RELink resource を dereference し、AR-XML を取得・解釈し、capability を発見し、別 Runtime semantics に従って capability を実行し得る consumer です。
 
 ## 4. Core design invariants
 
-Resolver Core 0.1 conforming implementation は、次の責務分離を維持しなければなりません（MUST）。
+Resolver Core 0.1 conforming implementation は次を維持しなければなりません（MUST）。
 
 ```text
 Entity     ≠ Location
@@ -92,150 +90,159 @@ Resolution ≠ Authentication
 Description ≠ Execution
 ```
 
-特に以下を満たします。
+特に:
 
-- Anchor UUID は Description Location が変更されても安定して維持してよい（MAY）。
-- Resolver URL を Entity の operational endpoint として扱ってはならない（MUST NOT）。
-- resolution success は Physical Entity、AR-XML document、owner、Runtime のいずれかが authenticated であることを意味してはならない（MUST NOT）。
-- resolution success によって Entity capability を実行してはならない（MUST NOT）。
+- Anchor UUID は Description Location が変わっても安定してよい（MAY）。
+- Resolver URL を Entity operational endpoint として扱ってはならない（MUST NOT）。
+- resolution success を Physical Entity / AR-XML / owner / Runtime の authentication と解釈してはならない（MUST NOT）。
+- resolution success により Entity capability を実行してはならない（MUST NOT）。
 
-## 5. L1 security-level baseline
+## 5. L1 Resolution Security Profile と security-level request
 
-Resolver Core 0.1 は L1 public resolution baseline を定義します。
+Resolver Core 0.1 は **L1 Resolution Security Profile** を定義します。L1 は resolution transport/profile designation であり、Entity trust / safety / ownership / authenticity rating ではありません。
 
-security-level query parameter が存在しない場合、request は L1 request として解釈しなければなりません（MUST）。
+Ordinary Core 0.1 L1 request は `l` と `p` のどちらも含みません。
 
 ```text
-no security-level query
+no l, no p
 = L1
 ```
 
-将来の RELink level では、例えば次の形式を使用できます。
+将来 level は次の形式を利用できます。
 
 ```text
 https://{domain}/{resolver-service}/{uuid}?l={level}&p={public-parameter}
 ```
 
-forward compatibility のため、以下を固定します。
+Forward compatibility rule:
 
-- `l` は将来仕様で定義される場合、**requested security level** を表し、achieved または verified security level を表しません。
-- `p` は Resolver Core 0.1 では意味を持ちません。
-- Resolver Core 0.1 client は `l` と `p` を省略することを推奨します（SHOULD）。
-- Resolver Core 0.1 は L2 以降の authentication、negotiation、downgrade、failure、mutation semantics を定義しません。
-- 未認識 query parameter の存在を、Core 0.1 consumer が security 強度向上の証拠として解釈してはなりません（MUST NOT）。
+- `l` は **requested RELink security level** を示し、achieved / verified level を示さない。
+- Core 0.1 が定義するのは no-`l`, no-`p` L1 request のみ。
+- unsupported `l` を受け取った Core 0.1-only Resolver は L1 として silent processing してはならない（MUST NOT）。
+- unsupported `l` は fail closed しなければならない（MUST）。
+- Core 0.1-only Resolver は unsupported `l` に `501 Not Implemented` を返すことが推奨される（SHOULD）。
+- `p` は、それを明示的に定義する level の semantics 用に予約する。
+- defining `l` なしの `p` を ordinary L1 として処理してはならない（MUST NOT）。
+- Core 0.1-only Resolver は supported defining `l` のない `p` に `400 Bad Request` を返すことが推奨される（SHOULD）。
+- `p` により unsupported `l` を L1 として受理してはならない（MUST NOT）。
+- Core 0.1 client は `l` / `p` を省略することが推奨される（SHOULD）。
+- query parameter の存在を stronger security level 達成の証拠と解釈してはならない（MUST NOT）。
 
-将来の RELink level を実装する deployment は、security-level query parameter のない L1 request の意味を変更しない限り、追加 query semantics を定義してよい（MAY）。
+Later level は ordinary L1 request の意味を変更しない範囲で追加 query semantics を定義しても構いません（MAY）。
 
-## 6. Request target
+```text
+no l, no p            → L1
+supported l           → supported level
+unsupported l         → fail closed
+p without defining l  → fail closed
+unsupported l         ↛ L1
+p without defining l  ↛ L1
+```
 
-canonical Resolver Core request form は次のとおりです。
+## 6. Request target と UUID handling
+
+Canonical request:
 
 ```text
 GET /{resolver-service}/{uuid}
 ```
 
-`{resolver-service}` は deployment-defined です。
+`{resolver-service}` は deployment-defined です。`{uuid}` は RFC 9562 に適合する UUID textual representation でなければなりません（MUST）。
 
-`{uuid}` は RFC 9562 に適合する UUID textual representation でなければなりません（MUST）。
+Server は:
 
-conforming server は以下を満たします。
-
-- RFC 9562 が許容する uppercase、lowercase、mixed-case hexadecimal UUID text を受理しなければならない（MUST）。
-- UUID hexadecimal letter case に意味を付与せず比較しなければならない（MUST）。
-- administrative display、log、generated URL、その他 canonicalized output では lowercase UUID text を使用することを推奨する（SHOULD）。
-- supplied UUID が implementation の registration policy 上 valid である場合、lookup のために特定の UUID version のみを要求してはならない（MUST NOT）。
+- RFC 9562 が許容する upper/lower/mixed-case UUID text を受理する（MUST）。
+- hexadecimal letter case に意味を付けず UUID value を比較する（MUST）。
+- admin display / generated URL では lowercase を使うことが推奨される（SHOULD）。
+- registration policy 上 valid なら特定 UUID version のみを lookup requirement にしてはならない（MUST NOT）。
 - UUID version-specific field から Resolver behavior を導出してはならない（MUST NOT）。
 
-UUID path position に malformed UUID が指定された場合、`400 Bad Request` を返さなければなりません（MUST）。
+Malformed UUID → `400 Bad Request`（MUST）。
+Valid but unregistered UUID → `404 Not Found`（MUST）。
 
-syntax 上 valid だが未登録の UUID には `404 Not Found` を返さなければなりません（MUST）。
+Externally visible Anchor UUID を生成する implementation は UUID version の metadata leakage を考慮することが推奨されます（SHOULD）。Reference Resolver は明確な理由がなければ UUIDv4 を default とすることが推奨されます（SHOULD）。
 
-## 7. HTTP method semantics
+## 7. HTTP method semantics と processing order
 
 ### 7.1 GET
 
-Resolver Core 0.1 の resolution method は `GET` のみです。
+`GET` は Core 0.1 唯一の resolution method です。Successful GET は read-only lookup を行い current Description Location へ redirect します。GET は Resolver state を変更してはなりません（MUST NOT）。
 
-successful GET は read-only lookup を実行し、current Description Location への HTTP redirect を返します。
+### 7.2 Other methods
 
-GET request は Resolver state を変更してはなりません（MUST NOT）。
+Public Core resource 上の `POST` / `PUT` / `PATCH` / `DELETE` は未定義です。
 
-### 7.2 その他の method
+Syntactically valid Core route では unsupported-method handling を UUID registration-state lookup より先に行わなければなりません（MUST）。
 
-Resolver Core 0.1 は public resolution resource 上の `POST`、`PUT`、`PATCH`、`DELETE` を定義しません。
-
-valid Resolver Core resource に unsupported method を受信した Resolver は次を返さなければなりません（MUST）。
+したがって registered / unknown / ACTIVE / SUSPENDED / RETIRED の違いだけで unsupported method の public result を変えてはなりません（MUST NOT）。
 
 ```http
 405 Method Not Allowed
 Allow: GET
 ```
 
-Reference Resolver または deployment が authenticated maintenance operation を提供する場合、それらは separate administrative surface で公開しなければならず（MUST）、Resolver Core 0.1 には含まれません。
+を返さなければなりません（MUST）。
 
-## 8. Successful resolution
+Maintenance operation を提供する場合、separate administrative surface で公開しなければならず（MUST）、Core 0.1 の一部ではありません。
 
-ACTIVE resolution record に対して Resolver は次を返さなければなりません（MUST）。
+## 8. Successful resolution と Location validation
+
+ACTIVE record に対して Resolver は:
 
 ```http
 303 See Other
 Location: https://...
 ```
 
-`Location` field は current AR-XML Description Location を識別しなければなりません（MUST）。
+を返さなければなりません（MUST）。`Location` は current AR-XML Description Location でなければなりません（MUST）。
 
-`Location` value は以下を満たします。
+Response 時に stored Location を validation しなければなりません（MUST）。Emitted value は:
 
-- absolute URI でなければならない（MUST）。
-- conforming L1 production resolution では `https` scheme を使用しなければならない（MUST）。
-- 現在 reachable という理由だけで device current IP address lookup result を指定してはならない（MUST NOT）。
-- generated management-console URL であってはならない（MUST NOT）。
-- Resolver が構築した operational UI であってはならない（MUST NOT）。
-- Resolver が選択した capability invocation URL であってはならない（MUST NOT）。
+- syntactically valid absolute URI（MUST）。
+- conforming L1 production では `https` scheme（MUST）。
+- HTTP field value として安全で header injection を許さない（MUST / MUST NOT）。
+- generated management-console URL ではない（MUST NOT）。
+- Resolver constructed operational UI ではない（MUST NOT）。
+- Resolver-selected capability invocation URL ではない（MUST NOT）。
+- ordinary Core resolution 中に dynamically reported current device IP を解決して生成したものではない（MUST NOT）。
 
-Resolver は ordinary resolution の成功判定のために AR-XML contents を inspect してはなりません（MUST NOT）。
+ACTIVE record の stored data を conforming Description Location として安全にemitできない場合、その値をemitしてはならず（MUST NOT）、`500 Internal Server Error` を返すことが推奨されます（SHOULD）。
 
-## 9. `303 See Other` を使用する理由
+Ordinary resolution success 判定のために Resolver が AR-XML contents を inspect / fetch してはなりません（MUST NOT）。
 
-Resolver Core 0.1 は permanent redirect ではなく `303 See Other` を使用します。Description Location は別 resource であり、Entity lifecycle 中に変更され得るためです。
+## 9. `303 See Other` の理由
 
-Resolver Resource、Physical Entity、AR-XML document は同一 resource ではありません。
+Description Location は別resourceでmutableであるため permanent redirect ではなく `303 See Other` を使用します。Resolver Resource、Physical Entity、AR-XML document は等価ではありません。
 
-GET request に対する HTTP の `303 See Other` semantics では、URI equivalence を主張せずに、元 target を記述する別 resource を `Location` target として示せます。これは RELink の次の原則と一致します。
+`303` は URI equivalence を主張せず別resourceを示せるため、`Entity ≠ Location` と整合します。
 
-```text
-Entity ≠ Location
-```
+Client は本仕様のconsumer/platform security requirementに従い `303` をfollowしても構いません（MAY）。
 
-client は通常の HTTP behavior により `303` を自動 follow してよい（MAY）。
+## 10. Redirect chain、HTTPS downgrade resistance、trust boundary
 
-## 10. Redirect chain
-
-RELink は Anchor URL が Resolver endpoint を直接識別することを要求しません。
-
-次の経路は valid です。
+Anchor URL が Resolver endpoint を直接示す必要はありません。
 
 ```text
 Physical Anchor
 ↓
-ordinary short URL
-↓ 301 / 302 / 303 / 307 / 308 as provided by Web infrastructure
-Resolver URL
+HTTPS short URL
+↓ HTTPS redirect(s)
+HTTPS Resolver URL
 ↓ 303
-AR-XML Description Location
+HTTPS AR-XML Description Location
+↓ optional HTTPS redirect(s)
+HTTPS final AR-XML URL
 ```
 
-同様に Description Location は、AR-XML representation が得られる前に通常の Web infrastructure を経由して redirect してもよい（MAY）。
+L1 processing consumer は Anchor→Resolver→Description→final AR-XML の全dereference chainで HTTPS→HTTP downgrade を許可してはなりません（MUST NOT）。Final AR-XML URL は HTTPS でなければなりません（MUST）。Downgrade redirect は dereference failure としなければなりません（MUST）。
 
-Resolver Core は consumer が follow すべき通常 redirect の回数を protocol 固有には規定しません。consumer は通常の HTTP redirect-loop detection と safety limit を適用することを推奨します（SHOULD）。
+Redirect count は Core 固有には固定せず、consumer/environment は bounded redirect、loop detection、ordinary HTTP safety limit を適用することが推奨されます（SHOULD）。
 
-AR-XML を実際に取得した final URL は Runtime processing において重要です。relative AR-XML Interface endpoint は original Anchor URL や Resolver URL ではなく、final AR-XML document URL を基準に resolve されることを想定します。
+Pre-Resolver redirect infrastructure は Core 0.1 によって intended Resolver として cryptographically authenticated されません。HTTPS は contacted Web origin を ordinary Web PKI により authenticate しますが、shortener/intermediate redirect が intended Resolver を選んだことまでは証明しません。
 
-詳細な Runtime integration contract は別仕様で定義します。
+Final AR-XML document URL は Runtime processing 上重要です。Relative AR-XML Interface endpoint は original Anchor / Resolver URL ではなく final AR-XML document URL をbaseに解決することを想定します。
 
 ## 11. Lifecycle states
-
-Resolver Core 0.1 は次の3つの resolution lifecycle state を定義します。
 
 ```text
 ACTIVE
@@ -245,43 +252,17 @@ RETIRED
 
 ### 11.1 ACTIVE
 
-ACTIVE record は現在 resolution 可能です。
-
-public response:
-
-```text
-303 See Other
-```
+ACTIVE → `303 See Other`。
 
 ### 11.2 SUSPENDED
 
-SUSPENDED record は Resolver に既知ですが、一時的に public resolution できません。
-
-public response:
-
-```text
-404 Not Found
-```
-
-public L1 interface は unknown UUID と temporarily suspended UUID を意図的に区別しません。
-
-maintenance interface は内部的にこの区別を保持・公開してよい（MAY）。
+SUSPENDED → `404 Not Found`。Public L1 は unknown と SUSPENDED を意図的に区別しません。
 
 ### 11.3 RETIRED
 
-RETIRED record は normal RELink resolution から永久に withdrawal されたことが既知の record です。
+RETIRED → `410 Gone`。RETIRED は Core 0.1 で terminal です。
 
-public response:
-
-```text
-410 Gone
-```
-
-RETIRED は Resolver Core 0.1 における terminal state です。
-
-### 11.4 State transition
-
-Core 0.1 で許可する state transition は次のとおりです。
+### 11.4 State transitions
 
 ```text
 ACTIVE    → SUSPENDED
@@ -290,128 +271,120 @@ ACTIVE    → RETIRED
 SUSPENDED → RETIRED
 ```
 
-Resolver Core 0.1 semantics では RETIRED から他 state への transition を行ってはなりません（MUST NOT）。
+RETIRED からの transition は Core 0.1 semantics では行ってはなりません（MUST NOT）。
 
-lifecycle reason、administrative actor、timestamp、audit history、richer lifecycle metadata は public Core resolution response には含めません。それらは separate specification に従い administrative storage や Manifest metadata に保持できます。
+Lifecycle reason / actor / timestamp / audit history 等は public Core response の外であり、administration または separately versioned metadata specification/profile で扱います。
 
 ## 12. HTTP status-code model
 
-Resolver Core 0.1 は外部から観測可能な status の意味を次のように定義します。
-
-| Status | Resolver Core における意味 |
+| Status | Core meaning |
 | --- | --- |
-| `303 See Other` | ACTIVE UUID を current Description Location へ正常に resolution |
-| `400 Bad Request` | Anchor UUID syntax が invalid、または Core request level で malformed |
-| `404 Not Found` | UUID が unknown、または既知 record が SUSPENDED |
-| `405 Method Not Allowed` | public Resolver Core 0.1 が method をサポートしない |
-| `410 Gone` | UUID は既知で permanent RETIRED |
-| `500 Internal Server Error` | 予期しない Resolver internal failure |
-| `503 Service Unavailable` | Resolver または必要な backing service が一時的に unavailable |
+| `303 See Other` | ACTIVE UUID successfully resolved |
+| `400 Bad Request` | invalid UUID、malformed Core request、defining levelなしのreserved `p` |
+| `404 Not Found` | unknown または SUSPENDED |
+| `405 Method Not Allowed` | unsupported public method。registration state と独立に判定 |
+| `410 Gone` | RETIRED |
+| `500 Internal Server Error` | internal failure / unsafe stored Location |
+| `501 Not Implemented` | requested `l` unsupported |
+| `503 Service Unavailable` | Resolver/backing service temporary unavailable |
 
-backing datastore unavailable など failure が temporary と判明している場合、server は `503 Service Unavailable` を優先することを推奨します（SHOULD）。
-
-Resolver Core 0.1 は ordinary L1 resolution に `401 Unauthorized` または `403 Forbidden` を定義しません。L1 は public / anonymous だからです。
+Temporary failure と判明している場合 `503` を優先することが推奨されます（SHOULD）。Ordinary public L1 は anonymous なので `401` / `403` を定義しません。
 
 ## 13. Error representation
 
-consumer は response body を parse せず HTTP semantics のみで Resolver Core の success / failure を判定できなければなりません（MUST）。
+Consumer は body parsing なしで HTTP semantics から success/failure を判定できなければなりません（MUST）。Error body は OPTIONAL。
 
-error response body は OPTIONAL です。
+Structured details を提供する場合 RFC 9457 Problem Details (`application/problem+json`) が推奨されます（SHOULD）。
 
-structured error detail を提供する Resolver は RFC 9457 Problem Details (`application/problem+json`) を使用することを推奨します（SHOULD）。
-
-error representation は secret、credential、private administrative metadata、private ownership information、internal datastore detail を露出してはなりません（MUST NOT）。
-
-structured error format は diagnostic metadata であり、successful L1 resolution の dependency になってはなりません（MUST NOT）。
+Error representation は secret、credential、private admin metadata、private ownership info、internal datastore details を漏らしてはなりません（MUST NOT）。Structured body を successful L1 resolution のdependencyにしてはなりません（MUST NOT）。
 
 ## 14. Cache policy
 
-Resolver mapping は mutable です。そのため cache policy は通常の Web caching を許可しつつ、obsolete Description Location が fresh とみなされる期間を制限する必要があります。
-
 ### 14.1 Successful resolution
 
-Resolver は `303` success response に explicit cache policy を送信しなければなりません（MUST）。
-
-Reference Resolver profile は次を default とすることを推奨します（SHOULD）。
+`303` には explicit cache policy を送らなければなりません（MUST）。Reference default:
 
 ```http
 Cache-Control: public, max-age=60
 ```
 
-正確な freshness lifetime は deployment-configurable であり protocol constant ではありません。
+Freshness lifetime は deployment-configurable です。Rapid revocation / incident response が必要なら shorter max-age / no-store が推奨されます（SHOULD）。
 
-deployment は想定する mapping update frequency に整合する freshness lifetime を選択することを推奨します（SHOULD）。
+### 14.2 Failure
 
-### 14.2 Malformed / unknown / temporary failure
+次は `Cache-Control: no-store` が推奨されます（SHOULD）。
 
-後続 profile が別 policy を明示しない限り、Core 0.1 deployment では次の response に対して以下を使用することを推奨します（SHOULD）。
+- `400`
+- `404`
+- `501`
+- `500`
+- `503`
 
-```http
-Cache-Control: no-store
-```
+### 14.3 RETIRED
 
-対象:
-
-- `400 Bad Request`
-- `404 Not Found`
-- `500 Internal Server Error`
-- `503 Service Unavailable`
-
-`404` の negative caching を避けることで、registration や temporary suspension workflow において、以前の lookup 後すぐに public result が変化するケースを妨げません。
-
-### 14.3 Retired record
-
-Resolver Core 0.1 では retirement が terminal であるため、`410 Gone` response は cache してよい（MAY）。
-
-Reference Resolver profile は heuristic caching に依存せず、finite explicit freshness lifetime を使用することを推奨します（SHOULD）。
-
-initial recommended value は次です。
+`410 Gone` は RETIRED terminal のため cache しても構いません（MAY）。Reference default:
 
 ```http
 Cache-Control: public, max-age=300
 ```
 
-この値は Reference Resolver default であり protocol invariant ではありません。
-
 ## 15. CORS policy
 
-Resolver Core 0.1 は browser 上で動作する Web Runtime implementation から利用できるよう設計されています。
-
-browser Fetch access を意図する public Core response では、public L1 Resolver は次を返すことを推奨します（SHOULD）。
+Browser-oriented public L1 Resolver は:
 
 ```http
 Access-Control-Allow-Origin: *
 ```
 
-L1 resolution は credential を必要とせず、public Resolver は Core GET path に credentialed CORS を要求しないことを推奨します（SHOULD NOT）。
+を返すことが推奨されます（SHOULD）。L1 Core GET に credentialed CORS を要求しないことが推奨されます（SHOULD NOT）。Core client は ordinary L1 に custom header を要求しないことが推奨されます（SHOULD NOT）。
 
-Core 0.1 client は ordinary L1 resolution のために custom request header を要求しないことを推奨します（SHOULD NOT）。
+Resolver CORS は final AR-XML originへのaccessを許可しません。AR-XML origin / redirect path は独立して browser Fetch/CORS requirements を満たす必要があります。
 
-Resolver の CORS permission は final AR-XML resource への access を許可するものではありません。AR-XML origin および relevant redirect path は独立して browser Fetch/CORS requirement を満たす必要があります。
+## 16. Consumer / platform network-security policy
 
-browser navigation と browser Fetch では CORS implications が異なります。Resolver Core は browser security behavior を再定義しません。
+Resolver output は untrusted network input です。
 
-## 16. Transport security
+Resolver-supplied Description Location / redirect target をdereferenceする前または最中に、consumer は execution environment で利用可能な applicable network-security controls を適用しなければなりません（MUST）。
 
-conforming L1 production Resolver URL は HTTPS を使用しなければなりません（MUST）。
+Application codeが各redirect targetを事前inspectionできることまでは要求しません。
 
-successful L1 Description Location は HTTPS を使用しなければなりません（MUST）。
+Server/native consumer は HTTP stack が許す場合 network access 前に destination を評価することが推奨されます（SHOULD）。Browser consumer は Fetch redirect、CORS、mixed-content、origin policy その他 browser/platform protections と、利用可能な Runtime policy に依存しても構いません（MAY）。
 
-HTTPS が提供するのは contacted Web origin までの transport security です。Resolver Core 0.1 は HTTPS 単独で以下を authenticate できるとは主張しません。
+Resolution success を target が safe / public / non-local / trusted / authenticated / authorized である意味に解釈してはなりません（MUST NOT）。
 
-- Physical Entity
-- Entity ownership
-- AR-XML semantic correctness
-- Anchor が physical entity に正しく取り付けられていること
-- deployment の administrative control を超えた resolution record 更新権限
+Policy は environment に応じて scheme、hostname/address range、loopback/local、link-local、metadata endpoint、DNS rebinding、redirect destination、allow/deny list、browser restrictions 等を扱えます。
 
-これらは将来の Trust および authenticated-update specification に属します。
+Core 0.1 は Resolver level で private/local Description Location を一律禁止しません。LAN Entity が正当な場合があるため、access decision は consumer/environment に属します。
 
-## 17. Resolver と AR-XML の責務境界
+```text
+Resolver
+↓
+Description Location
+↓
+Consumer / Platform Network Policy
+↓
+Fetch
+```
 
-Resolver Core が知る必要がある情報は resolution に必要な最小限のみです。
+## 17. Transport security と referrer minimization
 
-Core implementation は内部に次を保持してよいです。
+Conforming L1 production Resolver URL は HTTPS でなければなりません（MUST）。Successful Description Location も HTTPS でなければなりません（MUST）。Consumer は §10 の HTTPS-only chain を維持しなければなりません（MUST）。
+
+Public Resolver は redirect response に:
+
+```http
+Referrer-Policy: no-referrer
+```
+
+を送ることが推奨されます（SHOULD）。Reference Resolver は default enable が推奨されます（SHOULD）。
+
+HTTPS は contacted originへのtransport securityを提供しますが、Physical Entity、ownership、AR-XML semantics、Anchor attachment、pre-Resolver redirect choice、admin authority を証明しません。
+
+HSTS等のorigin hardeningはDeployment Profileの責務です。
+
+## 18. Resolver / AR-XML responsibility boundary
+
+Core implementation が内部保持してよい最小情報:
 
 ```text
 Anchor UUID
@@ -419,27 +392,17 @@ Lifecycle status
 Current AR-XML Description Location
 ```
 
-加えて administration に必要な implementation metadata を保持できます。
+および administration metadata。
 
-Resolver Core は以下の知識を要求してはなりません（MUST NOT）。
+Core は AR-XML category/profile/capability/input/result/interface、Entity current IP、device control protocol、management UI、capability invocation state を知ることを要求してはなりません（MUST NOT）。
 
-- AR-XML category
-- AR-XML profiles
-- AR-XML capabilities
-- AR-XML inputs / results
-- AR-XML interfaces
-- Entity current IP address
-- device control protocol
-- device management UI
-- capability invocation state
+Registered current Description Location を返す前提として AR-XML をfetch/parseしてはなりません（MUST NOT）。これにより ordinary resolution が generic SSRF / amplification path になることも避けます。
 
-Resolver は registered current Description Location を返す前提として AR-XML を parse してはなりません（MUST NOT）。
+## 19. Resolver / Manifest boundary
 
-## 18. Resolver と Manifest の境界
+Manifest は別仕様です。Manifest 0.1 と Extension Policy は 2026-08-31 Frozen。
 
-Manifest は separate specification です。
-
-conforming Resolver Core 0.1 deployment は Manifest を要求せず、ACTIVE UUID を直接 AR-XML Description Location へ resolution できなければなりません（MUST）。
+Core 0.1 deployment は ACTIVE UUID を Manifest なしで直接 AR-XML Description Location に resolve できなければなりません（MUST）。
 
 ```text
 Resolver Core
@@ -447,15 +410,19 @@ Resolver Core
 AR-XML
 ```
 
-richer deployment は別途定義された discovery mechanism により Manifest を追加公開してよい（MAY）。
+Richer deployment は separate deterministic Manifest resource を追加しても構いません（MAY）。Manifest availability / retrieval / parsing / validation / integrity verification / failure を ordinary Core L1 prerequisite にしてはなりません（MUST NOT）。
 
-Manifest availability、retrieval、parsing、validation、failure は normal Core 0.1 L1 resolution の prerequisite であってはなりません（MUST NOT）。
+Frozen Manifest が定義する `entity.id`、Description metadata / optional integrity、lifecycle metadata、versioning、extensions を追加 Core response semantics として再実装してはなりません（MUST NOT）。
 
-Canonical Entity Identity representation、richer lifecycle metadata、version information、future security/trust reference は minimal Core redirect response ではなく Manifest layer に属します。
+関連仕様:
 
-## 19. L1 と将来 L2 の境界
+- `docs/specs/manifest-0.1.md`
+- `docs/specs/manifest-0.1.schema.json`
+- `docs/specs/manifest-0.1-extension-policy.md`
 
-L1 は次です。
+## 20. L1 / future L2 boundary
+
+L1:
 
 ```text
 public
@@ -463,90 +430,85 @@ anonymous
 read-only
 GET
 UUID lookup
-HTTPS
+HTTPS-only dereference chain
 303 to current AR-XML Description Location
+consumer/platform network-security policy
 ```
 
-Resolver Core 0.1 は以下を将来 level または別仕様に明示的に委ねます。
+Core 0.1 は Runtime-to-Resolver authentication、stronger Resolver authentication、public-key verification、signature、authenticated update、`PUT`/`PATCH` mutation、ownership/authority transfer、higher-level negotiation、trust-chain validation を later level/specification に残します。
 
-- Runtime-to-Resolver authentication
-- ordinary HTTPS origin authentication を超える Resolver authentication
-- public-key-based verification semantics
-- signature
-- authenticated update
-- `PUT` / `PATCH` mutation protocol
-- ownership / authority transfer
-- security-level negotiation
-- downgrade handling
-- trust-chain validation
+ただし unsupported `l` と defining semantics のない `p` は L1 へ silent downgrade してはなりません（MUST NOT）。Later level は stronger level request を理由に既存 Anchor UUID を再定義してはなりません（MUST NOT）。
 
-stronger security level が request されたという理由だけで、later level は既存 Anchor UUID を再定義してはなりません（MUST NOT）。
+## 21. Security non-goals
 
-later level は identity、description、trust、execution を1 operation に統合するのではなく、L1 identity/resolution model を拡張することを推奨します（SHOULD）。
-
-## 20. Security non-goals
-
-Resolver Core 0.1 は以下を提供しません。
+Core 0.1 は次を提供しません。
 
 - Physical Entity authentication
 - Runtime authentication
 - owner authentication
 - AR-XML authenticity verification
-- HTTP/TLS transport mechanism を超える AR-XML integrity verification
-- Resolver trust-chain establishment
+- HTTP/TLS transport以外のAR-XML integrity verification
+- pre-Resolver redirect が intended Resolver を選択したことのcryptographic proof
+- Resolver trust chain
 - device authorization
-- capability authorization
-- capability execution
+- capability authorization/execution
 - ownership transfer
 - local-network discovery
 - current device-IP discovery
 - device configuration
 - management-console construction
 
-consumer は `303 See Other` をこれらの property の証明として扱ってはなりません（MUST NOT）。
+Frozen Manifest 0.1 の optional content pinning は Manifest layer feature であり Core responsibility を拡大しません。
 
-## 21. 禁止する責務拡張
+Consumer は `303`、Anchor UUID、HTTPS-only path、L1 result を上記のproofとして扱ってはなりません（MUST NOT）。
 
-RELink の architecture boundary を維持するため、Resolver Core 0.1 implementation は ordinary resolution を以下の pattern に依存させてはなりません（MUST NOT）。
+```text
+L1
+≠ Entity trust rating
+≠ Entity safety rating
+≠ authenticity proof
+≠ authorization
+```
+
+## 22. Prohibited responsibility expansion
+
+Ordinary Core resolution を次のpatternに依存させてはなりません（MUST NOT）。
 
 ```text
 UUID → dynamically reported device IP → management URL
-```
-
-```text
 UUID → generated control UI
-```
-
-```text
 UUID → Resolver-selected command endpoint
-```
-
-```text
 Resolver → direct capability invocation
-```
-
-```text
 periodic device IP registration → required for ordinary identity resolution
 ```
 
-deployment が unrelated device-management service を運用すること自体は許可します（MAY）が、それら service は Resolver Core semantics の外部に維持しなければなりません（MUST）。
+Unrelated device-management service を運用しても構いません（MAY）が Core semantics 外に分離しなければなりません（MUST）。
 
-## 22. Privacy と information disclosure
+## 23. Privacy / logging / information disclosure
 
-L1 は public lookup protocol です。deployment は valid Anchor URL を取得した誰もが resolution を試行できると仮定しなければなりません（MUST）。
+L1 は public lookup protocol です。Valid Anchor URL を得た誰でも resolution を試行できる前提で運用しなければなりません（MUST）。
 
-したがって:
+- public L1 Description Location は public disclosureに適することが推奨される（SHOULD）。
+- private admin data を public error に含めてはならない（MUST NOT）。
+- unknown/SUSPENDED は deliberate shared `404`。
+- internal stateを不要に漏らすresponse differenceを避けることが推奨される（SHOULD）。
+- Anchor UUIDは logs/CDN/WAF/analytics/proxyでlinkable operational metadataとして扱うことが推奨される（SHOULD）。
+- log retention/access/secondary useを最小化することが推奨される（SHOULD）。
+- future level query parameter loggingには注意することが推奨される（SHOULD）。
 
-- public L1 resolution が返す Description Location は public disclosure に適したものとすることを推奨します（SHOULD）。
-- private administrative data を public error response に埋め込んではなりません（MUST NOT）。
-- unknown と SUSPENDED record は意図的に同一の `404` behavior を共有します。
-- implementation は internal datastore や administrative state を不必要に露出する response 差異を避けることを推奨します（SHOULD）。
+Core 0.1 は ACTIVE / RETIRED identifier existence のconfidentialityを提供しません。
 
-Resolver Core 0.1 は ACTIVE または RETIRED identifier の存在自体に confidentiality を提供しません。
+## 24. Operational resilience guidance
 
-## 23. Reference interaction
+Core は ordinary resolution 中に AR-XML/device network access を行わず bounded local resolution work のみを意図します。
 
-successful L1 interaction の例:
+Reference implementation は indexed UUID lookup、bounded request/DB timeout、connection limit、rate limit、bounded diagnostic body、malformed request safety 等のordinary controlsを使うことが推奨されます（SHOULD）。
+
+これらはdeployment guidanceであり Core responsibility を拡大しません。
+
+## 25. Reference interactions
+
+成功例:
 
 ```http
 GET /relink/550e8400-e29b-41d4-a716-446655440000 HTTP/1.1
@@ -558,88 +520,146 @@ HTTP/1.1 303 See Other
 Location: https://entity.example/arxml/550e8400-e29b-41d4-a716-446655440000.xml
 Cache-Control: public, max-age=60
 Access-Control-Allow-Origin: *
+Referrer-Policy: no-referrer
 ```
 
-その後 client は通常の HTTP semantics により Description Location を取得できます。
+Consumer/environment はその後 Description Location dereference に applicable network policy を適用します。
 
-## 24. Conformance
+Unsupported level:
 
-**RELink Resolver Core 0.1 L1 conformance** を主張する deployment は、最低限以下を満たさなければなりません（MUST）。
+```http
+GET /relink/550e8400-e29b-41d4-a716-446655440000?l=2&p=example HTTP/1.1
+```
 
-1. RFC 9562 UUID lookup key を使用する HTTPS GET resolution endpoint を公開する。
-2. Resolver semantics 上 UUID を opaque として扱う。
-3. ACTIVE record に対し、absolute HTTPS current AR-XML Description Location を伴う `303 See Other` を返す。
-4. malformed、unknown/SUSPENDED、unsupported-method、RETIRED、server-failure case に対し本仕様で定義した status semantics を返す。
-5. public resolution を read-only に維持する。
-6. Entity/Location、Resolution/Authentication、Description/Execution の分離を維持する。
-7. ordinary L1 resolution のために Manifest、Trust、capability execution、device-network discovery を要求しない。
-8. 本仕様の要求に従い Core response に explicit cache behavior を付与する。
+```http
+HTTP/1.1 501 Not Implemented
+Cache-Control: no-store
+```
 
-CORS support は browser-oriented public deployment では RECOMMENDED ですが、applicable deployment profile が要求しない限り non-browser Resolver consumer に対して必須ではありません。
+Defining levelなしの `p`:
 
-## 25. 関連仕様・標準
+```http
+GET /relink/550e8400-e29b-41d4-a716-446655440000?p=example HTTP/1.1
+```
 
-Resolver Core 0.1 は既存 Web standard を再定義せず利用します。
+```http
+HTTP/1.1 400 Bad Request
+Cache-Control: no-store
+```
 
-関連する external standard:
+## 26. Conformance
+
+**Resolver Core 0.1 L1 server conformance** をclaimするdeploymentは最低限:
+
+1. RFC 9562 UUID lookup keyを使うHTTPS GET endpointを提供する（MUST）。
+2. UUIDをopaque / non-credentialとして扱う（MUST）。
+3. ACTIVEにvalidated absolute HTTPS Description Location付き`303`を返す（MUST）。
+4. unsupported `l`をL1へdowngradeせずfail closed（MUST）。
+5. defining semanticsなしの`p`をordinary L1処理せずfail closed（MUST）。
+6. malformed / unknown/SUSPENDED / unsupported method / RETIRED / unsupported level / reserved parameter / server failureのstatus semanticsを保持する（MUST）。
+7. unsupported methodをregistration stateより先に処理する（MUST）。
+8. public resolutionをread-onlyにする（MUST）。
+9. Entity/Location、Resolution/Authentication、Description/Execution separationを保持する（MUST）。
+10. ordinary resolutionにManifest、Trust、capability execution、device network discovery、AR-XML fetch/parseを要求しない（MUST）。
+11. required explicit cache behaviorを送る（MUST）。
+
+**L1 consumer processing conformance** をclaimするconsumerは最低限:
+
+1. Anchor→Resolver→Description→AR-XML全chainでHTTPS→HTTP downgradeをprevent/reject（MUST）。
+2. final AR-XML URLをHTTPSに限定（MUST）。
+3. Resolver-supplied location/redirect dereference前または最中にexecution environmentで利用可能なnetwork security controlsを適用（MUST）。
+4. successをauthentication/authorization/trust/safety proofと解釈しない（MUST）。
+5. applicableなAR-XML relative URL processingでは final AR-XML document URLをbaseとして使う（MUST）。
+
+Browser consumer はplatform内部redirect targetをapplication codeへ公開する必要はありません。Browser/platform enforcement と利用可能な Runtime policy の組合せで network-policy requirement を満たせます。
+
+CORS はbrowser-oriented deploymentでRECOMMENDEDですが、non-browser consumerにはdeployment profileが要求しない限り必須ではありません。
+
+## 27. Related specifications / standards
 
 - RFC 9110 — HTTP Semantics
 - RFC 9111 — HTTP Caching
-- RFC 9562 — Universally Unique IDentifiers (UUIDs)
-- RFC 9457 — Problem Details for HTTP APIs
-- Fetch Standard — redirects and browser CORS processing
+- RFC 9562 — UUID
+- RFC 9457 — Problem Details
+- Referrer Policy
+- Fetch Standard
 
-関連 RELink work:
+Related RELink:
 
 - AR-XML Core 0.1
-- RELink Manifest 0.1
-- RELink Web Runtime integration
-- RELink Resolver Testbed cases
+- RELink Manifest 0.1 — Frozen 2026-08-31
+- RELink Manifest 0.1 Extension Policy — Frozen 2026-08-31
+- RELink Web Runtime Integration Contract 0.1 — Frozen 2026-09-01
+- RELink Resolver Lifecycle 0.1 — Frozen 2026-09-01
+- RELink Resolver / Manifest Conformance Catalog 0.1 — Frozen 2026-09-01
+- RELink Reference Resolver Architecture 0.1 — Frozen 2026-09-01
+- RELink Reference Resolver Deployment Profiles 0.1 — Frozen 2026-09-01
 - future RELink Trust / higher security-level specifications
 
-## 26. Design summary
-
-Resolver Core 0.1 は次のように要約できます。
+## 28. Design summary
 
 ```text
 Input:
     public HTTPS GET
     /{resolver-service}/{uuid}
 
-Default level:
-    no security-level query = L1
+Default:
+    no l, no p = L1
+
+Unsupported l:
+    fail closed
+    SHOULD 501
+
+p without defining level:
+    fail closed
+    SHOULD 400
 
 Identifier:
     RFC 9562 UUID
-    treated as opaque
+    opaque
+    not a credential
 
 ACTIVE:
-    303 See Other
-    Location = current HTTPS AR-XML Description Location
+    303
+    validated current HTTPS AR-XML Description Location
 
 SUSPENDED / unknown:
-    404 Not Found
+    404
 
 RETIRED:
-    410 Gone
+    410
 
 Unsupported method:
-    405 Method Not Allowed
+    405
+    before registration-state lookup
 
 Resolver failure:
     500 / 503
 
-Core responsibility:
-    UUID → current description location
+Redirect security:
+    HTTPS-only
+    no HTTPS→HTTP downgrade
+    pre-Resolver redirect infrastructure is not authenticated as intended Resolver
 
-Not Core responsibility:
+Consumer boundary:
+    Resolver Location = untrusted network input
+    consumer/platform policy governs dereference
+
+Core:
+    UUID → current Description Location
+
+Manifest:
+    frozen separately
+    not prerequisite for Core resolution
+
+Not Core:
     Trust
     authentication
     mutation
-    device current IP
+    current device IP
     management UI
     capability execution
     AR-XML interpretation
 ```
 
-この最小境界は意図的なものです。Manifest、Trust、Runtime integration、Reference Resolver implementation、conformance testing はこの baseline の上に構築されることを想定します。
+この最小境界は意図的なものであり、Frozen Manifest 0.1、future Trust、Runtime integration、Reference Resolver implementation、conformance testing のbaselineです。
