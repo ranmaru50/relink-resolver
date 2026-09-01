@@ -10,7 +10,7 @@ RELink Resolver は、既存の Web インフラストラクチャを用いて�
 
 現在は specification-first の設計段階です。
 
-Resolver Core 0.1、Resolver Lifecycle 0.1、Reference Resolver Deployment Profiles 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされています。Resolver / Manifest Conformance Catalog 0.1、Web Runtime Integration Contract 0.1、Reference Resolver Architecture 0.1 は、実装/Testbedへ引き渡す安定したbaselineとして **2026-09-01 に Frozen** とされました。
+Resolver Core 0.1 と Resolver Lifecycle 0.1 は Draft specification です。RELink Manifest 0.1、Manifest 0.1 Extension Policy、および付属 JSON Schema は **2026-08-31 に Frozen** とされています。Resolver / Manifest Conformance Catalog 0.1、Web Runtime Integration Contract 0.1、Reference Resolver Architecture 0.1、Reference Resolver Deployment Profiles 0.1 は、実装/Testbedへ引き渡す安定したbaselineとして **2026-09-01 に Frozen** とされました。
 
 Frozen Manifest 0.1 では、編集上または非semanticな errata は 0.1 の範囲で修正できます。一方、standard member、wire semantics、integrity semantics、extension compatibility、security / trust semantics に関する変更は、後続の Manifest version または別途 versioning された profile で扱います。
 
@@ -19,6 +19,8 @@ Frozen Conformance Catalog 0.1 では、編集上または非semanticな errata 
 Frozen Web Runtime Integration Contract 0.1では、編集上または非semanticなerrataは0.1内で修正できます。Final URL semantics、retrieval ordering、Manifest association/integrity semantics、network-policy semantics、error boundary、L0/L1 classification、RT handoff expectationの変更は後続contract versionまたは別途versioningされたprofileで扱います。
 
 Frozen Reference Resolver Architecture 0.1では、編集上または非semanticなerrataは0.1内で修正できます。Public/Admin責務境界、administrative transport/authentication/authorization semantics、CSRF requirement、outbound-fetch/SSRF policy semantics、integrity publishing consistency rule、database/input/output security requirement、persistence/private-file boundary、implementation security acceptance expectationの変更は、後続architecture versionまたは別途versioningされたprofileで扱います。
+
+Frozen Reference Resolver Deployment Profiles 0.1では、編集上または非semanticなerrataは0.1内で修正できます。Deployment invariant、Native/Container equivalence、persistence/private-file semantics、trusted-proxy handling、administrative outbound-network policy、backup/restore semantics、security boundary、deployment acceptance expectationの変更は、後続deployment-profile versionまたは別途versioningされたprofileで扱います。
 
 ## 仕様
 
@@ -37,7 +39,7 @@ Frozen Reference Resolver Architecture 0.1では、編集上または非semantic
 - RELink Reference Resolver Architecture 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/reference-resolver-architecture-0.1.md)
   - [日本語](docs/specs/reference-resolver-architecture-0.1.ja.md)
-- RELink Reference Resolver Deployment Profiles 0.1 — Draft
+- RELink Reference Resolver Deployment Profiles 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/reference-resolver-deployment-profiles-0.1.md)
   - [日本語](docs/specs/reference-resolver-deployment-profiles-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
@@ -48,7 +50,7 @@ Frozen Reference Resolver Architecture 0.1では、編集上または非semantic
   - [English](docs/specs/manifest-0.1-extension-policy.md)
   - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
 
-Frozen Manifest、Conformance Catalog、Web Runtime Integration Contract、Reference Resolver Architectureの英語文書がnormative source textです。日本語文書は公式プロジェクト翻訳であり、解釈に差異がある場合は英語Frozen文書をconformanceの基準とします。
+Frozen Manifest、Conformance Catalog、Web Runtime Integration Contract、Reference Resolver Architecture、Reference Resolver Deployment Profilesの英語文書がnormative source textです。日本語文書は公式プロジェクト翻訳であり、解釈に差異がある場合は英語Frozen文書をconformanceの基準とします。
 
 ## アーキテクチャ
 
@@ -183,7 +185,7 @@ SQLite
 
 ## Deployment profiles
 
-Reference Resolver Deployment Profiles 0.1は、RELink protocol semanticsを変更せず、NativeとDockerの等価なpackaging/operations profileを定義します。
+Frozen Reference Resolver Deployment Profiles 0.1は、RELink protocol semanticsを変更せず、NativeとDockerの等価なpackaging/operations profileを定義します。
 
 ```text
 Native
@@ -193,7 +195,7 @@ Container
 Docker-packaged Reference Resolver + persistent SQLite storage
 ```
 
-両profileは同じprotocol-visible behavior、public/admin separation、durable Resolver state、configuration responsibility、TLS/proxy boundary、backup/restore、migration semanticsを維持します。DockerはOPTIONALであり、protocol requirementではありません。
+両profileは同じprotocol-visible behavior、public/admin separation、durable Resolver state、configuration responsibility、TLS/proxy boundary、private-file boundary、outbound-network policy、SQLite-consistentなbackup/restore、migration semanticsを維持します。DockerはOPTIONALであり、protocol requirementではありません。
 
 ## Manifest
 
@@ -256,7 +258,7 @@ Resolver Core は次の処理を行いません。
 - Frozen Web Runtime Integration Contract 0.1
 - Frozen Manifest 0.1 specification set
 - Frozen Reference Resolver Architecture 0.1
-- Reference Resolver Deployment Profiles 0.1
+- Frozen Reference Resolver Deployment Profiles 0.1
 - Reference Resolver implementation
 - RELink Testbed integration definitions
 
