@@ -10,7 +10,7 @@ English | [日本語](README.ja.md)
 
 Specification-first design phase.
 
-Resolver Core 0.1, Resolver Lifecycle 0.1, and Reference Resolver Architecture 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1 and Web Runtime Integration Contract 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
+Resolver Core 0.1, Resolver Lifecycle 0.1, Reference Resolver Architecture 0.1, and Reference Resolver Deployment Profiles 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1 and Web Runtime Integration Contract 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
 
 For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to standard members, wire semantics, integrity semantics, extension compatibility, or security/trust semantics require a later Manifest version or separately versioned profile.
 
@@ -35,6 +35,9 @@ For frozen Web Runtime Integration Contract 0.1, editorial/non-semantic errata m
 - RELink Reference Resolver Architecture 0.1 — Draft
   - [English](docs/specs/reference-resolver-architecture-0.1.md)
   - [日本語](docs/specs/reference-resolver-architecture-0.1.ja.md)
+- RELink Reference Resolver Deployment Profiles 0.1 — Draft
+  - [English](docs/specs/reference-resolver-deployment-profiles-0.1.md)
+  - [日本語](docs/specs/reference-resolver-deployment-profiles-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
   - [English](docs/specs/manifest-0.1.md)
   - [日本語](docs/specs/manifest-0.1.ja.md)
@@ -176,6 +179,20 @@ SQLite
 
 The public and administrative surfaces remain separate in responsibility even when deployed in one application. The architecture defines UUID registration, Description Location/lifecycle maintenance, search/list/detail/history, resolution testing, persistence boundaries, bounded history, security expectations, and implementation non-goals without fixing concrete PHP classes or SQLite DDL.
 
+## Deployment profiles
+
+Reference Resolver Deployment Profiles 0.1 defines equivalent Native and Docker packaging/operations profiles without changing RELink protocol semantics.
+
+```text
+Native
+Apache + PHP + SQLite
+
+Container
+Docker-packaged Reference Resolver + persistent SQLite storage
+```
+
+Both profiles preserve the same protocol-visible behavior, public/admin separation, durable Resolver state, configuration responsibilities, TLS/proxy boundaries, backup/restore expectations, and migration semantics. Docker remains optional and is not a protocol requirement.
+
 ## Manifest
 
 Manifest is a separate specification from Resolver Core.
@@ -235,10 +252,9 @@ This repository is expected to contain:
 - Frozen Web Runtime Integration Contract 0.1
 - Frozen Manifest 0.1 specification set
 - Reference Resolver Architecture 0.1
+- Reference Resolver Deployment Profiles 0.1
 - Reference Resolver implementation
 - RELink Testbed integration definitions
-- Native deployment profile
-- Container deployment profile
 
 ## Related projects
 
