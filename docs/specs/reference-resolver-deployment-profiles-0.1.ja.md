@@ -1,10 +1,12 @@
 # RELink Reference Resolver Deployment Profiles 0.1 日本語版
 
-Status: Draft deployment profile  
+Status: Frozen 2026-09-01  
 Version: 0.1  
 Scope: 最初のReference ResolverにおけるNative / Container deployment
 
-> この文書は `reference-resolver-deployment-profiles-0.1.md` の日本語版です。解釈に差異がある場合は英語版を基準とします。
+> この文書は `reference-resolver-deployment-profiles-0.1.md` の公式日本語版です。解釈に差異がある場合は英語Frozen文書を基準とします。
+
+Freeze policy: 0.1内ではeditorial / non-semantic errataのみ修正できます。Deployment invariant、Native/Container equivalence、persistence/private-file semantics、trusted-proxy handling、administrative outbound-network policy、backup/restore semantics、security boundary、deployment acceptance expectationのsemantic変更は、後続versionまたは別途versioningされたprofileで扱います。
 
 ## 1. 目的
 
@@ -320,12 +322,12 @@ Container networking、bridge isolation、namespace separationだけを十分な
 - configured outbound allow/deny policyは同等の意味を維持しなければならない
 - redirect targetも適用policyの対象でなければならない
 - resolved addressに基づくpolicyは実際にconnectionで使われるaddressへ適用するか、同等のDNS-rebinding-resistant mechanismを使わなければならない
-- host、loopback、private、link-local、cloud metadata、internal networkへの到達可能性はtopologyだけでsafeとみなさずdeployment policyで制御しなければならない
-- administrative outbound fetchへ、deployment環境が提供するという理由だけでambient credential、cookie、client certificate、その他無関係なcredentialを付与しないことを推奨する
+- host/loopback/private/link-local/cloud-metadata/internal-network destinationへの到達可否はtopologyだけでsafeと仮定せずdeployment policyで制御しなければならない
+- administrative outbound fetchへdeployment environment由来のambient credential/cookie/client certificate等を自動付与しないことを推奨する
 
 Containerからhost service/internal infrastructureへ到達可能であることは、そのdestinationをRELink policy上authorizeしません。
 
-どのdeployment profileも、Entityによるcurrent IP定期報告やResolverによるUUID→device control endpoint mappingを要求してはなりません。
+Entityにcurrent IPの定期reportを要求したり、ResolverがUUIDをdevice control endpointへmappingしたりするdeployment profileにしてはなりません。
 
 ## 22. Resource limits
 
@@ -335,7 +337,7 @@ Ordinary conforming Resolver/Manifest requestを妨げず、abusive/unbounded in
 
 Container resource limitを追加しても構いませんがprotocol semanticsにはしません。
 
-Administrative outbound-fetch operationは、Frozen Reference Resolver Architecture 0.1で要求されるbounded redirect、timeout、response-size、processing limitを維持しなければなりません。
+Administrative outbound-fetch operationはFrozen Reference Resolver Architecture 0.1が要求するbounded redirect、timeout、response-size、processing limitを維持しなければなりません。
 
 ## 23. Time / Clock
 
