@@ -10,13 +10,15 @@ English | [日本語](README.ja.md)
 
 Specification-first design phase.
 
-Resolver Core 0.1, Resolver Lifecycle 0.1, Reference Resolver Architecture 0.1, and Reference Resolver Deployment Profiles 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1 and Web Runtime Integration Contract 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
+Resolver Core 0.1, Resolver Lifecycle 0.1, and Reference Resolver Deployment Profiles 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1, Web Runtime Integration Contract 0.1, and Reference Resolver Architecture 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
 
 For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to standard members, wire semantics, integrity semantics, extension compatibility, or security/trust semantics require a later Manifest version or separately versioned profile.
 
 For frozen Conformance Catalog 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to conformance targets, result semantics, case identifiers, normative case expectations, baseline/optional classification, or security/network-policy semantics require a later catalog version or separately versioned profile.
 
 For frozen Web Runtime Integration Contract 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to final-URL semantics, retrieval ordering, Manifest association/integrity semantics, network-policy semantics, error boundaries, L0/L1 classification, or RT handoff expectations require a later contract version or separately versioned profile.
+
+For frozen Reference Resolver Architecture 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to public/admin responsibility boundaries, administrative transport/authentication/authorization semantics, CSRF requirements, outbound-fetch/SSRF policy semantics, integrity-publishing consistency rules, database/input/output security requirements, persistence/private-file boundaries, or implementation security acceptance expectations require a later architecture version or separately versioned profile.
 
 ## Specifications
 
@@ -32,7 +34,7 @@ For frozen Web Runtime Integration Contract 0.1, editorial/non-semantic errata m
 - RELink Web Runtime Integration Contract 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/web-runtime-integration-0.1.md)
   - [日本語](docs/specs/web-runtime-integration-0.1.ja.md)
-- RELink Reference Resolver Architecture 0.1 — Draft
+- RELink Reference Resolver Architecture 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/reference-resolver-architecture-0.1.md)
   - [日本語](docs/specs/reference-resolver-architecture-0.1.ja.md)
 - RELink Reference Resolver Deployment Profiles 0.1 — Draft
@@ -46,7 +48,7 @@ For frozen Web Runtime Integration Contract 0.1, editorial/non-semantic errata m
   - [English](docs/specs/manifest-0.1-extension-policy.md)
   - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
 
-The English Frozen Manifest, Conformance Catalog, and Web Runtime Integration Contract documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
+The English Frozen Manifest, Conformance Catalog, Web Runtime Integration Contract, and Reference Resolver Architecture documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
 
 ## Architecture
 
@@ -156,7 +158,7 @@ Direct AR-XML loading remains the L0/direct path; Resolver-mediated loading is t
 
 ## Reference Resolver architecture
 
-Reference Resolver Architecture 0.1 defines the non-code requirements for the first Apache/PHP/SQLite implementation.
+Frozen Reference Resolver Architecture 0.1 defines the non-code requirements for the first Apache/PHP/SQLite implementation.
 
 ```text
 Public
@@ -177,7 +179,7 @@ maintenance services + history
 SQLite
 ```
 
-The public and administrative surfaces remain separate in responsibility even when deployed in one application. The architecture defines UUID registration, Description Location/lifecycle maintenance, search/list/detail/history, resolution testing, persistence boundaries, bounded history, security expectations, and implementation non-goals without fixing concrete PHP classes or SQLite DDL.
+The public and administrative surfaces remain separate in responsibility even when deployed in one application. The architecture defines UUID registration, Description Location/lifecycle maintenance, search/list/detail/history, resolution testing, persistence boundaries, bounded history, administrative Web security, outbound-fetch/SSRF controls, integrity-publishing consistency, and implementation security acceptance without fixing concrete PHP classes or SQLite DDL.
 
 ## Deployment profiles
 
@@ -251,7 +253,7 @@ This repository is expected to contain:
 - Frozen Resolver / Manifest Conformance Catalog 0.1
 - Frozen Web Runtime Integration Contract 0.1
 - Frozen Manifest 0.1 specification set
-- Reference Resolver Architecture 0.1
+- Frozen Reference Resolver Architecture 0.1
 - Reference Resolver Deployment Profiles 0.1
 - Reference Resolver implementation
 - RELink Testbed integration definitions
