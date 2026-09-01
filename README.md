@@ -10,7 +10,7 @@ English | [日本語](README.ja.md)
 
 Specification-first design phase.
 
-Resolver Core 0.1, Resolver Lifecycle 0.1, and Reference Resolver Deployment Profiles 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1, Web Runtime Integration Contract 0.1, and Reference Resolver Architecture 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
+Resolver Core 0.1 and Resolver Lifecycle 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1, Web Runtime Integration Contract 0.1, Reference Resolver Architecture 0.1, and Reference Resolver Deployment Profiles 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
 
 For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to standard members, wire semantics, integrity semantics, extension compatibility, or security/trust semantics require a later Manifest version or separately versioned profile.
 
@@ -19,6 +19,8 @@ For frozen Conformance Catalog 0.1, editorial/non-semantic errata may be correct
 For frozen Web Runtime Integration Contract 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to final-URL semantics, retrieval ordering, Manifest association/integrity semantics, network-policy semantics, error boundaries, L0/L1 classification, or RT handoff expectations require a later contract version or separately versioned profile.
 
 For frozen Reference Resolver Architecture 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to public/admin responsibility boundaries, administrative transport/authentication/authorization semantics, CSRF requirements, outbound-fetch/SSRF policy semantics, integrity-publishing consistency rules, database/input/output security requirements, persistence/private-file boundaries, or implementation security acceptance expectations require a later architecture version or separately versioned profile.
+
+For frozen Reference Resolver Deployment Profiles 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to deployment invariants, native/container equivalence, persistence/private-file semantics, trusted-proxy handling, administrative outbound-network policy, backup/restore semantics, security boundaries, or deployment acceptance expectations require a later deployment-profile version or separately versioned profile.
 
 ## Specifications
 
@@ -37,7 +39,7 @@ For frozen Reference Resolver Architecture 0.1, editorial/non-semantic errata ma
 - RELink Reference Resolver Architecture 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/reference-resolver-architecture-0.1.md)
   - [日本語](docs/specs/reference-resolver-architecture-0.1.ja.md)
-- RELink Reference Resolver Deployment Profiles 0.1 — Draft
+- RELink Reference Resolver Deployment Profiles 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/reference-resolver-deployment-profiles-0.1.md)
   - [日本語](docs/specs/reference-resolver-deployment-profiles-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
@@ -48,7 +50,7 @@ For frozen Reference Resolver Architecture 0.1, editorial/non-semantic errata ma
   - [English](docs/specs/manifest-0.1-extension-policy.md)
   - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
 
-The English Frozen Manifest, Conformance Catalog, Web Runtime Integration Contract, and Reference Resolver Architecture documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
+The English Frozen Manifest, Conformance Catalog, Web Runtime Integration Contract, Reference Resolver Architecture, and Reference Resolver Deployment Profiles documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
 
 ## Architecture
 
@@ -183,7 +185,7 @@ The public and administrative surfaces remain separate in responsibility even wh
 
 ## Deployment profiles
 
-Reference Resolver Deployment Profiles 0.1 defines equivalent Native and Docker packaging/operations profiles without changing RELink protocol semantics.
+Frozen Reference Resolver Deployment Profiles 0.1 defines equivalent Native and Docker packaging/operations profiles without changing RELink protocol semantics.
 
 ```text
 Native
@@ -193,7 +195,7 @@ Container
 Docker-packaged Reference Resolver + persistent SQLite storage
 ```
 
-Both profiles preserve the same protocol-visible behavior, public/admin separation, durable Resolver state, configuration responsibilities, TLS/proxy boundaries, backup/restore expectations, and migration semantics. Docker remains optional and is not a protocol requirement.
+Both profiles preserve the same protocol-visible behavior, public/admin separation, durable Resolver state, configuration responsibilities, TLS/proxy boundaries, private-file boundaries, outbound-network policy, SQLite-consistent backup/restore expectations, and migration semantics. Docker remains optional and is not a protocol requirement.
 
 ## Manifest
 
@@ -254,7 +256,7 @@ This repository is expected to contain:
 - Frozen Web Runtime Integration Contract 0.1
 - Frozen Manifest 0.1 specification set
 - Frozen Reference Resolver Architecture 0.1
-- Reference Resolver Deployment Profiles 0.1
+- Frozen Reference Resolver Deployment Profiles 0.1
 - Reference Resolver implementation
 - RELink Testbed integration definitions
 
