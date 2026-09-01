@@ -370,24 +370,22 @@ A Reference Resolver implementing Lifecycle 0.1 SHOULD provide administrative ca
 
 These are administrative requirements only. They do not define a public mutation API.
 
-## 20. Conformance cases derived from this specification
+## 20. Conformance derivation and catalog ownership
 
-The Resolver Testbed should include at least the following externally observable cases:
+Lifecycle 0.1 defines lifecycle semantics and the behavior from which conformance tests are derived. It does **not** assign or own conformance case identifiers.
 
-```text
-LIFE-001  ACTIVE resolves with 303
-LIFE-002  ACTIVE → SUSPENDED changes origin behavior to 404
-LIFE-003  SUSPENDED → ACTIVE restores 303 behavior
-LIFE-004  ACTIVE → RETIRED changes origin behavior to 410
-LIFE-005  SUSPENDED → RETIRED changes origin behavior to 410
-LIFE-006  RETIRED → ACTIVE is rejected administratively
-LIFE-007  RETIRED → SUSPENDED is rejected administratively
-LIFE-008  unknown and SUSPENDED both expose 404 publicly
-LIFE-009  lifecycle change does not require Description Location change
-LIFE-010  cached previous responses may remain until ordinary freshness expires
-LIFE-011  public GET never mutates lifecycle state
-LIFE-012  Manifest lifecycle mapping remains consistent with Resolver state
-```
+The Frozen Resolver / Manifest Conformance Catalog 0.1 is the authoritative registry for lifecycle case identifiers, targets, strengths, and expected results. Implementations, Testbed fixtures, reports, and future references MUST use the Frozen Catalog's `LIFE-*` identifiers rather than inventing or reusing a conflicting Lifecycle-local numbering scheme.
+
+Lifecycle-derived conformance coverage SHOULD include, as applicable:
+
+- ACTIVE, SUSPENDED, and RETIRED public mappings;
+- permitted and forbidden lifecycle transitions;
+- RETIRED terminal behavior;
+- unknown/SUSPENDED public non-distinction;
+- independence of lifecycle state and Description Location;
+- origin behavior after committed state changes and ordinary cache freshness;
+- administrative concurrency/history behavior where covered by the relevant conformance target;
+- consistency between Resolver state and Frozen Manifest lifecycle semantics.
 
 Internal database layout, framework behavior, or storage technology MUST NOT be part of protocol conformance testing.
 
