@@ -5,6 +5,7 @@
 declare(strict_types=1);
 
 use Relink\Resolver\Adapters\SqliteResolverRepository;
+use Relink\Resolver\Application\TrustedProxyPolicy;
 use Relink\Resolver\Application\ResolverService;
 
 $config = require dirname(__DIR__) . '/bootstrap.php';
@@ -17,7 +18,7 @@ if ($config['configuration_error']) {
     exit('管理サービスの設定を確認してください。');
 }
 
-$secureRequest = isset($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== '' && strtolower((string) $_SERVER['HTTPS']) !== 'off';
+$secureRequest = TrustedProxyPolicy::isSecureRequest($_SERVER, $config['trusted_proxy_cidrs']);
 if (!$secureRequest && !$config['admin_allow_http']) {
     http_response_code(403);
     header('Cache-Control: no-store');

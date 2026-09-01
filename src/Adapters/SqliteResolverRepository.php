@@ -38,11 +38,14 @@ final class SqliteResolverRepository implements ResolverRepository
 
     public function insert(ResolverRecord $record): void
     {
-        $statement = $this->pdo->prepare('INSERT INTO resolver_records (anchor_uuid, state, description_location, entity_id, media_type, integrity_algorithm, integrity_digest, version, created_at, updated_at) VALUES (:uuid, :state, :location, :entity, :media, :algorithm, :digest, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)');
         try {
+            $statement = $this->pdo->prepare('INSERT INTO resolver_records (anchor_uuid, state, description_location, entity_id, media_type, integrity_algorithm, integrity_digest, version, created_at, updated_at) VALUES (:uuid, :state, :location, :entity, :media, :algorithm, :digest, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)');
             $statement->execute($this->params($record));
         } catch (PDOException $error) {
-            throw new RuntimeException('RECORD_EXISTS', 0, $error);
+            if ($this->isAnchorConflict($error)) {
+                throw new RuntimeException('RECORD_EXISTS', 0, $error);
+            }
+            throw new RuntimeException('PERSISTENCE_FAILURE', 0, $error);
         }
     }
 
@@ -144,5 +147,17 @@ final class SqliteResolverRepository implements ResolverRepository
     {
         $statement = $this->pdo->prepare('INSERT INTO resolver_history (anchor_uuid, event_type, old_state, new_state, old_location, new_location, actor, created_at) VALUES (:uuid, :type, :old_state, :new_state, :old_location, :new_location, :actor, CURRENT_TIMESTAMP)');
         $statement->execute(['uuid' => $old->anchor->value, 'type' => $type, 'old_state' => $old->state->value, 'new_state' => $new->state->value, 'old_location' => $old->location->value, 'new_location' => $new->location->value, 'actor' => $actor]);
+    }
+
+    /**
+     * UUID の一意制約違反だけを重複登録として扱う。
+     * 他の制約、ロック、読取り専用、破損したスキーマは永続化障害として通知する。
+     */
+    private function isAnchorConflict(PDOException $error): bool
+    {
+        $errorInfo = $error->errorInfo;
+        $message = (string) ($errorInfo[2] ?? $error->getMessage());
+        return ($errorInfo[0] ?? null) === '23000'
+            && str_contains($message, 'UNIQUE constraint failed: resolver_records.anchor_uuid');
     }
 }

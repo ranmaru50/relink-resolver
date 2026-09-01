@@ -28,7 +28,10 @@ COPY deploy/apache-docker.conf /etc/apache2/conf-enabled/relink.conf
 
 RUN mkdir -p /var/lib/relink-resolver \
     && chmod +x /var/www/bin/*.sh /var/www/bin/*.php /usr/local/bin/relink-entrypoint.sh \
-    && chown -R www-data:www-data /var/lib/relink-resolver /var/www
+    && chown -R www-data:www-data /var/lib/relink-resolver \
+    && chown -R root:root /var/www \
+    && chmod -R a-w /var/www \
+    && chmod +x /var/www/bin/*.sh /var/www/bin/*.php /usr/local/bin/relink-entrypoint.sh
 
 ENV RELINK_DATA_DIR=/var/lib/relink-resolver
 WORKDIR /var/www

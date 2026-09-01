@@ -126,6 +126,51 @@ final class SqliteResolverRepositoryTest extends TestCase
         }
     }
 
+    /** スキーマ欠落などの永続化障害を UUID 重複と誤分類しないことを確認する。 */
+    public function testMissingTableReturnsPersistenceFailure(): void
+    {
+        $repository = new SqliteResolverRepository($this->path);
+        $record = new \Relink\Resolver\Domain\ResolverRecord(
+            new AnchorUuid('550e8400-e29b-41d4-a716-446655440030'),
+            LifecycleState::ACTIVE,
+            new DescriptionLocation('https://entity.example/30.xml'),
+            'urn:relink:entity:30',
+            null,
+            null,
+            null,
+            1,
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('PERSISTENCE_FAILURE');
+        $repository->insert($record);
+    }
+
+    /** SQLite の読み取り専用接続を重複登録と誤分類しないことを確認する。 */
+    public function testReadOnlyDatabaseReturnsPersistenceFailure(): void
+    {
+        if (DIRECTORY_SEPARATOR === '\\') {
+            $this->markTestSkipped('SQLite URI の読み取り専用検証は Container profile で実行します。');
+        }
+        SqliteMigrator::migrate($this->path);
+        $readOnlyPath = 'file:' . $this->path . '?mode=ro';
+        $repository = new SqliteResolverRepository($readOnlyPath);
+        $record = new \Relink\Resolver\Domain\ResolverRecord(
+            new AnchorUuid('550e8400-e29b-41d4-a716-446655440031'),
+            LifecycleState::ACTIVE,
+            new DescriptionLocation('https://entity.example/31.xml'),
+            'urn:relink:entity:31',
+            null,
+            null,
+            null,
+            1,
+        );
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('PERSISTENCE_FAILURE');
+        $repository->insert($record);
+    }
+
     /** 遷移履歴の状態、理由、実行者を保持し、長さを制限することを確認する。 */
     public function testTransitionHistoryPreservesStateAndBoundsMetadata(): void
     {

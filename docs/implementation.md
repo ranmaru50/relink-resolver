@@ -6,7 +6,7 @@ Native profile では Apache の DocumentRoot を `public/` に設定し、PHP 8
 
 Container profile は `docker compose --env-file .env up --build` で起動します。イメージには Composer と PHPUnit を含み、entrypoint が Apache 起動前に `bin/migrate.php` を実行します。`.env` は `.env.example` をコピーして作成し、本番パスワードを Secret 管理から注入してください。Compose の 8080 公開は loopback の開発用です。
 
-初回管理ログインには `RELINK_ADMIN_USERNAME` と `RELINK_ADMIN_PASSWORD` を使用します。空パスワードではログインできません。管理面は既定で HTTPS 必須です。ローカル HTTP の確認時だけ `.env` の `RELINK_ADMIN_ALLOW_HTTP=1` を設定し、本番では TLS、管理ネットワーク制限、プロキシ設定を構成してください。
+初回管理ログインには `RELINK_ADMIN_USERNAME` と `RELINK_ADMIN_PASSWORD` を使用します。空パスワードではログインできません。管理面は既定で HTTPS 必須です。ローカル HTTP の確認時だけ `.env` の `RELINK_ADMIN_ALLOW_HTTP=1` を設定し、本番では TLS、管理ネットワーク制限、プロキシ設定を構成してください。TLS 終端プロキシ配下では、プロキシの送信元 IP/CIDR を `RELINK_TRUSTED_PROXY_CIDRS` に設定し、プロキシ自身が `X-Forwarded-Proto` をクライアント入力から上書きしてください。未設定の転送ヘッダーは信頼しません。`RELINK_ADMIN_ALLOW_HTTP=1` はプロキシ配下の本番設定に使用しないでください。
 
 `RELINK_ENV=production` では空パスワードおよび `change-me` を拒否します。本番 Secret を必ず注入してください。
 
@@ -16,7 +16,7 @@ Container profile は `docker compose --env-file .env up --build` で起動し�
 
 ## バックアップと復元
 
-`bin/backup.sh /secure/backup/resolver.sqlite` は SQLite の `.backup` を使用し、journal/WAL を考慮した一貫性のあるバックアップを作成します。Container では `docker compose run --rm resolver /var/www/bin/backup.sh /secure/backup/resolver.sqlite` のように実行します。復元時は先にアプリケーションを停止し、`bin/restore.sh` 実行後に `PRAGMA integrity_check` と UUID・状態・場所・履歴を確認してから再起動してください。バックアップ先は Web ルート外のアクセス制御された場所に限定します。
+`bin/backup.sh /secure/backup/resolver.sqlite` は SQLite の `.backup` を使用し、journal/WAL を考慮した一貫性のあるバックアップを作成します。Container の一時コンテナ内へ保存すると破棄されるため、ホストのバックアップディレクトリを必ず bind mount してください。例（Linux/macOS）は `docker compose run --rm -v /secure/host-backups:/backup resolver /var/www/bin/backup.sh /backup/resolver.sqlite`、PowerShell は `docker compose run --rm -v "C:\secure\host-backups:/backup" resolver /var/www/bin/backup.sh /backup/resolver.sqlite` です。復元時は先にアプリケーションを停止し、`bin/restore.sh` 実行後に `PRAGMA integrity_check` と UUID・状態・場所・履歴を確認してから再起動してください。復元前の DB は同じディレクトリの `resolver.sqlite.pre-restore.<pid>.bak` として退避されます。バックアップ先は Web ルート外のアクセス制御された場所に限定します。
 
 ## Issue #9 の適合性
 
