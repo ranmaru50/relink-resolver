@@ -1,0 +1,8 @@
+# .gitignore
+# ローカルの秘密情報と永続データをコミットしない。
+.env
+var/data/
+var/*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+backups/

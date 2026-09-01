@@ -1,0 +1,21 @@
+# .github/workflows/ci.yml
+# PHP と SQLite を有効化した最小 CI。
+name: reference-resolver-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite
+      - name: 構文検査
+        run: find src public tests -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: スモークテスト
+        run: php tests/run.php

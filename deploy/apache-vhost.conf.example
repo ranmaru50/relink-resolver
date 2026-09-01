@@ -1,0 +1,15 @@
+# deploy/apache-vhost.conf.example
+# TLS 終端済みまたは Apache 自身で TLS を終端する Native profile の例。
+<VirtualHost *:443>
+    ServerName resolver.example
+    DocumentRoot /var/www/relink-resolver/public
+    <Directory /var/www/relink-resolver/public>
+        AllowOverride All
+        Require all granted
+    </Directory>
+    # 管理面はネットワーク側のアクセス制御と HTTPS を必須にする。
+    <Files "admin.php">
+        Require ip 127.0.0.1 10.0.0.0/8
+    </Files>
+    Header always set Strict-Transport-Security "max-age=31536000"
+</VirtualHost>

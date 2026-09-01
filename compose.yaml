@@ -1,0 +1,15 @@
+# compose.yaml
+# 永続ボリュームを利用する最小 Container profile。
+services:
+  resolver:
+    build: .
+    ports:
+      - "8080:80"
+    env_file:
+      - .env
+    environment:
+      RELINK_DATA_DIR: /var/lib/relink-resolver
+    volumes:
+      - resolver-data:/var/lib/relink-resolver
+volumes:
+  resolver-data:

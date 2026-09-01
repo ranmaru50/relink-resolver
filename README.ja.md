@@ -259,3 +259,7 @@ Runtime       = consumer-facing interpretation and execution
 ```
 
 Implementation phaseでもこの責務分離を維持します。
+
+## Reference implementation
+
+最初の Apache/PHP/SQLite Reference implementation は `public/`、`src/`、`migrations/`、`deploy/` に実装されています。セットアップ、security boundary、Native/Container profile、backup/restore手順は [docs/implementation.md](docs/implementation.md) を参照してください。依存なしの基本テストは [docs/testing.md](docs/testing.md) に記載しています。
