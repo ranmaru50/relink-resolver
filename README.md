@@ -10,11 +10,13 @@ English | [日本語](README.ja.md)
 
 Specification-first design phase.
 
-Resolver Core 0.1 and Resolver Lifecycle 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1 was **Frozen on 2026-09-01** as the stable protocol-side Testbed handoff baseline.
+Resolver Core 0.1, Resolver Lifecycle 0.1, and Reference Resolver Architecture 0.1 remain draft specifications. RELink Manifest 0.1, its Extension Policy, and its accompanying JSON Schema were **Frozen on 2026-08-31**. The Resolver / Manifest Conformance Catalog 0.1 and Web Runtime Integration Contract 0.1 were **Frozen on 2026-09-01** as stable implementation/test handoff baselines.
 
 For frozen Manifest 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to standard members, wire semantics, integrity semantics, extension compatibility, or security/trust semantics require a later Manifest version or separately versioned profile.
 
 For frozen Conformance Catalog 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to conformance targets, result semantics, case identifiers, normative case expectations, baseline/optional classification, or security/network-policy semantics require a later catalog version or separately versioned profile.
+
+For frozen Web Runtime Integration Contract 0.1, editorial/non-semantic errata may be corrected within 0.1; changes to final-URL semantics, retrieval ordering, Manifest association/integrity semantics, network-policy semantics, error boundaries, L0/L1 classification, or RT handoff expectations require a later contract version or separately versioned profile.
 
 ## Specifications
 
@@ -27,6 +29,12 @@ For frozen Conformance Catalog 0.1, editorial/non-semantic errata may be correct
 - RELink Resolver / Manifest Conformance Catalog 0.1 — **Frozen 2026-09-01**
   - [English](docs/specs/resolver-manifest-conformance-0.1.md)
   - [日本語](docs/specs/resolver-manifest-conformance-0.1.ja.md)
+- RELink Web Runtime Integration Contract 0.1 — **Frozen 2026-09-01**
+  - [English](docs/specs/web-runtime-integration-0.1.md)
+  - [日本語](docs/specs/web-runtime-integration-0.1.ja.md)
+- RELink Reference Resolver Architecture 0.1 — Draft
+  - [English](docs/specs/reference-resolver-architecture-0.1.md)
+  - [日本語](docs/specs/reference-resolver-architecture-0.1.ja.md)
 - RELink Manifest 0.1 — **Frozen 2026-08-31**
   - [English](docs/specs/manifest-0.1.md)
   - [日本語](docs/specs/manifest-0.1.ja.md)
@@ -35,7 +43,7 @@ For frozen Conformance Catalog 0.1, editorial/non-semantic errata may be correct
   - [English](docs/specs/manifest-0.1-extension-policy.md)
   - [日本語](docs/specs/manifest-0.1-extension-policy.ja.md)
 
-The English Frozen Manifest and Conformance Catalog documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
+The English Frozen Manifest, Conformance Catalog, and Web Runtime Integration Contract documents are the normative source texts. The Japanese documents are official project translations; if an interpretation differs, the English Frozen text governs conformance.
 
 ## Architecture
 
@@ -58,9 +66,9 @@ Capability
 RELink keeps the following concerns separate:
 
 ```text
-Entity     ≠ Location
-Capability ≠ Interface
-Resolution ≠ Authentication
+Entity      ≠ Location
+Capability  ≠ Interface
+Resolution  ≠ Authentication
 Description ≠ Execution
 ```
 
@@ -128,6 +136,46 @@ relink-testbed
 = executable conformance implementation
 ```
 
+## Web Runtime integration
+
+The Frozen Web Runtime Integration Contract 0.1 defines the handoff from ordinary Resolver/Web dereferencing to AR-XML Runtime processing.
+
+Its central rules include:
+
+```text
+Requested URL ≠ necessarily AR-XML Document URL
+Final AR-XML response URL = AR-XML document base URL
+Verified representation bytes = parsed representation bytes
+HTTP terminal failure ≠ AR-XML parse failure
+```
+
+Direct AR-XML loading remains the L0/direct path; Resolver-mediated loading is the L1 path. Resolver-specific behavior must not leak into AR-XML parser or capability invocation semantics.
+
+## Reference Resolver architecture
+
+Reference Resolver Architecture 0.1 defines the non-code requirements for the first Apache/PHP/SQLite implementation.
+
+```text
+Public
+GET /relink/{uuid}
+GET /relink/{uuid}/manifest (optional)
+        ↓
+read-only Resolver/Manifest services
+        ↓
+SQLite
+
+Admin
+/admin/
+        ↓
+authentication + authorization
+        ↓
+maintenance services + history
+        ↓
+SQLite
+```
+
+The public and administrative surfaces remain separate in responsibility even when deployed in one application. The architecture defines UUID registration, Description Location/lifecycle maintenance, search/list/detail/history, resolution testing, persistence boundaries, bounded history, security expectations, and implementation non-goals without fixing concrete PHP classes or SQLite DDL.
+
 ## Manifest
 
 Manifest is a separate specification from Resolver Core.
@@ -162,6 +210,8 @@ Trust, authentication, signatures, authenticated mutation, ownership transfer, f
 
 They are expected to be designed as later layers without redefining the L1 identity and resolution model.
 
+Administrative authentication for the Reference Resolver protects the maintenance surface but does not redefine public L1 authentication semantics or establish RELink L2.
+
 ## Non-goals for Resolver Core
 
 Resolver Core does not:
@@ -182,10 +232,11 @@ This repository is expected to contain:
 - Resolver Core 0.1 specification
 - Resolver Lifecycle 0.1 specification
 - Frozen Resolver / Manifest Conformance Catalog 0.1
+- Frozen Web Runtime Integration Contract 0.1
 - Frozen Manifest 0.1 specification set
-- Reference Resolver design and implementation
+- Reference Resolver Architecture 0.1
+- Reference Resolver implementation
 - RELink Testbed integration definitions
-- Web Runtime integration notes
 - Native deployment profile
 - Container deployment profile
 
