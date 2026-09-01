@@ -63,6 +63,8 @@ Lifecycle 0.1 は Resolver Core の public response semantics を再定義しま
 
 Public interface は unknown UUID と SUSPENDED UUID を意図的に区別しません。
 
+Public error representationは、`404 Not Found` がunknown UUIDかSUSPENDED recordかを意図的に明らかにしないことが推奨されます（SHOULD）。Lifecycle 0.1は完全なtiming indistinguishabilityやside-channel indistinguishabilityまでは要求しません。
+
 Lifecycle reason、transition history、actor metadata、timestamp、administrative annotation は、後続のversioned RELink specificationが別profileを明示しない限り、上記public status-code mappingを変更してはなりません（MUST NOT）。
 
 ## 5. State-transition model
@@ -91,11 +93,31 @@ ACTIVE ─────────────→ SUSPENDED
                RETIRED
 ```
 
+Lifecycle 0.1 administrative-transition conformanceをclaimする実装は、既存recordに適用可能な上記すべてのpermitted transitionをsupportしなければなりません（MUST）。これはtransition edge自体が実装されadministrative transition functionから利用可能であることを意味し、authorization、concurrency、validation、persistenceその他の適用preconditionに失敗した個別requestまで必ず成功させることを意味しません。
+
 上記にないtransition requestはmaintenance layerが拒否しなければなりません（MUST）。
 
 指定されたsource stateがrecordの実際のcurrent stateと異なる場合、別transitionへ黙って変換してはなりません（MUST NOT）。
 
-現在と同じstateを再設定する操作は、administrative implementationがidempotent no-opとして扱っても構いません（MAY）。ただしそのno-opを別のlifecycle transitionとして記録してはなりません（MUST NOT）。
+Administrative transition processingは、少なくとも次のfailure classのsemantic distinctionを保持しなければなりません（MUST）。Implementation-specificなerrorやtransport responseへmappingして構いません。
+
+```text
+INVALID_TRANSITION
+    requested edgeがLifecycle 0.1 state machineで許可されていない
+
+STATE_CONFLICT
+    expected/source stateがstale、またはcurrent record stateと一致しない
+
+AUTHORIZATION_FAILURE
+    callerがrequested administrative operationを実行する権限を持たない
+
+PERSISTENCE_FAILURE
+    otherwise permittedなoperationを安全にcommitできなかった
+```
+
+Lifecycle 0.1はこれらadministrative failure classのexception名、response body、HTTP status codeを標準化しません。Stale-state conflictを、requested transition edgeがlifecycle state machine上恒久的に禁止されているかのように扱ってはなりません（MUST NOT）。
+
+現在と同じstateを再設定する操作は、administrative implementationがidempotent no-opとして扱っても構いません（MAY）。ただしそのno-opを別のlifecycle transitionとして記録してはなりません（MUST NOT）。Idempotent same-state no-opをlifecycle transition eventとして記録してはなりません（MUST NOT）。別のadministrative request、audit、diagnostic eventとして記録しても構いません（MAY）。
 
 ## 6. RETIREDはterminal
 
@@ -115,6 +137,8 @@ Retirement後に新しいresolvable recordが必要な場合、0.1 semanticsで�
 ## 7. Initial registration state
 
 新規登録されたResolver recordは、外部から観測可能になる前に明示的なlifecycle stateを持たなければなりません（MUST）。
+
+Initial registrationはinitial lifecycle stateを確立する操作であり、implicitな`NONEXISTENT` stateからのLifecycle 0.1 transitionではありません。Implementationは`NONEXISTENT`を第4のlifecycle stateとして扱うことでLifecycle 0.1 state machineを拡張してはなりません（MUST NOT）。
 
 Reference Resolverは次のinitial registrationをサポートすることが推奨されます（SHOULD）。
 
@@ -313,7 +337,7 @@ validate permitted transition
 commit new state
 ```
 
-Commit前にactual current stateが変わった場合、stale assumptionに基づきsilent applyするより、administrative operationをfailさせるかnew stateに対してretryすることが推奨されます（SHOULD）。
+Commit前にactual current stateが変わった場合、stale assumptionに基づきsilent applyするより、administrative operationをfailさせるかnew stateに対してretryすることが推奨されます（SHOULD）。このfailureはstate conflictであり、requested transition edgeがLifecycle 0.1 state machine上invalidであることを意味しません。
 
 Lifecycle 0.1はoptimistic locking、database row locking、ETag、compare-and-swap等の特定mechanismを要求しません。
 
@@ -368,7 +392,7 @@ Lifecycle 0.1を実装するReference Resolverは、administrative capabilityと
 - lifecycle mutationとDescription Location mutationの区別。
 - current stateに対応するpublic responseのtest。
 
-これらはadministrative requirementsでありpublic mutation APIを定義しません。
+これらはadministrative requirementsでありpublic mutation APIを定義しません。Frozen Catalogのlifecycle-administration conformance targetをclaimするReference Resolverは、§5のMUST-support ruleにも従います。
 
 ## 20. Conformance derivation とCatalog ownership
 
@@ -420,6 +444,10 @@ History:
     bounded transition history recommended
     time + previous/new state
     reason/actor metadata optional
+    same-state no-op is not a lifecycle transition event
+
+Administrative failure semantics:
+    invalid transition ≠ stale-state conflict
 
 Cache:
     origin state changes immediately after commit
