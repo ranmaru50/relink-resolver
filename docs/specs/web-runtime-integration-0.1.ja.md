@@ -1,10 +1,13 @@
 # RELink Web Runtime Integration Contract 0.1 日本語版
 
-Status: Draft integration specification  
+Status: Frozen integration specification  
 Version: 0.1  
+Freeze date: 2026-09-01  
 Scope: Resolver Core 0.1 ↔ RELink Web Runtime integration
 
-> この文書は `web-runtime-integration-0.1.md` の日本語版です。解釈に差異がある場合は英語版を基準とします。
+> この文書は `web-runtime-integration-0.1.md` の公式日本語版です。解釈に差異がある場合は英語Frozen文書を基準とします。
+
+Web Runtime Integration Contract 0.1 はFrozenです。編集上または非semanticなerrataは0.1内で修正できます。Final URL semantics、retrieval ordering、Manifest association/integrity semantics、network-policy semantics、error boundary、L0/L1 classification、RT handoff expectationの変更は、後続contract versionまたは別途versioningされたprofileで扱います。
 
 ## 1. 目的
 
