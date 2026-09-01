@@ -1,8 +1,10 @@
 # RELink Resolver Lifecycle 0.1
 
-Status: Draft specification  
+Status: Frozen 2026-09-01  
 Version: 0.1  
 Scope: Resolver record lifecycle and state-transition model
+
+Freeze policy: Resolver Lifecycle 0.1 is frozen as of 2026-09-01. Editorial and non-semantic errata MAY be corrected within 0.1. Changes to lifecycle states, permitted transitions, RETIRED terminal semantics, permitted-transition support requirements, administrative failure semantics, same-state no-op/history semantics, initial-registration semantics, public lifecycle mapping/non-distinction, cache semantics, Manifest lifecycle mapping, or conformance-derivation semantics require a later Lifecycle version or separately versioned profile.
 
 ## 1. Purpose
 
