@@ -1,8 +1,10 @@
 # RELink Resolver Core 0.1
 
-Status: Draft specification  
+Status: Frozen 2026-09-01  
 Version: 0.1  
 Scope: L1 public resolution
+
+Freeze policy: Resolver Core 0.1 is frozen as of 2026-09-01. Editorial and non-semantic errata MAY be corrected within 0.1. Changes to L1 request semantics, `l`/`p` downgrade behavior, HTTP status or processing-order semantics, Description Location validation, HTTPS/network-policy semantics, lifecycle mappings, Manifest independence, public/admin responsibility boundaries, Trust/L2 exclusions, or Core conformance expectations require a later Resolver Core version or separately versioned profile.
 
 ## 1. Purpose
 
@@ -327,7 +329,7 @@ SUSPENDED → RETIRED
 
 A transition out of RETIRED **MUST NOT** occur within Resolver Core 0.1 semantics.
 
-Lifecycle reasons, actors, timestamps, audit history, and richer lifecycle metadata are outside the public Core response and may be represented by administration and/or Manifest specifications.
+Lifecycle reasons, actors, timestamps, audit history, and richer lifecycle metadata are outside the public Core response and may be represented by administration and/or separately versioned metadata specifications or profiles.
 
 ## 12. HTTP status-code model
 
@@ -733,8 +735,11 @@ Related RELink work:
 - AR-XML Core 0.1
 - RELink Manifest 0.1 — Frozen 2026-08-31
 - RELink Manifest 0.1 Extension Policy — Frozen 2026-08-31
-- RELink Web Runtime integration
-- RELink Resolver Testbed cases
+- RELink Web Runtime Integration Contract 0.1 — Frozen 2026-09-01
+- RELink Resolver Lifecycle 0.1 — Frozen 2026-09-01
+- RELink Resolver / Manifest Conformance Catalog 0.1 — Frozen 2026-09-01
+- RELink Reference Resolver Architecture 0.1 — Frozen 2026-09-01
+- RELink Reference Resolver Deployment Profiles 0.1 — Frozen 2026-09-01
 - future RELink Trust / higher security-level specifications
 
 ## 28. Design summary
