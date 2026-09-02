@@ -1,5 +1,9 @@
 # AGENTS.md — RELink Resolver implementation guidance
 
+## GitHub communication
+
+GitHub の Issue・PR を作成またはコメントする場合は Markdown 形式で記述する。複数行の本文は `--body-file` を使用し、改行やリストを保持する。
+
 This file defines repository-wide implementation guidance for coding agents and human contributors working on the RELink Reference Resolver.
 
 ## 1. Authority and precedence
