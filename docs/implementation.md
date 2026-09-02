@@ -12,6 +12,14 @@ Container profile は `docker compose --env-file .env up --build` で起動し�
 
 `RELINK_ENV=production` では空パスワードおよび `change-me` を拒否します。本番 Secret を必ず注入してください。
 
+## HTTP セキュリティヘッダーと情報露出
+
+Native と Container の Apache 設定は、公開・管理・Apache 標準エラー応答を含めて `X-Content-Type-Options: nosniff` を常時付与します。値の生成元を Apache に一本化し、アプリケーション側では同ヘッダーを設定しません。両 profile で `ServerTokens Prod`、`ServerSignature Off`、`TraceEnable Off` を設定し、Apache の詳細バージョン／ホスト情報、TRACE、標準エラーページの署名を抑止します。Container profile では `deploy/php-security.ini` を読み込み、`expose_php = Off` によって `X-Powered-By` を出力しません。Native profile でも同じ ini を PHP の追加設定ディレクトリへ配置してください。
+
+HSTS は HTTPS でのみ有効であるため、Native の TLS VirtualHost 例で `Strict-Transport-Security: max-age=31536000` を常時付与します。Container の標準 Compose 公開は loopback HTTP の開発用途であり、HSTS を設定しません。本番で TLS 終端プロキシを使用する Container profile では、プロキシ側で同じ HSTS を HTTPS 応答に付与してください。HTTP 応答に HSTS を付与してはなりません。
+
+管理画面は全応答に `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`、および `Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'` を設定します。`frame-ancestors 'none'` により管理画面の iframe 埋め込みを禁止します。公開 Resolver は CORS と `Referrer-Policy: no-referrer` を維持し、`X-Content-Type-Options: nosniff` を付与します。
+
 ## 公開エンドポイント
 
 `GET /relink/{uuid}` は登録済み ACTIVE レコードを `303 See Other` で HTTPS の Description Location へ転送します。公開処理は AR-XML を取得せず、Manifest に依存しません。`GET /relink/{uuid}/manifest` は利用可能な Manifest JSON を返します。

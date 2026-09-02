@@ -1,5 +1,11 @@
 # deploy/apache-vhost.conf.example
 # TLS 終端済みまたは Apache 自身で TLS を終端する Native profile の例。
+# VirtualHost 外の設定は server config として読み込む。
+ServerTokens Prod
+ServerSignature Off
+TraceEnable Off
+Header always set X-Content-Type-Options "nosniff"
+
 <VirtualHost *:443>
     ServerName resolver.example
     DocumentRoot /var/www/relink-resolver/public
@@ -11,5 +17,6 @@
     <Files "admin.php">
         Require ip 127.0.0.1 10.0.0.0/8
     </Files>
+    # HTTPS の本番 origin だけで HSTS を有効にする。HTTP VirtualHost には設定しない。
     Header always set Strict-Transport-Security "max-age=31536000"
 </VirtualHost>

@@ -12,19 +12,19 @@ use Relink\Resolver\Application\ResolverService;
 
 $config = require dirname(__DIR__) . '/bootstrap.php';
 
+// 管理画面の全応答で MIME sniffing と埋め込みを抑止する。
+header('Cache-Control: no-store');
+header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+
 if ($config['configuration_error']) {
     error_log('RELink admin configuration is invalid for production');
     http_response_code(503);
-    header('Cache-Control: no-store');
-    header('X-Content-Type-Options: nosniff');
     exit('管理サービスの設定を確認してください。');
 }
 
 $secureRequest = TrustedProxyPolicy::isSecureRequest($_SERVER, $config['trusted_proxy_cidrs']);
 if (!$secureRequest && !$config['admin_allow_http']) {
     http_response_code(403);
-    header('Cache-Control: no-store');
-    header('X-Content-Type-Options: nosniff');
     exit('HTTPS is required for administration');
 }
 ini_set('session.use_strict_mode', '1');
@@ -89,9 +89,6 @@ if ($action === 'logout') {
     exit;
 }
 if (!admin_authenticated($config, $authentication)) {
-    header('Cache-Control: no-store');
-    header('X-Content-Type-Options: nosniff');
-    header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'");
     header('Content-Type: text/html; charset=utf-8');
     echo '<!doctype html><meta charset="utf-8"><title>RELink Admin</title><form method="post"><label>ユーザー名 <input name="username" required></label><label>パスワード <input type="password" name="password" required></label><button>ログイン</button></form>';
     exit;
@@ -103,8 +100,6 @@ try {
 } catch (Throwable $error) {
     error_log('RELink admin persistence initialization failed');
     http_response_code(503);
-    header('Cache-Control: no-store');
-    header('X-Content-Type-Options: nosniff');
     exit('管理サービスを利用できません。');
 }
 $service = new ResolverService($repository, $config['cache_max_age']);
@@ -176,9 +171,6 @@ try {
     error_log('RELink admin operation failed: ' . preg_replace('/[^A-Z_]/', '', (string) $code));
 }
 
-header('Cache-Control: no-store');
-header('X-Content-Type-Options: nosniff');
-header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'");
 header('Content-Type: text/html; charset=utf-8');
 $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $esc = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
