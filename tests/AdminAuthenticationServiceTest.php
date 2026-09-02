@@ -63,6 +63,36 @@ final class AdminAuthenticationServiceTest extends TestCase
             @unlink($path);
         }
     }
+
+    /** 独立したSQLite接続でも同一IPの更新を累積し、上限cleanup後にcurrent IPを維持する。 */
+    public function testSqliteThrottleAccumulatesAcrossConnectionsAndBoundsRows(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'relink-auth-');
+        self::assertNotFalse($path);
+        try {
+            SqliteMigrator::migrate($path);
+            $first = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), 'admin', 'secret', 3, 100, 100, 300, 3600);
+            $second = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), 'admin', 'secret', 3, 100, 100, 300, 3600);
+            self::assertSame('rejected_invalid', $first->attempt('192.0.2.9', 'admin', 'wrong', 100));
+            self::assertSame('rejected_invalid', $second->attempt('192.0.2.9', 'admin', 'wrong', 101));
+            self::assertSame('rejected_invalid', $first->attempt('192.0.2.9', 'admin', 'wrong', 102));
+            self::assertSame('rejected_locked', $second->attempt('192.0.2.9', 'admin', 'secret', 103));
+
+            $pdo = new PDO('sqlite:' . $path);
+            $insert = $pdo->prepare('INSERT INTO admin_login_throttles (subject_hash, failures, window_started_at, locked_until) VALUES (?, 1, 1, 0)');
+            for ($i = 0; $i < 10000; $i++) {
+                $insert->execute([hash('sha256', 'fixture-' . $i)]);
+            }
+            self::assertSame('rejected_invalid', $first->attempt('198.51.100.7', 'admin', 'wrong', 1000));
+            self::assertLessThanOrEqual(10000, (int) $pdo->query('SELECT COUNT(*) FROM admin_login_throttles')->fetchColumn());
+            $hash = hash('sha256', "ip\0" . '198.51.100.7');
+            $statement = $pdo->prepare('SELECT COUNT(*) FROM admin_login_throttles WHERE subject_hash = ?');
+            $statement->execute([$hash]);
+            self::assertSame(1, (int) $statement->fetchColumn());
+        } finally {
+            @unlink($path);
+        }
+    }
 }
 
 /** テスト用にログイン制限状態を保持する。 */
