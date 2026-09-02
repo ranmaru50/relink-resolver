@@ -93,6 +93,24 @@ final class AdminAuthenticationServiceTest extends TestCase
             @unlink($path);
         }
     }
+
+    /** 別プロセスの同時試行でも同一IPの失敗を取りこぼさない。 */
+    public function testSqliteThrottleSerializesConcurrentProcesses(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'relink-auth-'); self::assertNotFalse($path);
+        $barrier = $path . '.barrier'; $first = $path . '.one'; $second = $path . '.two';
+        try {
+            SqliteMigrator::migrate($path); $worker = dirname(__DIR__) . '/tests/fixtures/throttle_worker.php';
+            $command = sprintf('php %s %s %s %s', escapeshellarg($worker), escapeshellarg($path), escapeshellarg($barrier), escapeshellarg($first));
+            $one = proc_open($command, [], $pipesOne);
+            $two = proc_open(str_replace(escapeshellarg($first), escapeshellarg($second), $command), [], $pipesTwo);
+            $deadline = microtime(true) + 5; while ((!file_exists($barrier . '.' . proc_get_status($one)['pid']) || !file_exists($barrier . '.' . proc_get_status($two)['pid'])) && microtime(true) < $deadline) { usleep(1000); }
+            touch($barrier . '.go'); self::assertSame(0, proc_close($one)); self::assertSame(0, proc_close($two));
+            self::assertSame('rejected_invalid', file_get_contents($first)); self::assertSame('rejected_invalid', file_get_contents($second));
+            $service = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), 'admin', 'secret', 2, 100, 100, 300, 3600);
+            self::assertSame('rejected_locked', $service->attempt('192.0.2.77', 'admin', 'secret', 101));
+        } finally { @unlink($path); @unlink($barrier . '.go'); @unlink($first); @unlink($second); }
+    }
 }
 
 /** テスト用にログイン制限状態を保持する。 */
