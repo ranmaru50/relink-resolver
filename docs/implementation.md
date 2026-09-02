@@ -17,6 +17,7 @@ Container profile は `docker compose --env-file .env up --build` で起動し�
 ## バックアップと復元
 
 `bin/backup.sh /secure/backup/resolver.sqlite` は SQLite の `.backup` を使用し、journal/WAL を考慮した一貫性のあるバックアップを作成します。Container の一時コンテナ内へ保存すると破棄されるため、ホストのバックアップディレクトリを必ず bind mount してください。例（Linux/macOS）は `docker compose run --rm -v /secure/host-backups:/backup resolver /var/www/bin/backup.sh /backup/resolver.sqlite`、PowerShell は `docker compose run --rm -v "C:\secure\host-backups:/backup" resolver /var/www/bin/backup.sh /backup/resolver.sqlite` です。復元時は先にアプリケーションを停止し、`bin/restore.sh` 実行後に `PRAGMA integrity_check` と UUID・状態・場所・履歴を確認してから再起動してください。空のデータディレクトリへ復元する場合は、既定の `www-data` または `RELINK_SERVICE_USER`、`RELINK_SERVICE_UID`、`RELINK_SERVICE_GID` で指定したサービスユーザーへDBとデータディレクトリを設定し、DBモードは `RELINK_DB_MODE`（既定 `660`）で設定します。NativeでApache/PHP実行ユーザーが `www-data` 以外の場合はUID/GIDを明示してください。復元前の DB は同じディレクトリの `resolver.sqlite.pre-restore.<pid>.bak` として退避されます。バックアップ先は Web ルート外のアクセス制御された場所に限定します。
+`restore.sh` と `container-restore-acceptance.sh` はDebian ContainerのGNU userland（`stat -c`、`chmod --reference`、`chown --reference`）を前提にします。Native profileで復元する場合はLinux/GNU coreutilsを使用し、BSD/macOSでは同等の権限・所有者確認手順へ置き換えてください。macOS向けのバックアップbind mount例は、復元スクリプトのNative実行環境を意味しません。
 
 ## Issue #9 の適合性
 

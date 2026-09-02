@@ -37,3 +37,5 @@ jobs:
         run: docker compose run --rm resolver composer test
       - name: Container PHPStan
         run: docker compose run --rm resolver composer analyse
+      - name: Container復元権限受入れ
+        run: sh bin/container-restore-acceptance.sh

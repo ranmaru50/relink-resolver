@@ -41,13 +41,39 @@ validate_numeric() {
     esac
 }
 
-validate_octal_mode() {
-    value_name="$1"
-    value="$2"
+validate_db_mode() {
+    value="$1"
     case "$value" in
-        [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;;
+        0[0-7][0-7][0-7]) value="${value#0}" ;;
+        [0-7][0-7][0-7]) ;;
         *)
-            echo "$value_name must be an octal file mode" >&2
+            echo "RELINK_DB_MODE must be a three-digit octal mode without special bits" >&2
+            exit 1
+            ;;
+    esac
+    case "$value" in
+        [67][0-7][0145]) ;;
+        *)
+            echo "RELINK_DB_MODE must grant owner write and deny world write" >&2
+            exit 1
+            ;;
+    esac
+}
+
+validate_data_dir_mode() {
+    value="$1"
+    case "$value" in
+        0[0-7][0-7][0-7]) value="${value#0}" ;;
+        [0-7][0-7][0-7]) ;;
+        *)
+            echo "RELINK_DATA_DIR_MODE must be a three-digit octal mode without special bits" >&2
+            exit 1
+            ;;
+    esac
+    case "$value" in
+        7[0-7][0145]) ;;
+        *)
+            echo "RELINK_DATA_DIR_MODE must grant owner read/write/search and deny world write" >&2
             exit 1
             ;;
     esac
@@ -59,8 +85,8 @@ fi
 if test -n "$SERVICE_GID"; then
     validate_numeric RELINK_SERVICE_GID "$SERVICE_GID"
 fi
-validate_octal_mode RELINK_DB_MODE "$DB_MODE"
-validate_octal_mode RELINK_DATA_DIR_MODE "$DATA_DIR_MODE"
+validate_db_mode "$DB_MODE"
+validate_data_dir_mode "$DATA_DIR_MODE"
 
 test -f "$SOURCE"
 sqlite3 "$SOURCE" "PRAGMA integrity_check;" | grep -qx ok
