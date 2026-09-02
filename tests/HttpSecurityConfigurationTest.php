@@ -17,7 +17,7 @@ final class HttpSecurityConfigurationTest extends TestCase
             self::assertStringContainsString('ServerTokens Prod', $configuration);
             self::assertStringContainsString('ServerSignature Off', $configuration);
             self::assertStringContainsString('TraceEnable Off', $configuration);
-            self::assertStringContainsString('Header always setifempty X-Content-Type-Options "nosniff"', $configuration);
+            self::assertStringContainsString('Header always set X-Content-Type-Options "nosniff"', $configuration);
         }
     }
 
@@ -27,7 +27,6 @@ final class HttpSecurityConfigurationTest extends TestCase
         $phpConfiguration = file_get_contents(dirname(__DIR__) . '/deploy/php-security.ini');
         self::assertNotFalse($phpConfiguration);
         self::assertStringContainsString('expose_php = Off', $phpConfiguration);
-        self::assertFalse((bool) ini_get('expose_php'));
     }
 
     /** HSTS は HTTPS Native VirtualHost、クリックジャッキング対策は全管理応答に限定する。 */

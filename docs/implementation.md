@@ -14,7 +14,7 @@ Container profile は `docker compose --env-file .env up --build` で起動し�
 
 ## HTTP セキュリティヘッダーと情報露出
 
-Native と Container の Apache 設定は、公開・管理・Apache 標準エラー応答を含めて `X-Content-Type-Options: nosniff` を常時付与します。Apache 側では既にアプリケーションが設定した値を重複させないよう `setifempty` を使います。両 profile で `ServerTokens Prod`、`ServerSignature Off`、`TraceEnable Off` を設定し、Apache の詳細バージョン／ホスト情報、TRACE、標準エラーページの署名を抑止します。Container profile では `deploy/php-security.ini` を読み込み、`expose_php = Off` によって `X-Powered-By` を出力しません。Native profile でも同じ ini を PHP の追加設定ディレクトリへ配置してください。
+Native と Container の Apache 設定は、公開・管理・Apache 標準エラー応答を含めて `X-Content-Type-Options: nosniff` を常時付与します。値の生成元を Apache に一本化し、アプリケーション側では同ヘッダーを設定しません。両 profile で `ServerTokens Prod`、`ServerSignature Off`、`TraceEnable Off` を設定し、Apache の詳細バージョン／ホスト情報、TRACE、標準エラーページの署名を抑止します。Container profile では `deploy/php-security.ini` を読み込み、`expose_php = Off` によって `X-Powered-By` を出力しません。Native profile でも同じ ini を PHP の追加設定ディレクトリへ配置してください。
 
 HSTS は HTTPS でのみ有効であるため、Native の TLS VirtualHost 例で `Strict-Transport-Security: max-age=31536000` を常時付与します。Container の標準 Compose 公開は loopback HTTP の開発用途であり、HSTS を設定しません。本番で TLS 終端プロキシを使用する Container profile では、プロキシ側で同じ HSTS を HTTPS 応答に付与してください。HTTP 応答に HSTS を付与してはなりません。
 

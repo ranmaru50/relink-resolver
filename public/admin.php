@@ -14,7 +14,6 @@ $config = require dirname(__DIR__) . '/bootstrap.php';
 
 // 管理画面の全応答で MIME sniffing と埋め込みを抑止する。
 header('Cache-Control: no-store');
-header('X-Content-Type-Options: nosniff');
 header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 
 if ($config['configuration_error']) {
