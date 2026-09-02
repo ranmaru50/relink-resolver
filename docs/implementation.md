@@ -6,7 +6,9 @@ Native profile では Apache の DocumentRoot を `public/` に設定し、PHP 8
 
 Container profile は `docker compose --env-file .env up --build` で起動します。イメージには Composer と PHPUnit を含み、entrypoint が Apache 起動前に `bin/migrate.php` を実行します。`.env` は `.env.example` をコピーして作成し、本番パスワードを Secret 管理から注入してください。Compose の 8080 公開は loopback の開発用です。
 
-初回管理ログインには `RELINK_ADMIN_USERNAME` と `RELINK_ADMIN_PASSWORD` を使用します。空パスワードではログインできません。管理面は既定で HTTPS 必須です。ローカル HTTP の確認時だけ `.env` の `RELINK_ADMIN_ALLOW_HTTP=1` を設定し、本番では TLS、管理ネットワーク制限、プロキシ設定を構成してください。TLS 終端プロキシ配下では、プロキシの送信元 IP/CIDR を `RELINK_TRUSTED_PROXY_CIDRS` に設定し、プロキシ自身が `X-Forwarded-Proto` をクライアント入力から上書きしてください。未設定の転送ヘッダーは信頼しません。`RELINK_ADMIN_ALLOW_HTTP=1` はプロキシ配下の本番設定に使用しないでください。
+初回管理ログインには `RELINK_ADMIN_USERNAME` と `RELINK_ADMIN_PASSWORD` を使用します。空パスワードではログインできません。管理面は既定で HTTPS 必須です。ローカル HTTP の確認時だけ `.env` の `RELINK_ADMIN_ALLOW_HTTP=1` を設定し、本番では TLS、管理ネットワーク制限、プロキシ設定を構成してください。TLS 終端プロキシ配下では、プロキシの送信元 IP/CIDR を `RELINK_TRUSTED_PROXY_CIDRS` に設定し、プロキシ自身が `X-Forwarded-Proto` と単一の `X-Forwarded-For` をクライアント入力から上書きしてください。未設定または複数値の転送ヘッダーは信頼しません。`RELINK_ADMIN_ALLOW_HTTP=1` はプロキシ配下の本番設定に使用しないでください。
+
+管理ログインは IP・ユーザー名ごとに失敗回数を SQLite へ保存します。既定では 15 分の時間窓で 5 回失敗すると 15 分間ロックします。`RELINK_ADMIN_LOGIN_MAX_FAILURES`、`RELINK_ADMIN_LOGIN_WINDOW_SECONDS`、`RELINK_ADMIN_LOGIN_LOCKOUT_SECONDS` で変更できます。認証済みセッションは既定で 15 分のアイドル期限と 8 時間の絶対期限を持ち、`RELINK_ADMIN_SESSION_IDLE_SECONDS` と `RELINK_ADMIN_SESSION_ABSOLUTE_SECONDS` で調整できます。パスワードには既存の固定シークレットに加え、`password_hash()` が生成するハッシュを設定できます。更新時には Native profile で `php bin/migrate.php` を実行してください。Container profile は entrypoint が migration 002 を自動適用します。
 
 `RELINK_ENV=production` では空パスワードおよび `change-me` を拒否します。本番 Secret を必ず注入してください。
 

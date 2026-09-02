@@ -5,6 +5,8 @@
 declare(strict_types=1);
 
 use Relink\Resolver\Adapters\SqliteResolverRepository;
+use Relink\Resolver\Adapters\SqliteAdminLoginThrottleStore;
+use Relink\Resolver\Application\AdminAuthenticationService;
 use Relink\Resolver\Application\TrustedProxyPolicy;
 use Relink\Resolver\Application\ResolverService;
 
@@ -25,26 +27,51 @@ if (!$secureRequest && !$config['admin_allow_http']) {
     header('X-Content-Type-Options: nosniff');
     exit('HTTPS is required for administration');
 }
+ini_set('session.use_strict_mode', '1');
 session_start(['cookie_httponly' => true, 'cookie_secure' => $secureRequest, 'cookie_samesite' => 'Strict']);
+
+$authentication = new AdminAuthenticationService(
+    new SqliteAdminLoginThrottleStore($config['database_path']),
+    $config['admin_username'],
+    $config['admin_password'],
+    $config['admin_login_max_failures'],
+    $config['admin_login_window_seconds'],
+    $config['admin_login_lockout_seconds'],
+    $config['admin_session_idle_seconds'],
+    $config['admin_session_absolute_seconds'],
+);
 
 /**
  * @param array<string, mixed> $config
  */
-function admin_authenticated(array $config): bool
+function admin_authenticated(array $config, AdminAuthenticationService $authentication): bool
 {
-    if (isset($_SESSION['admin'])) {
+    $now = time();
+    if ($authentication->isSessionValid($_SESSION, $now)) {
+        $_SESSION['last_activity_at'] = $now;
         return true;
+    }
+    if (isset($_SESSION['admin'])) {
+        $_SESSION = [];
+        session_destroy();
+        session_start(['cookie_httponly' => true, 'cookie_secure' => TrustedProxyPolicy::isSecureRequest($_SERVER, $config['trusted_proxy_cidrs']), 'cookie_samesite' => 'Strict']);
+    }
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        return false;
     }
     $username = (string) ($_POST['username'] ?? '');
     $password = (string) ($_POST['password'] ?? '');
-    if ($username === $config['admin_username'] && $config['admin_password'] !== '' && hash_equals($config['admin_password'], $password)) {
+    $clientAddress = TrustedProxyPolicy::clientAddress($_SERVER, $config['trusted_proxy_cidrs']);
+    if ($authentication->attempt($clientAddress, $username, $password, $now)) {
         session_regenerate_id(true);
         $_SESSION['admin'] = $username;
         $_SESSION['csrf'] = bin2hex(random_bytes(32));
+        $_SESSION['authenticated_at'] = $now;
+        $_SESSION['last_activity_at'] = $now;
         return true;
     }
     if ($username !== '' || $password !== '') {
-        error_log('RELink admin authentication failure');
+        error_log('RELink admin authentication failure or lockout');
     }
     return false;
 }
@@ -60,7 +87,7 @@ if ($action === 'logout') {
     header('Location: admin.php');
     exit;
 }
-if (!admin_authenticated($config)) {
+if (!admin_authenticated($config, $authentication)) {
     header('Cache-Control: no-store');
     header('X-Content-Type-Options: nosniff');
     header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'");
