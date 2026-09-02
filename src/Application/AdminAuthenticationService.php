@@ -26,11 +26,8 @@ final class AdminAuthenticationService
     public function attempt(string $clientAddress, string $username, string $password, int $now): string
     {
         $ipHash = hash('sha256', 'ip' . "\0" . $clientAddress);
-        // 任意ユーザー名は保存キーに使わず、既知の管理アカウントだけを別バケットで防御する。
+        // 任意ユーザー名は保存キーに使わず、全IP共通lockによる管理面DoSも避ける。
         $subjectHashes = [$ipHash];
-        if (strlen($username) <= 200 && hash_equals($this->username, $username)) {
-            $subjectHashes[] = hash('sha256', 'account' . "\0" . $this->username);
-        }
         $credentialsValid = strlen($username) <= 200 && strlen($password) <= 4096 && $this->credentialsMatch($username, $password);
         return $this->throttleStore->decide($subjectHashes, $credentialsValid, $now, $this->maxFailures, $this->failureWindowSeconds, $this->lockoutSeconds);
     }
@@ -45,6 +42,9 @@ final class AdminAuthenticationService
             && $session['admin'] === $this->username
             && is_int($session['authenticated_at'])
             && is_int($session['last_activity_at'])
+            && $session['authenticated_at'] <= $now
+            && $session['last_activity_at'] <= $now
+            && $session['authenticated_at'] <= $session['last_activity_at']
             && $now - $session['last_activity_at'] < $this->idleTimeoutSeconds
             && $now - $session['authenticated_at'] < $this->absoluteTimeoutSeconds;
     }

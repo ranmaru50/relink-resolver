@@ -22,14 +22,14 @@ final class AdminAuthenticationServiceTest extends TestCase
         self::assertSame('accepted', $service->attempt('192.0.2.1', 'admin', 'secret', 1_122));
     }
 
-    /** 既知アカウントは送信元を変えても保護し、未知ユーザー名はIP制限を回避しない。 */
-    public function testLoginThrottleUsesIpAndKnownAccountBuckets(): void
+    /** IP lockは別IPの正規管理者を妨げず、username変更で同一IPの制限を回避できない。 */
+    public function testLoginThrottleUsesOnlyIpBucket(): void
     {
         $store = new InMemoryAdminLoginThrottleStore();
         $service = new AdminAuthenticationService($store, 'admin', 'secret', 1, 60, 120, 300, 3_600);
 
         self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 1_000));
-        self::assertSame('rejected_locked', $service->attempt('192.0.2.2', 'admin', 'secret', 1_001));
+        self::assertSame('accepted', $service->attempt('192.0.2.2', 'admin', 'secret', 1_001));
         self::assertSame('rejected_locked', $service->attempt('192.0.2.1', 'other', 'wrong', 1_001));
     }
 
