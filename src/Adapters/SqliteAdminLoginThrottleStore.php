@@ -86,7 +86,8 @@ final class SqliteAdminLoginThrottleStore implements AdminLoginThrottleStore
         $expiry = $now - $failureWindowSeconds;
         $this->pdo->prepare('DELETE FROM admin_login_throttles WHERE locked_until <= :now AND window_started_at < :expiry')->execute(['now' => $now, 'expiry' => $expiry]);
         $count = (int) $this->pdo->query('SELECT COUNT(*) FROM admin_login_throttles')->fetchColumn();
-        if ($count < 10000) {
+        // 1試行で IP と既知アカウントの最大2行を追加するため、余白を確保する。
+        if ($count < 9998) {
             return;
         }
         $placeholders = implode(',', array_fill(0, count($protectedHashes), '?'));
