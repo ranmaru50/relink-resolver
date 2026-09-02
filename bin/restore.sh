@@ -97,6 +97,9 @@ sqlite3 "$TEMP_PATH" "PRAGMA integrity_check;" | grep -qx ok
 # アプリケーションが必要とするテーブルとライフサイクル値を検証してから切り替える。
 test "$(sqlite3 "$TEMP_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('resolver_records', 'resolver_history');")" = 2
 sqlite3 "$TEMP_PATH" "SELECT COUNT(*) FROM resolver_records WHERE anchor_uuid IS NULL OR state NOT IN ('ACTIVE', 'SUSPENDED', 'RETIRED');" | grep -qx 0
+# 旧バックアップも一時DBのまま現行スキーマへ更新し、失敗時は本DBを変更しない。
+RELINK_DB_PATH="$TEMP_PATH" php "$(dirname "$0")/migrate.php"
+test "$(sqlite3 "$TEMP_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'admin_login_throttles';")" = 1
 
 if test -e "$DB_PATH"; then
     # アプリケーション停止済みを前提にWALを確定し、現DBを別ファイルへ安全に退避する。
