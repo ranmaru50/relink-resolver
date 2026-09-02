@@ -79,7 +79,7 @@ final class AdminAuthenticationServiceTest extends TestCase
             self::assertSame('rejected_locked', $second->attempt('192.0.2.9', 'admin', 'secret', 103));
 
             $pdo = new PDO('sqlite:' . $path);
-            $insert = $pdo->prepare('INSERT INTO admin_login_throttles (subject_hash, failures, window_started_at, locked_until) VALUES (?, 1, 1, 0)');
+            $insert = $pdo->prepare('INSERT INTO admin_login_throttles (subject_hash, failures, window_started_at, locked_until) VALUES (?, 1, 1000, 0)');
             for ($i = 0; $i < 10000; $i++) {
                 $insert->execute([hash('sha256', 'fixture-' . $i)]);
             }
