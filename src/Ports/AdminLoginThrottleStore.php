@@ -8,10 +8,11 @@ namespace Relink\Resolver\Ports;
 
 interface AdminLoginThrottleStore
 {
-    /** @return array{failures: int, window_started_at: int, locked_until: int} */
-    public function state(string $subjectHash): array;
-
-    public function save(string $subjectHash, int $failures, int $windowStartedAt, int $lockedUntil): void;
-
-    public function clear(string $subjectHash): void;
+    /**
+     * 複数の制限バケットを一つの永続化境界で評価・更新する。
+     *
+     * @param non-empty-list<string> $subjectHashes
+     * @return 'accepted'|'rejected_locked'|'rejected_invalid'
+     */
+    public function decide(array $subjectHashes, bool $credentialsValid, int $now, int $maxFailures, int $failureWindowSeconds, int $lockoutSeconds): string;
 }

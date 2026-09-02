@@ -62,7 +62,8 @@ function admin_authenticated(array $config, AdminAuthenticationService $authenti
     $username = (string) ($_POST['username'] ?? '');
     $password = (string) ($_POST['password'] ?? '');
     $clientAddress = TrustedProxyPolicy::clientAddress($_SERVER, $config['trusted_proxy_cidrs']);
-    if ($authentication->attempt($clientAddress, $username, $password, $now)) {
+    $authenticationResult = $authentication->attempt($clientAddress, $username, $password, $now);
+    if ($authenticationResult === 'accepted') {
         session_regenerate_id(true);
         $_SESSION['admin'] = $username;
         $_SESSION['csrf'] = bin2hex(random_bytes(32));
@@ -71,7 +72,7 @@ function admin_authenticated(array $config, AdminAuthenticationService $authenti
         return true;
     }
     if ($username !== '' || $password !== '') {
-        error_log('RELink admin authentication failure or lockout');
+        error_log('RELink admin authentication ' . $authenticationResult);
     }
     return false;
 }

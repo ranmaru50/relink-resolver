@@ -16,21 +16,21 @@ final class AdminAuthenticationServiceTest extends TestCase
         $store = new InMemoryAdminLoginThrottleStore();
         $service = new AdminAuthenticationService($store, 'admin', 'secret', 2, 60, 120, 300, 3_600);
 
-        self::assertFalse($service->attempt('192.0.2.1', 'admin', 'wrong', 1_000));
-        self::assertFalse($service->attempt('192.0.2.1', 'admin', 'wrong', 1_001));
-        self::assertFalse($service->attempt('192.0.2.1', 'admin', 'secret', 1_002));
-        self::assertTrue($service->attempt('192.0.2.1', 'admin', 'secret', 1_122));
+        self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 1_000));
+        self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 1_001));
+        self::assertSame('rejected_locked', $service->attempt('192.0.2.1', 'admin', 'secret', 1_002));
+        self::assertSame('accepted', $service->attempt('192.0.2.1', 'admin', 'secret', 1_122));
     }
 
-    /** 異なる送信元またはユーザー名は個別に失敗回数を数える。 */
-    public function testLoginThrottleIsScopedToClientAndUsername(): void
+    /** 既知アカウントは送信元を変えても保護し、未知ユーザー名はIP制限を回避しない。 */
+    public function testLoginThrottleUsesIpAndKnownAccountBuckets(): void
     {
         $store = new InMemoryAdminLoginThrottleStore();
         $service = new AdminAuthenticationService($store, 'admin', 'secret', 1, 60, 120, 300, 3_600);
 
-        self::assertFalse($service->attempt('192.0.2.1', 'admin', 'wrong', 1_000));
-        self::assertTrue($service->attempt('192.0.2.2', 'admin', 'secret', 1_001));
-        self::assertFalse($service->attempt('192.0.2.1', 'other', 'wrong', 1_001));
+        self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 1_000));
+        self::assertSame('rejected_locked', $service->attempt('192.0.2.2', 'admin', 'secret', 1_001));
+        self::assertSame('rejected_locked', $service->attempt('192.0.2.1', 'other', 'wrong', 1_001));
     }
 
     /** アイドル期限または絶対期限を超えたセッションは無効である。 */
@@ -50,18 +50,26 @@ final class InMemoryAdminLoginThrottleStore implements AdminLoginThrottleStore
     /** @var array<string, array{failures: int, window_started_at: int, locked_until: int}> */
     private array $states = [];
 
-    public function state(string $subjectHash): array
+    public function decide(array $subjectHashes, bool $credentialsValid, int $now, int $maxFailures, int $failureWindowSeconds, int $lockoutSeconds): string
     {
-        return $this->states[$subjectHash] ?? ['failures' => 0, 'window_started_at' => 0, 'locked_until' => 0];
-    }
-
-    public function save(string $subjectHash, int $failures, int $windowStartedAt, int $lockedUntil): void
-    {
-        $this->states[$subjectHash] = ['failures' => $failures, 'window_started_at' => $windowStartedAt, 'locked_until' => $lockedUntil];
-    }
-
-    public function clear(string $subjectHash): void
-    {
-        unset($this->states[$subjectHash]);
+        foreach ($subjectHashes as $subjectHash) {
+            $state = $this->states[$subjectHash] ?? ['failures' => 0, 'window_started_at' => 0, 'locked_until' => 0];
+            if ($state['locked_until'] > $now) {
+                return 'rejected_locked';
+            }
+        }
+        if ($credentialsValid) {
+            foreach ($subjectHashes as $subjectHash) {
+                unset($this->states[$subjectHash]);
+            }
+            return 'accepted';
+        }
+        foreach ($subjectHashes as $subjectHash) {
+            $state = $this->states[$subjectHash] ?? ['failures' => 0, 'window_started_at' => 0, 'locked_until' => 0];
+            $withinWindow = $state['window_started_at'] > 0 && $now - $state['window_started_at'] < $failureWindowSeconds;
+            $failures = $withinWindow ? $state['failures'] + 1 : 1;
+            $this->states[$subjectHash] = ['failures' => $failures, 'window_started_at' => $withinWindow ? $state['window_started_at'] : $now, 'locked_until' => $failures >= $maxFailures ? $now + $lockoutSeconds : 0];
+        }
+        return 'rejected_invalid';
     }
 }

@@ -22,26 +22,17 @@ final class AdminAuthenticationService
     ) {
     }
 
-    /** IP とユーザー名ごとの制限を適用して認証情報を検証する。 */
-    public function attempt(string $clientAddress, string $username, string $password, int $now): bool
+    /** IP と既知アカウントの独立バケットを、原子的に評価して認証情報を検証する。 */
+    public function attempt(string $clientAddress, string $username, string $password, int $now): string
     {
-        $subjectHash = hash('sha256', $clientAddress . "\0" . $username);
-        $state = $this->throttleStore->state($subjectHash);
-        if ($state['locked_until'] > $now) {
-            return false;
+        $ipHash = hash('sha256', 'ip' . "\0" . $clientAddress);
+        // 任意ユーザー名は保存キーに使わず、既知の管理アカウントだけを別バケットで防御する。
+        $subjectHashes = [$ipHash];
+        if (strlen($username) <= 200 && hash_equals($this->username, $username)) {
+            $subjectHashes[] = hash('sha256', 'account' . "\0" . $this->username);
         }
-
-        if ($this->credentialsMatch($username, $password)) {
-            $this->throttleStore->clear($subjectHash);
-            return true;
-        }
-
-        $withinWindow = $state['window_started_at'] > 0 && $now - $state['window_started_at'] < $this->failureWindowSeconds;
-        $failures = $withinWindow ? $state['failures'] + 1 : 1;
-        $windowStartedAt = $withinWindow ? $state['window_started_at'] : $now;
-        $lockedUntil = $failures >= $this->maxFailures ? $now + $this->lockoutSeconds : 0;
-        $this->throttleStore->save($subjectHash, $failures, $windowStartedAt, $lockedUntil);
-        return false;
+        $credentialsValid = strlen($username) <= 200 && strlen($password) <= 4096 && $this->credentialsMatch($username, $password);
+        return $this->throttleStore->decide($subjectHashes, $credentialsValid, $now, $this->maxFailures, $this->failureWindowSeconds, $this->lockoutSeconds);
     }
 
     /** @param array<string, mixed> $session */
@@ -64,7 +55,7 @@ final class AdminAuthenticationService
         if ($username !== $this->username || $this->password === '') {
             return false;
         }
-        if (str_starts_with($this->password, '$')) {
+        if (password_get_info($this->password)['algo'] !== null) {
             return password_verify($password, $this->password);
         }
         return hash_equals($this->password, $password);

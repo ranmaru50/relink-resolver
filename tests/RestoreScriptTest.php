@@ -83,4 +83,25 @@ final class RestoreScriptTest extends TestCase
         $this->assertFileExists($targetPath . '-shm');
         $database = null;
     }
+
+    /** schema v1 のバックアップも復元前に現行スキーマへ更新する。 */
+    public function testRestoreMigratesVersionOneBackup(): void
+    {
+        $legacyPath = $this->targetDirectory . DIRECTORY_SEPARATOR . 'legacy.sqlite';
+        $schema = file_get_contents(dirname(__DIR__) . DIRECTORY_SEPARATOR . 'migrations' . DIRECTORY_SEPARATOR . '001_initial.sql');
+        $this->assertNotFalse($schema);
+        $legacy = new PDO('sqlite:' . $legacyPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $legacy->exec('CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
+        $legacy->exec($schema);
+        $legacy->exec("INSERT INTO schema_migrations (version, applied_at) VALUES (1, CURRENT_TIMESTAMP)");
+        $legacy = null;
+
+        $targetPath = $this->targetDirectory . DIRECTORY_SEPARATOR . 'resolver.sqlite';
+        $script = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'restore.sh';
+        $command = sprintf('RELINK_DB_PATH=%s RELINK_SERVICE_UID=%d RELINK_SERVICE_GID=%d sh %s %s', escapeshellarg($targetPath), fileowner($this->targetDirectory), filegroup($this->targetDirectory), escapeshellarg($script), escapeshellarg($legacyPath));
+        $this->assertSame(0, system($command, $exitCode) === false ? 1 : $exitCode);
+
+        $database = new PDO('sqlite:' . $targetPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        self::assertSame(1, (int) $database->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'admin_login_throttles'")->fetchColumn());
+    }
 }
