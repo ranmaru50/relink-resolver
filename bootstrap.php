@@ -36,6 +36,12 @@ return [
     'configuration_error' => $environment === 'production' && ($adminPassword === '' || $adminPassword === 'change-me'),
     'admin_allow_http' => in_array($allowHttp, ['1', 'true', 'yes'], true),
     'trusted_proxy_cidrs' => $trustedProxyCidrs,
+    // 管理ログイン乱用対策の既定値。0 や負数は安全な既定値に戻す。
+    'admin_login_max_failures' => max(1, (int) (getenv('RELINK_ADMIN_LOGIN_MAX_FAILURES') ?: 5)),
+    'admin_login_window_seconds' => max(1, (int) (getenv('RELINK_ADMIN_LOGIN_WINDOW_SECONDS') ?: 900)),
+    'admin_login_lockout_seconds' => max(1, (int) (getenv('RELINK_ADMIN_LOGIN_LOCKOUT_SECONDS') ?: 900)),
+    'admin_session_idle_seconds' => max(1, (int) (getenv('RELINK_ADMIN_SESSION_IDLE_SECONDS') ?: 900)),
+    'admin_session_absolute_seconds' => max(1, (int) (getenv('RELINK_ADMIN_SESSION_ABSOLUTE_SECONDS') ?: 28800)),
     'cache_max_age' => (int) (getenv('RELINK_CACHE_MAX_AGE') ?: 60),
     'service_prefix' => getenv('RELINK_SERVICE_PREFIX') ?: '/relink',
 ];

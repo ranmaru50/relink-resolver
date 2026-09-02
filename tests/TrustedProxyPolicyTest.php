@@ -49,4 +49,17 @@ final class TrustedProxyPolicyTest extends TestCase
             'HTTP_X_FORWARDED_PROTO' => 'https',
         ], ['2001:db8:1234::/48']));
     }
+
+    /** 信頼済みプロキシが上書きした単一クライアント IP だけをログイン制限に使用する。 */
+    public function testClientAddressUsesForwardedForOnlyFromTrustedProxy(): void
+    {
+        self::assertSame('198.51.100.10', TrustedProxyPolicy::clientAddress([
+            'REMOTE_ADDR' => '10.12.0.8',
+            'HTTP_X_FORWARDED_FOR' => '198.51.100.10',
+        ], ['10.0.0.0/8']));
+        self::assertSame('198.51.100.11', TrustedProxyPolicy::clientAddress([
+            'REMOTE_ADDR' => '198.51.100.11',
+            'HTTP_X_FORWARDED_FOR' => '192.0.2.10',
+        ], ['10.0.0.0/8']));
+    }
 }

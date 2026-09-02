@@ -36,6 +36,25 @@ final class TrustedProxyPolicy
     }
 
     /**
+     * ログイン制限用に、信頼済みプロキシが上書きした単一のクライアント IP だけを使用する。
+     *
+     * @param array<string, mixed> $server
+     * @param list<string> $trustedProxyCidrs
+     */
+    public static function clientAddress(array $server, array $trustedProxyCidrs): string
+    {
+        $remoteAddress = (string) ($server['REMOTE_ADDR'] ?? 'unknown');
+        if (!self::matchesAny($remoteAddress, $trustedProxyCidrs)) {
+            return $remoteAddress;
+        }
+        $forwardedFor = trim((string) ($server['HTTP_X_FORWARDED_FOR'] ?? ''));
+        if (!str_contains($forwardedFor, ',') && filter_var($forwardedFor, FILTER_VALIDATE_IP) !== false) {
+            return $forwardedFor;
+        }
+        return $remoteAddress;
+    }
+
+    /**
      * @param list<string> $networks
      */
     private static function matchesAny(string $address, array $networks): bool
