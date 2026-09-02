@@ -6,6 +6,8 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 use Relink\Resolver\Application\AdminAuthenticationService;
+use Relink\Resolver\Adapters\SqliteAdminLoginThrottleStore;
+use Relink\Resolver\Adapters\SqliteMigrator;
 use Relink\Resolver\Ports\AdminLoginThrottleStore;
 
 final class AdminAuthenticationServiceTest extends TestCase
@@ -41,6 +43,25 @@ final class AdminAuthenticationServiceTest extends TestCase
         self::assertTrue($service->isSessionValid(['admin' => 'admin', 'authenticated_at' => 1_000, 'last_activity_at' => 1_200], 1_499));
         self::assertFalse($service->isSessionValid(['admin' => 'admin', 'authenticated_at' => 1_000, 'last_activity_at' => 1_200], 1_500));
         self::assertFalse($service->isSessionValid(['admin' => 'admin', 'authenticated_at' => 1_000, 'last_activity_at' => 1_200], 4_600));
+    }
+
+    /** 実SQLiteアダプタでも失敗累積、lock、期限後の回復、期限切れ行purgeを確認する。 */
+    public function testSqliteThrottlePersistsLockAndPurgesExpiredState(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'relink-auth-');
+        self::assertNotFalse($path);
+        try {
+            SqliteMigrator::migrate($path);
+            $service = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), 'admin', 'secret', 2, 10, 20, 300, 3600);
+            self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 100));
+            self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 101));
+            self::assertSame('rejected_locked', $service->attempt('192.0.2.1', 'admin', 'secret', 102));
+            self::assertSame('accepted', $service->attempt('192.0.2.1', 'admin', 'secret', 121));
+            $pdo = new PDO('sqlite:' . $path);
+            self::assertSame(0, (int) $pdo->query('SELECT COUNT(*) FROM admin_login_throttles')->fetchColumn());
+        } finally {
+            @unlink($path);
+        }
     }
 }
 
