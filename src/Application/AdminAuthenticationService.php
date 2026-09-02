@@ -22,7 +22,7 @@ final class AdminAuthenticationService
     ) {
     }
 
-    /** IP と既知アカウントの独立バケットを、原子的に評価して認証情報を検証する。 */
+    /** IP単位バケットを原子的に評価して認証情報を検証する。 */
     public function attempt(string $clientAddress, string $username, string $password, int $now): string
     {
         $ipHash = hash('sha256', 'ip' . "\0" . $clientAddress);

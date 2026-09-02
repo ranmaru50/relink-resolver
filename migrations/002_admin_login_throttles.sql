@@ -1,4 +1,4 @@
--- 管理ログイン試行のレート制限状態。識別子は IP とユーザー名の SHA-256 ハッシュだけを保存する。
+-- 管理ログイン試行のIP単位レート制限状態。識別子はIPのSHA-256ハッシュだけを保存する。
 CREATE TABLE admin_login_throttles (
     subject_hash TEXT PRIMARY KEY,
     failures INTEGER NOT NULL CHECK (failures >= 0),
