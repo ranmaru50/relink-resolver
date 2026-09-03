@@ -4,6 +4,8 @@
 
 declare(strict_types=1);
 
+use Relink\Resolver\Application\AdminRequestLimits;
+
 spl_autoload_register(static function (string $class): void {
     $prefix = 'Relink\\Resolver\\';
     if (!str_starts_with($class, $prefix)) {
@@ -42,6 +44,14 @@ return [
     'admin_login_lockout_seconds' => max(1, (int) (getenv('RELINK_ADMIN_LOGIN_LOCKOUT_SECONDS') ?: 900)),
     'admin_session_idle_seconds' => max(1, (int) (getenv('RELINK_ADMIN_SESSION_IDLE_SECONDS') ?: 900)),
     'admin_session_absolute_seconds' => max(1, (int) (getenv('RELINK_ADMIN_SESSION_ABSOLUTE_SECONDS') ?: 28800)),
+    // 管理面の本文・入力項目・検索ページングの既定上限。Native/Containerで同じ値を使用する。
+    'admin_request_limits' => new AdminRequestLimits(
+        maxBodyBytes: max(1024, (int) (getenv('RELINK_ADMIN_MAX_BODY_BYTES') ?: 65536)),
+        maxInputVars: max(1, (int) (getenv('RELINK_ADMIN_MAX_INPUT_VARS') ?: 32)),
+        maxPage: max(1, (int) (getenv('RELINK_ADMIN_MAX_PAGE') ?: 10000)),
+        defaultPerPage: max(1, (int) (getenv('RELINK_ADMIN_DEFAULT_PER_PAGE') ?: 20)),
+        maxPerPage: max(1, (int) (getenv('RELINK_ADMIN_MAX_PER_PAGE') ?: 50)),
+    ),
     'cache_max_age' => (int) (getenv('RELINK_CACHE_MAX_AGE') ?: 60),
     'service_prefix' => getenv('RELINK_SERVICE_PREFIX') ?: '/relink',
 ];

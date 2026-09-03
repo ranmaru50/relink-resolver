@@ -69,11 +69,6 @@ final class ServiceEdgeCaseRepository implements ResolverRepository
         return $updated;
     }
 
-    public function all(): array
-    {
-        return array_values($this->records);
-    }
-
     public function history(AnchorUuid $anchor): array
     {
         return $this->events;
