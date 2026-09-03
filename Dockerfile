@@ -23,7 +23,17 @@ COPY composer.json /var/www/composer.json
 COPY composer.lock /var/www/composer.lock
 COPY phpunit.xml.dist /var/www/phpunit.xml.dist
 COPY phpstan.neon.dist /var/www/phpstan.neon.dist
-RUN cd /var/www && composer install --no-interaction --prefer-dist
+# GitHub API の一時的な通信失敗に備え、依存関係の取得を直列化して再試行する。
+RUN set -eux; \
+    cd /var/www; \
+    attempts=0; \
+    until COMPOSER_MAX_PARALLEL_HTTP=1 composer install --no-interaction --no-progress --prefer-dist; do \
+        attempts=$((attempts + 1)); \
+        if [ "$attempts" -ge 3 ]; then \
+            exit 1; \
+        fi; \
+        sleep 5; \
+    done
 COPY docker-entrypoint.sh /usr/local/bin/relink-entrypoint.sh
 # Apache の既定 security.conf より後に読み込み、ServerTokens を確実に上書きする。
 COPY deploy/apache-docker.conf /etc/apache2/conf-enabled/zz-relink-security.conf

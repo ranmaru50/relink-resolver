@@ -17,7 +17,18 @@ jobs:
           extensions: pdo_sqlite, dom, mbstring, xml, zip
           tools: composer
       - name: PHPUnit 依存関係
-        run: composer install --no-interaction --prefer-dist
+        env:
+          COMPOSER_MAX_PARALLEL_HTTP: 1
+        run: |
+          for attempt in 1 2 3; do
+            if composer install --no-interaction --no-progress --prefer-dist; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep 5
+            fi
+          done
+          exit 1
       - name: 構文検査
         run: find src public tests bin -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: PHPStan 静的解析
