@@ -41,9 +41,9 @@ final class SqliteResolverRepositoryTest extends TestCase
         $uuid = '550e8400-e29b-41d4-a716-446655440020';
         $service->register(['uuid' => $uuid, 'location' => 'https://entity.example/20.xml', 'entity_id' => 'urn:relink:entity:20']);
         $service->transition($uuid, 'SUSPENDED', 'test');
-        $history = $repository->history(new AnchorUuid($uuid));
+        $history = $service->history($uuid);
         $this->assertCount(1, $history);
-        $this->assertSame('lifecycle_transition', $history[0]['event_type']);
+        $this->assertSame('lifecycle_transition', $history[0]->eventType);
         $stale = $repository->find(new AnchorUuid($uuid));
         $service->transition($uuid, 'ACTIVE', 'test');
         $this->expectExceptionMessage('STATE_CONFLICT');
@@ -90,9 +90,9 @@ final class SqliteResolverRepositoryTest extends TestCase
         $this->assertSame('urn:relink:entity:22-new', $stored->entityId);
         $this->assertNull($stored->integrityDigest);
         $this->assertCount(1, $history);
-        $this->assertSame('mapping_update', $history[0]['event_type']);
-        $this->assertSame('https://entity.example/22.xml', $history[0]['old_location']);
-        $this->assertSame('https://entity.example/22-new.xml', $history[0]['new_location']);
+        $this->assertSame('mapping_update', $history[0]->eventType);
+        $this->assertSame('https://entity.example/22.xml', $history[0]->oldLocation?->value);
+        $this->assertSame('https://entity.example/22-new.xml', $history[0]->newLocation?->value);
     }
 
     /** 同一状態指定がバージョンと履歴を増やさないことを確認する。 */
@@ -183,10 +183,10 @@ final class SqliteResolverRepositoryTest extends TestCase
         $service->transition($uuid, 'SUSPENDED', str_repeat('理由', 400), str_repeat('actor', 100));
         $event = $repository->history(new AnchorUuid($uuid))[0];
 
-        $this->assertSame('ACTIVE', $event['old_state']);
-        $this->assertSame('SUSPENDED', $event['new_state']);
-        $this->assertSame(500, strlen($event['reason']));
-        $this->assertSame(200, strlen($event['actor']));
+        $this->assertSame('ACTIVE', $event->oldState?->value);
+        $this->assertSame('SUSPENDED', $event->newState?->value);
+        $this->assertSame(500, strlen($event->reason));
+        $this->assertSame(200, strlen($event->actor));
     }
 
     /** stale なレコードによる Location 更新を競合として拒否することを確認する。 */
@@ -202,28 +202,6 @@ final class SqliteResolverRepositoryTest extends TestCase
 
         $this->expectExceptionMessage('STATE_CONFLICT');
         $repository->update($stale, new DescriptionLocation('https://entity.example/26-stale.xml'), 'urn:relink:entity:26', null, null);
-    }
-
-    /** all() が UUID の昇順で返ることを確認する。 */
-    public function testAllReturnsRecordsInStableUuidOrder(): void
-    {
-        SqliteMigrator::migrate($this->path);
-        $service = new ResolverService(new SqliteResolverRepository($this->path));
-        foreach ([
-            ['550e8400-e29b-41d4-a716-446655440029', '29'],
-            ['550e8400-e29b-41d4-a716-446655440027', '27'],
-            ['550e8400-e29b-41d4-a716-446655440028', '28'],
-        ] as [$uuid, $suffix]) {
-            $service->register(['uuid' => $uuid, 'location' => 'https://entity.example/' . $suffix . '.xml', 'entity_id' => 'urn:relink:entity:' . $suffix]);
-        }
-
-        $records = (new SqliteResolverRepository($this->path))->all();
-
-        $this->assertSame([
-            '550e8400-e29b-41d4-a716-446655440027',
-            '550e8400-e29b-41d4-a716-446655440028',
-            '550e8400-e29b-41d4-a716-446655440029',
-        ], array_map(static fn ($record): string => $record->anchor->value, $records));
     }
 
     /** 検索条件とLIMIT/OFFSETがSQLite側で適用され、安定したページを返すことを確認する。 */

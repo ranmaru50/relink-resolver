@@ -89,6 +89,14 @@ SQLite / HTTP client / clock / logging adapters
 
 Dependencies MUST point inward. Domain and application code MUST NOT depend on Apache, PHP superglobals, SQLite-specific APIs, HTML rendering, or container runtime details.
 
+Framework portability rules:
+
+- `src/Domain`, framework-independent `src/Application`, and `src/Ports` MUST NOT depend on Laravel/Symfony/Slim Request/Response objects, ORM models, service locators/facades, PHP session globals, or framework configuration APIs.
+- Framework request parsing, response emission, authentication/session integration, and ORM mapping MUST remain hosting/infrastructure adapters.
+- Application and persistence ports SHOULD exchange typed protocol/application values. Database-row-shaped generic arrays MUST NOT cross the Resolver Engine boundary where a typed representation is practical.
+- Configuration and environment lookup MUST remain at the composition root or in adapters. Resolver use cases receive explicit values and policies.
+- Resolver authentication/session integration is a hosting concern and MUST NOT introduce RELink L2, Trust, OIDC, SSO, or RBAC semantics into the protocol/domain model.
+
 ### 3.1 Suggested bounded responsibilities
 
 **Resolver Core domain/application**

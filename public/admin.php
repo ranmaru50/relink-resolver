@@ -6,12 +6,16 @@ declare(strict_types=1);
 
 use Relink\Resolver\Adapters\SqliteResolverRepository;
 use Relink\Resolver\Adapters\SqliteAdminLoginThrottleStore;
+use Relink\Resolver\Adapters\ConfiguredAdminCredentialVerifier;
 use Relink\Resolver\Application\AdminAuthenticationService;
 use Relink\Resolver\Application\AdminRequestException;
 use Relink\Resolver\Application\AdminRequestGuard;
+use Relink\Resolver\Application\AdminSession;
+use Relink\Resolver\Application\AdminSessionPolicy;
 use Relink\Resolver\Application\TrustedProxyPolicy;
 use Relink\Resolver\Application\ResolverService;
 use Relink\Resolver\Ports\AdminRecordQuery;
+use Relink\Resolver\Domain\ResolverHistoryEntry;
 
 $config = require dirname(__DIR__) . '/bootstrap.php';
 
@@ -60,11 +64,13 @@ session_start(['cookie_httponly' => true, 'cookie_secure' => $secureRequest, 'co
 
 $authentication = new AdminAuthenticationService(
     new SqliteAdminLoginThrottleStore($config['database_path']),
-    $config['admin_username'],
-    $config['admin_password'],
+    new ConfiguredAdminCredentialVerifier($config['admin_username'], $config['admin_password']),
     $config['admin_login_max_failures'],
     $config['admin_login_window_seconds'],
     $config['admin_login_lockout_seconds'],
+);
+$sessionPolicy = new AdminSessionPolicy(
+    $config['admin_username'],
     $config['admin_session_idle_seconds'],
     $config['admin_session_absolute_seconds'],
 );
@@ -72,10 +78,10 @@ $authentication = new AdminAuthenticationService(
 /**
  * @param array<string, mixed> $config
  */
-function admin_authenticated(array $config, AdminAuthenticationService $authentication): bool
+function admin_authenticated(array $config, AdminAuthenticationService $authentication, AdminSessionPolicy $sessionPolicy): bool
 {
     $now = time();
-    if ($authentication->isSessionValid($_SESSION, $now)) {
+    if ($sessionPolicy->isValid(AdminSession::fromArray($_SESSION), $now)) {
         $_SESSION['last_activity_at'] = $now;
         return true;
     }
@@ -116,7 +122,7 @@ if ($action === 'logout') {
     header('Location: admin.php');
     exit;
 }
-if (!admin_authenticated($config, $authentication)) {
+if (!admin_authenticated($config, $authentication, $sessionPolicy)) {
     header('Content-Type: text/html; charset=utf-8');
     echo '<!doctype html><meta charset="utf-8"><title>RELink Admin</title><form method="post"><label>ユーザー名 <input name="username" required></label><label>パスワード <input type="password" name="password" required></label><button>ログイン</button></form>';
     exit;
@@ -141,19 +147,25 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
     $uuid = (string) ($_GET['uuid'] ?? '');
     try {
         if ($uuid !== '') {
-            $record = $repository->find(new \Relink\Resolver\Domain\AnchorUuid($uuid));
-            if ($record === null) {
-                http_response_code(404);
-                echo json_encode(['error' => 'not_found'], JSON_THROW_ON_ERROR);
-                exit;
-            }
+            $record = $service->findRecord($uuid);
             echo json_encode(['record' => [
                 'uuid' => $record->anchor->value,
                 'state' => $record->state->value,
                 'location' => $record->location->value,
                 'entity_id' => $record->entityId,
                 'version' => $record->version,
-            ], 'history' => $repository->history($record->anchor)], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            ], 'history' => array_map(static fn (ResolverHistoryEntry $entry): array => [
+                'id' => $entry->id,
+                'anchor_uuid' => $entry->anchor->value,
+                'event_type' => $entry->eventType,
+                'old_state' => $entry->oldState?->value,
+                'new_state' => $entry->newState?->value,
+                'old_location' => $entry->oldLocation?->value,
+                'new_location' => $entry->newLocation?->value,
+                'reason' => $entry->reason,
+                'actor' => $entry->actor,
+                'created_at' => $entry->createdAt,
+            ], $service->history($uuid))], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         } else {
             $rows = $recordQuery->search($listQuery->needle, $listQuery->perPage + 1, $listQuery->offset());
             $hasMore = count($rows) > $listQuery->perPage;
@@ -165,6 +177,14 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
                 'records' => array_map(static fn ($record): array => ['uuid' => $record->anchor->value, 'state' => $record->state->value, 'location' => $record->location->value, 'entity_id' => $record->entityId], $rows),
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         }
+    } catch (\Relink\Resolver\Application\ApplicationException $error) {
+        if ($error->errorCode === 'NOT_FOUND') {
+            http_response_code(404);
+            echo json_encode(['error' => 'not_found'], JSON_THROW_ON_ERROR);
+            exit;
+        }
+        http_response_code(400);
+        echo json_encode(['error' => 'invalid_request'], JSON_THROW_ON_ERROR);
     } catch (Throwable) {
         http_response_code(400);
         echo json_encode(['error' => 'invalid_request'], JSON_THROW_ON_ERROR);

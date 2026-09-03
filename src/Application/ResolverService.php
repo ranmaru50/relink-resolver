@@ -11,6 +11,7 @@ use Relink\Resolver\Domain\DescriptionLocation;
 use Relink\Resolver\Domain\LifecycleState;
 use Relink\Resolver\Domain\ResolutionResult;
 use Relink\Resolver\Domain\ResolverRecord;
+use Relink\Resolver\Domain\ResolverHistoryEntry;
 use Relink\Resolver\Ports\ResolverRepository;
 use RuntimeException;
 
@@ -84,6 +85,33 @@ final class ResolverService
             ], static fn ($value): bool => $value !== null),
             'lifecycle' => ['status' => $record->state->manifestValue()],
         ];
+    }
+
+    /**
+     * 管理ホスト向けに一件の Resolver レコードを取得する。
+     *
+     * HTTP や ORM のモデルを返さず、Resolver のドメインモデルだけを返す。
+     */
+    public function findRecord(string $uuid): ResolverRecord
+    {
+        return $this->requireRecord($uuid);
+    }
+
+    /**
+     * 管理ホスト向けに型付きの Resolver 履歴を返す。
+     *
+     * 履歴はライフサイクル遷移を含む Resolver の変更履歴であり、監査ログではない。
+     *
+     * @return list<ResolverHistoryEntry>
+     */
+    public function history(string $uuid): array
+    {
+        $record = $this->requireRecord($uuid);
+        try {
+            return $this->repository->history($record->anchor);
+        } catch (\Throwable $error) {
+            throw new ApplicationException('PERSISTENCE_FAILURE', 'History lookup failure', 0, $error);
+        }
     }
 
     /** @param array<string, mixed> $input */

@@ -11,6 +11,7 @@ use Relink\Resolver\Domain\AnchorUuid;
 use Relink\Resolver\Domain\DescriptionLocation;
 use Relink\Resolver\Domain\LifecycleState;
 use Relink\Resolver\Domain\ResolverRecord;
+use Relink\Resolver\Domain\ResolverHistoryEntry;
 use Relink\Resolver\Ports\ResolverRepository;
 
 /** テストで操作回数と永続化エラーを制御するインメモリリポジトリ。 */
@@ -19,7 +20,7 @@ final class ServiceEdgeCaseRepository implements ResolverRepository
     /** @var array<string, ResolverRecord> */
     private array $records = [];
 
-    /** @var list<array<string, mixed>> */
+    /** @var list<ResolverHistoryEntry> */
     private array $events = [];
 
     public int $findCalls = 0;
@@ -65,10 +66,22 @@ final class ServiceEdgeCaseRepository implements ResolverRepository
         $this->throwIfConfigured('transition');
         $updated = new ResolverRecord($record->anchor, $target, $record->location, $record->entityId, $record->mediaType, $record->integrityAlgorithm, $record->integrityDigest, $record->version + 1);
         $this->records[$record->anchor->value] = $updated;
-        $this->events[] = ['old_state' => $record->state->value, 'new_state' => $target->value, 'reason' => $reason, 'actor' => $actor];
+        $this->events[] = new ResolverHistoryEntry(
+            0,
+            $record->anchor,
+            'lifecycle_transition',
+            $record->state,
+            $target,
+            $record->location,
+            $record->location,
+            $reason,
+            $actor,
+            '',
+        );
         return $updated;
     }
 
+    /** @return list<ResolverHistoryEntry> */
     public function history(AnchorUuid $anchor): array
     {
         return $this->events;
