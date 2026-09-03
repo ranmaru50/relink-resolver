@@ -69,18 +69,6 @@ final class ServiceEdgeCaseRepository implements ResolverRepository
         return $updated;
     }
 
-    public function all(): array
-    {
-        return array_values($this->records);
-    }
-
-    /** 一覧検索のページングをテスト用リポジトリでも再現する。 */
-    public function search(string $needle, int $limit, int $offset): array
-    {
-        $rows = array_values(array_filter($this->records, static fn (ResolverRecord $record): bool => $needle === '' || str_contains(strtolower($record->anchor->value), strtolower($needle)) || str_contains(strtolower($record->entityId), strtolower($needle))));
-        return array_slice($rows, $offset, $limit);
-    }
-
     public function history(AnchorUuid $anchor): array
     {
         return $this->events;

@@ -36,6 +36,22 @@ final class AdminRequestLimitsTest extends TestCase
         }
     }
 
+    /** PHPパーサーが切り詰める前のraw入力で変数数超過を400に分類する。 */
+    public function testRawVariableCountRejectsParserTruncationBoundary(): void
+    {
+        $rawInput = implode('&', array_fill(0, 33, 'extra=value'));
+
+        $this->expectException(AdminRequestException::class);
+        $this->guard()->assertRawVariableCount($rawInput);
+    }
+
+    /** 管理変更操作ではmultipart等の未使用形式を拒否する。 */
+    public function testUnsupportedContentTypeIsRejected(): void
+    {
+        $this->expectException(AdminRequestException::class);
+        $this->guard()->assertContentType('POST', 'multipart/form-data; boundary=test');
+    }
+
     /** Location、理由、検索語の境界値を受理し、超過値を安全な400で拒否する。 */
     public function testFieldLengthBoundaries(): void
     {

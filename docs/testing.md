@@ -19,7 +19,7 @@ PHP の標準的なテストフレームワークである PHPUnit 11 を採用�
 
 `tests/RestoreScriptTest.php` は非root実行ユーザーのUID/GIDで空データディレクトリへ復元し、ディレクトリ／DBのmode、SQLiteトランザクション、WAL/SHM作成を検証します。Container CIでは別ジョブでroot復元とサービスユーザー所有権を確認します。
 
-`tests/AdminRequestLimitsTest.php` は管理本文、入力項目、配列値、変数数、検索語、ページングの境界を検証します。`tests/SqliteResolverRepositoryTest.php` の検索テストは、検索結果が指定ページだけに限定され、検索ワイルドカードが展開されないことを検証します。公開 `index.php` は管理一覧検索に依存しないことを設定テストで確認します。
+`tests/AdminRequestLimitsTest.php` は管理本文、入力項目、配列値、raw入力を含む変数数、検索語、ページングの境界を検証します。`tests/SqliteResolverRepositoryTest.php` の検索テストは、検索結果が指定ページだけに限定され、検索ワイルドカードが展開されないことを検証します。公開 `index.php` は管理一覧検索に依存しないことを設定テストで確認します。
 
 Containerの復元受入れ（rootによる空volumeへの復元後、`www-data`のSQLite更新と危険なmode拒否を確認）は、イメージ構築後に次で実行します。
 

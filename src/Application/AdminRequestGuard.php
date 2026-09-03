@@ -39,7 +39,7 @@ final class AdminRequestGuard
         ];
     }
 
-    /** Content-Lengthを先に検査し、過大な本文をアプリケーション処理へ渡さない。 */
+    /** Content-Lengthを検査し、Webサーバー設定との不一致を安全な413へ分類する。 */
     public function assertContentLength(?string $contentLength): void
     {
         if ($contentLength === null || $contentLength === '') {
@@ -50,6 +50,28 @@ final class AdminRequestGuard
         }
         if ((int) $contentLength > $this->limits->maxBodyBytes) {
             throw new AdminRequestException(413);
+        }
+    }
+
+    /** PHPパーサーの切り詰め前に取得したraw入力の変数数を検査する。 */
+    public function assertRawVariableCount(string $rawInput): void
+    {
+        if ($rawInput === '') {
+            return;
+        }
+        if (count(explode('&', $rawInput)) > $this->limits->maxInputVars) {
+            throw new AdminRequestException(400);
+        }
+    }
+
+    /** 管理変更操作でPHPが自動解釈できるフォーム形式だけを許可する。 */
+    public function assertContentType(string $method, ?string $contentType): void
+    {
+        if (strtoupper($method) !== 'POST' || $contentType === null || $contentType === '') {
+            return;
+        }
+        if (!preg_match('/^application\/x-www-form-urlencoded(?:\s*;|$)/i', trim($contentType))) {
+            throw new AdminRequestException(400);
         }
     }
 

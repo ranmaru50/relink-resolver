@@ -13,9 +13,10 @@ use Relink\Resolver\Domain\DescriptionLocation;
 use Relink\Resolver\Domain\LifecycleState;
 use Relink\Resolver\Domain\ResolverRecord;
 use Relink\Resolver\Ports\ResolverRepository;
+use Relink\Resolver\Ports\AdminRecordQuery;
 use RuntimeException;
 
-final class SqliteResolverRepository implements ResolverRepository
+final class SqliteResolverRepository implements ResolverRepository, AdminRecordQuery
 {
     private PDO $pdo;
 

@@ -46,6 +46,7 @@ final class HttpSecurityConfigurationTest extends TestCase
         self::assertStringContainsString('Header always set Strict-Transport-Security "max-age=31536000"', $nativeConfiguration);
         self::assertStringNotContainsString('Strict-Transport-Security', $containerConfiguration);
         self::assertStringContainsString("frame-ancestors 'none'", $adminAdapter);
+        self::assertStringContainsString('assertRawVariableCount', $adminAdapter);
     }
 
     /** Native/Containerで本文、ヘッダー、低速接続、過大要求の応答方針を一致させる。 */

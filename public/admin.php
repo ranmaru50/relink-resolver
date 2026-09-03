@@ -11,8 +11,15 @@ use Relink\Resolver\Application\AdminRequestException;
 use Relink\Resolver\Application\AdminRequestGuard;
 use Relink\Resolver\Application\TrustedProxyPolicy;
 use Relink\Resolver\Application\ResolverService;
+use Relink\Resolver\Ports\AdminRecordQuery;
 
 $config = require dirname(__DIR__) . '/bootstrap.php';
+
+/** SQLiteアダプタを管理面専用の一覧検索ポートとして受け渡す。 */
+function admin_record_query(SqliteResolverRepository $repository): AdminRecordQuery
+{
+    return $repository;
+}
 
 // 管理画面の全応答で MIME sniffing と埋め込みを抑止する。
 header('Cache-Control: no-store');
@@ -22,6 +29,12 @@ header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-ur
 $requestGuard = new AdminRequestGuard($config['admin_request_limits']);
 try {
     $requestGuard->assertContentLength(isset($_SERVER['CONTENT_LENGTH']) ? (string) $_SERVER['CONTENT_LENGTH'] : null);
+    $requestGuard->assertContentType((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'), isset($_SERVER['CONTENT_TYPE']) ? (string) $_SERVER['CONTENT_TYPE'] : null);
+    $requestGuard->assertRawVariableCount((string) ($_SERVER['QUERY_STRING'] ?? ''));
+    $rawInput = file_get_contents('php://input');
+    if ($rawInput !== false) {
+        $requestGuard->assertRawVariableCount($rawInput);
+    }
     $requestGuard->assertPost($_POST);
     $requestGuard->assertQuery($_GET);
     $listQuery = $requestGuard->listQuery($_GET);
@@ -112,6 +125,7 @@ if (!admin_authenticated($config, $authentication)) {
 // 認証後にだけ永続化アダプタを初期化し、未認証 GET が DB を作成しないようにする。
 try {
     $repository = new SqliteResolverRepository($config['database_path']);
+    $recordQuery = admin_record_query($repository);
 } catch (Throwable $error) {
     error_log('RELink admin persistence initialization failed');
     http_response_code(503);
@@ -141,7 +155,7 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
                 'version' => $record->version,
             ], 'history' => $repository->history($record->anchor)], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         } else {
-            $rows = $repository->search($listQuery->needle, $listQuery->perPage + 1, $listQuery->offset());
+            $rows = $recordQuery->search($listQuery->needle, $listQuery->perPage + 1, $listQuery->offset());
             $hasMore = count($rows) > $listQuery->perPage;
             $rows = array_slice($rows, 0, $listQuery->perPage);
             echo json_encode([
@@ -201,7 +215,7 @@ echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"
 echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="transition"><h2>Lifecycle</h2><input name="uuid" placeholder="UUID" required><select name="state"><option>ACTIVE</option><option>SUSPENDED</option><option>RETIRED</option></select><input name="reason" placeholder="理由"><button>変更</button></form>';
 echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="resolution-test"><h2>公開解決テスト</h2><input name="uuid" placeholder="UUID" required><button>テスト</button></form>';
 // 検索条件とページサイズをSQLのLIMIT/OFFSETへ渡し、全件をPHPへ読み込まない。
-$listRows = $repository->search($listQuery->needle, $listQuery->perPage + 1, $listQuery->offset());
+$listRows = $recordQuery->search($listQuery->needle, $listQuery->perPage + 1, $listQuery->offset());
 $hasMore = count($listRows) > $listQuery->perPage;
 $listRows = array_slice($listRows, 0, $listQuery->perPage);
 echo '<form method="get"><h2>Records</h2><label>検索 <input name="q" maxlength="200" value="' . $esc($listQuery->needle) . '"></label><label>件数 <input name="per_page" type="number" min="1" max="50" value="' . $listQuery->perPage . '"></label><button>検索</button></form><ul>';
