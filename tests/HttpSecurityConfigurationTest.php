@@ -29,6 +29,7 @@ final class HttpSecurityConfigurationTest extends TestCase
         self::assertStringContainsString('expose_php = Off', $phpConfiguration);
         self::assertStringContainsString('post_max_size = 64K', $phpConfiguration);
         self::assertStringContainsString('max_input_vars = 32', $phpConfiguration);
+        self::assertStringContainsString('arg_separator.input = "&"', $phpConfiguration);
         self::assertStringContainsString('max_input_time = 10', $phpConfiguration);
         self::assertStringContainsString('max_execution_time = 15', $phpConfiguration);
         self::assertStringContainsString('memory_limit = 128M', $phpConfiguration);

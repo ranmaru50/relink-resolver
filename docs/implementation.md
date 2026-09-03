@@ -18,7 +18,7 @@ Container profile は `docker compose --env-file .env up --build` で起動し�
 
 管理一覧は管理専用の読み取りポート経由で、検索語を正規化したうえで、既定20件・最大50件、ページ番号最大10,000の `LIMIT/OFFSET` 検索をSQLiteで実行します。管理画面の一覧・JSON APIともに `resolver_records` 全件をPHPへ読み込みません。`q`、`page`、`per_page` はGETパラメータとして利用できます。
 
-Apacheの `LimitRequestBody`、ヘッダー数・サイズ、`RequestReadTimeout` と、PHPの `post_max_size`、`max_input_vars`、`max_input_time`、`max_execution_time`、`memory_limit` は `deploy/apache-vhost.conf.example`、`deploy/apache-docker.conf`、`deploy/php-security.ini` で同一方針にしています。Content-Length検査はアプリケーション側の整合性検査であり、PHPパーサーより前の資源防御はApache/PHP設定が担います。PHP設定を変更する場合も、アプリケーションの `RELINK_ADMIN_*` 上限とプロキシ側の上限を同じか、より厳しい値に保ってください。
+Apacheの `LimitRequestBody`、ヘッダー数・サイズ、`RequestReadTimeout` と、PHPの `post_max_size`、`max_input_vars`、`arg_separator.input`、`max_input_time`、`max_execution_time`、`memory_limit` は `deploy/apache-vhost.conf.example`、`deploy/apache-docker.conf`、`deploy/php-security.ini` で同一方針にしています。Content-Length検査はアプリケーション側の整合性検査であり、PHPパーサーより前の資源防御はApache/PHP設定が担います。PHP設定を変更する場合も、アプリケーションの `RELINK_ADMIN_*` 上限とプロキシ側の上限を同じか、より厳しい値に保ってください。
 
 ## HTTP セキュリティヘッダーと情報露出
 
