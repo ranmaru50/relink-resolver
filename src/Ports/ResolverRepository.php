@@ -24,6 +24,9 @@ interface ResolverRepository
     /** @return list<ResolverRecord> */
     public function all(): array;
 
+    /** @return list<ResolverRecord> */
+    public function search(string $needle, int $limit, int $offset): array;
+
     /** @return list<array<string, mixed>> */
     public function history(AnchorUuid $anchor): array;
 }

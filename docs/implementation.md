@@ -12,6 +12,14 @@ Container profile は `docker compose --env-file .env up --build` で起動し�
 
 `RELINK_ENV=production` では空パスワードおよび `change-me` を拒否します。本番 Secret を必ず注入してください。
 
+## 管理面のリクエスト・検索上限
+
+管理面では、Native/Container共通で本文を64KiB、POST変数を32個、検索語を200バイト、Description LocationとEntity IDを各2,048バイト、Lifecycle理由を500バイトまでに制限します。UUIDは36バイト、media typeは255バイト、integrity algorithmは64バイト、digestは128バイトまでです。超過した本文は413、それ以外の不正な入力は内部情報を含まない400で終了します。
+
+管理一覧は検索語を正規化したうえで、既定20件・最大50件、ページ番号最大10,000の `LIMIT/OFFSET` 検索をSQLiteで実行します。管理画面の一覧・JSON APIともに `resolver_records` 全件をPHPへ読み込みません。`q`、`page`、`per_page` はGETパラメータとして利用できます。
+
+Apacheの `LimitRequestBody`、ヘッダー数・サイズ、`RequestReadTimeout` と、PHPの `post_max_size`、`max_input_vars`、`max_input_time`、`max_execution_time`、`memory_limit` は `deploy/apache-vhost.conf.example`、`deploy/apache-docker.conf`、`deploy/php-security.ini` で同一方針にしています。PHP設定を変更する場合も、アプリケーションの `RELINK_ADMIN_*` 上限とプロキシ側の上限を同じか、より厳しい値に保ってください。
+
 ## HTTP セキュリティヘッダーと情報露出
 
 Native と Container の Apache 設定は、公開・管理・Apache 標準エラー応答を含めて `X-Content-Type-Options: nosniff` を常時付与します。値の生成元を Apache に一本化し、アプリケーション側では同ヘッダーを設定しません。両 profile で `ServerTokens Prod`、`ServerSignature Off`、`TraceEnable Off` を設定し、Apache の詳細バージョン／ホスト情報、TRACE、標準エラーページの署名を抑止します。Container profile では `deploy/php-security.ini` を読み込み、`expose_php = Off` によって `X-Powered-By` を出力しません。Native profile でも同じ ini を PHP の追加設定ディレクトリへ配置してください。

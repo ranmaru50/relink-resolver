@@ -7,7 +7,7 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libsqlite3-dev sqlite3 libonig-dev libxml2-dev libzip-dev unzip \
     && docker-php-ext-install pdo_sqlite mbstring xml zip \
-    && a2enmod rewrite headers \
+    && a2enmod rewrite headers reqtimeout \
     && rm -rf /var/lib/apt/lists/*
 
 # Apache の既定 DocumentRoot と検査用の作業ツリーの両方へ公開ファイルを配置する。

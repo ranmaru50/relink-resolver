@@ -7,6 +7,8 @@ declare(strict_types=1);
 use Relink\Resolver\Adapters\SqliteResolverRepository;
 use Relink\Resolver\Adapters\SqliteAdminLoginThrottleStore;
 use Relink\Resolver\Application\AdminAuthenticationService;
+use Relink\Resolver\Application\AdminRequestException;
+use Relink\Resolver\Application\AdminRequestGuard;
 use Relink\Resolver\Application\TrustedProxyPolicy;
 use Relink\Resolver\Application\ResolverService;
 
@@ -15,6 +17,19 @@ $config = require dirname(__DIR__) . '/bootstrap.php';
 // 管理画面の全応答で MIME sniffing と埋め込みを抑止する。
 header('Cache-Control: no-store');
 header("Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+
+// 認証、セッション、DB処理より前に管理リクエストの資源上限を検査する。
+$requestGuard = new AdminRequestGuard($config['admin_request_limits']);
+try {
+    $requestGuard->assertContentLength(isset($_SERVER['CONTENT_LENGTH']) ? (string) $_SERVER['CONTENT_LENGTH'] : null);
+    $requestGuard->assertPost($_POST);
+    $requestGuard->assertQuery($_GET);
+    $listQuery = $requestGuard->listQuery($_GET);
+} catch (AdminRequestException $error) {
+    http_response_code($error->status);
+    header('Content-Type: text/plain; charset=utf-8');
+    exit($error->status === 413 ? '要求が大きすぎます。' : '要求が不正です。');
+}
 
 if ($config['configuration_error']) {
     error_log('RELink admin configuration is invalid for production');
@@ -126,9 +141,15 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
                 'version' => $record->version,
             ], 'history' => $repository->history($record->anchor)], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         } else {
-            $needle = (string) ($_GET['q'] ?? '');
-            $rows = array_values(array_filter($repository->all(), static fn ($record): bool => $needle === '' || str_contains($record->anchor->value, strtolower($needle)) || str_contains($record->entityId, $needle)));
-            echo json_encode(array_map(static fn ($record): array => ['uuid' => $record->anchor->value, 'state' => $record->state->value, 'location' => $record->location->value, 'entity_id' => $record->entityId], $rows), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            $rows = $repository->search($listQuery->needle, $listQuery->perPage + 1, $listQuery->offset());
+            $hasMore = count($rows) > $listQuery->perPage;
+            $rows = array_slice($rows, 0, $listQuery->perPage);
+            echo json_encode([
+                'page' => $listQuery->page,
+                'per_page' => $listQuery->perPage,
+                'has_more' => $hasMore,
+                'records' => array_map(static fn ($record): array => ['uuid' => $record->anchor->value, 'state' => $record->state->value, 'location' => $record->location->value, 'entity_id' => $record->entityId], $rows),
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         }
     } catch (Throwable) {
         http_response_code(400);
@@ -179,8 +200,14 @@ echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"
 echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="location"><h2>場所更新</h2><input name="uuid" placeholder="UUID" required><input name="location" placeholder="https://..." required><input name="entity_id" placeholder="Entity URI"><button>更新</button></form>';
 echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="transition"><h2>Lifecycle</h2><input name="uuid" placeholder="UUID" required><select name="state"><option>ACTIVE</option><option>SUSPENDED</option><option>RETIRED</option></select><input name="reason" placeholder="理由"><button>変更</button></form>';
 echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="resolution-test"><h2>公開解決テスト</h2><input name="uuid" placeholder="UUID" required><button>テスト</button></form>';
-echo '<h2>Records</h2><ul>';
-foreach ($repository->all() as $record) {
+// 検索条件とページサイズをSQLのLIMIT/OFFSETへ渡し、全件をPHPへ読み込まない。
+$listRows = $repository->search($listQuery->needle, $listQuery->perPage + 1, $listQuery->offset());
+$hasMore = count($listRows) > $listQuery->perPage;
+$listRows = array_slice($listRows, 0, $listQuery->perPage);
+echo '<form method="get"><h2>Records</h2><label>検索 <input name="q" maxlength="200" value="' . $esc($listQuery->needle) . '"></label><label>件数 <input name="per_page" type="number" min="1" max="50" value="' . $listQuery->perPage . '"></label><button>検索</button></form><ul>';
+foreach ($listRows as $record) {
     echo '<li>' . $esc($record->anchor->value) . ' — ' . $esc($record->state->value) . ' — ' . $esc($record->location->value) . '</li>';
 }
-echo '</ul><form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="logout"><button>ログアウト</button></form>';
+$previous = $listQuery->page > 1 ? '<a href="?q=' . rawurlencode($listQuery->needle) . '&page=' . ($listQuery->page - 1) . '&per_page=' . $listQuery->perPage . '">前へ</a> ' : '';
+$next = $hasMore ? '<a href="?q=' . rawurlencode($listQuery->needle) . '&page=' . ($listQuery->page + 1) . '&per_page=' . $listQuery->perPage . '">次へ</a>' : '';
+echo '</ul><p>ページ ' . $listQuery->page . ' ' . $previous . $next . '</p><form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="logout"><button>ログアウト</button></form>';

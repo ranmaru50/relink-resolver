@@ -5,6 +5,13 @@ ServerTokens Prod
 ServerSignature Off
 TraceEnable Off
 Header always set X-Content-Type-Options "nosniff"
+# Container profileと同じ本文、ヘッダー、低速接続の上限をNativeでも適用する。
+LimitRequestBody 65536
+LimitRequestFields 50
+LimitRequestFieldSize 8190
+RequestReadTimeout header=10-20,MinRate=500 body=10,MinRate=500
+ErrorDocument 400 "要求が不正です。"
+ErrorDocument 413 "要求が大きすぎます。"
 
 <VirtualHost *:443>
     ServerName resolver.example

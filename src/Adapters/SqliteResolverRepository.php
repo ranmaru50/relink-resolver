@@ -123,6 +123,25 @@ final class SqliteResolverRepository implements ResolverRepository
         return array_map(fn (array $row): ResolverRecord => $this->map($row), $this->pdo->query('SELECT * FROM resolver_records ORDER BY anchor_uuid')->fetchAll());
     }
 
+    /** 一覧表示に必要な範囲だけをSQLiteから取得し、全件読み出しを避ける。 */
+    public function search(string $needle, int $limit, int $offset): array
+    {
+        if ($limit < 1 || $offset < 0) {
+            throw new \InvalidArgumentException('検索ページング値が不正です。');
+        }
+        $escaped = strtr($needle, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']);
+        $statement = $this->pdo->prepare('SELECT * FROM resolver_records WHERE :needle = \'\' OR LOWER(anchor_uuid) LIKE :anchor_pattern ESCAPE \'\\\' OR LOWER(entity_id) LIKE :entity_pattern ESCAPE \'\\\' ORDER BY anchor_uuid LIMIT :limit OFFSET :offset');
+        $statement->bindValue('needle', $needle);
+        $pattern = '%' . strtolower($escaped) . '%';
+        $statement->bindValue('anchor_pattern', $pattern);
+        $statement->bindValue('entity_pattern', $pattern);
+        $statement->bindValue('limit', $limit, PDO::PARAM_INT);
+        $statement->bindValue('offset', $offset, PDO::PARAM_INT);
+        $statement->execute();
+
+        return array_map(fn (array $row): ResolverRecord => $this->map($row), $statement->fetchAll());
+    }
+
     /** @return list<array<string, mixed>> */
     public function history(AnchorUuid $anchor): array
     {

@@ -225,4 +225,27 @@ final class SqliteResolverRepositoryTest extends TestCase
             '550e8400-e29b-41d4-a716-446655440029',
         ], array_map(static fn ($record): string => $record->anchor->value, $records));
     }
+
+    /** 検索条件とLIMIT/OFFSETがSQLite側で適用され、安定したページを返すことを確認する。 */
+    public function testSearchReturnsOnlyRequestedPageAndEscapesWildcards(): void
+    {
+        SqliteMigrator::migrate($this->path);
+        $service = new ResolverService(new SqliteResolverRepository($this->path));
+        foreach ([
+            ['550e8400-e29b-41d4-a716-446655440040', 'alpha'],
+            ['550e8400-e29b-41d4-a716-446655440041', 'alpha-2'],
+            ['550e8400-e29b-41d4-a716-446655440042', 'alpha-3'],
+        ] as [$uuid, $suffix]) {
+            $service->register(['uuid' => $uuid, 'location' => 'https://entity.example/' . $suffix . '.xml', 'entity_id' => 'urn:relink:entity:' . $suffix]);
+        }
+
+        $repository = new SqliteResolverRepository($this->path);
+        $page = $repository->search('ALPHA', 2, 1);
+
+        $this->assertSame([
+            '550e8400-e29b-41d4-a716-446655440041',
+            '550e8400-e29b-41d4-a716-446655440042',
+        ], array_map(static fn ($record): string => $record->anchor->value, $page));
+        $this->assertCount(0, $repository->search('%', 10, 0));
+    }
 }
