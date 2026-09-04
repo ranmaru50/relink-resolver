@@ -28,8 +28,11 @@ final class AdminPresentationTest extends TestCase
         self::assertStringContainsString('admin_render_login', $this->adminSource);
         self::assertStringContainsString('admin_render_records', $this->adminSource);
         self::assertStringContainsString('admin_render_record_detail', $this->adminSource);
-        self::assertStringContainsString('Canonical Entity Identity', $this->adminSource);
-        self::assertStringContainsString('Description Location', $this->adminSource);
+        self::assertStringContainsString('AdminTranslator', $this->adminSource);
+        self::assertStringContainsString('admin_render_language_switcher', $this->adminSource);
+        self::assertStringContainsString('name="lang"', $this->adminSource);
+        self::assertStringContainsString("\$_SESSION['admin_locale']", $this->adminSource);
+        self::assertStringContainsString('<html lang="', $this->adminSource);
         self::assertStringContainsString('scope="col"', $this->adminSource);
         self::assertStringContainsString('meta name="viewport"', $this->adminSource);
     }
