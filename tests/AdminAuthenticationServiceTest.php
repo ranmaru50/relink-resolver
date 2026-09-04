@@ -56,10 +56,11 @@ final class AdminAuthenticationServiceTest extends TestCase
     /** アイドル期限または絶対期限を超えたセッションは無効である。 */
     public function testSessionExpiresAtIdleAndAbsoluteLimits(): void
     {
-        $policy = new AdminSessionPolicy('admin', 300, 3_600);
+        $policy = new AdminSessionPolicy(300, 3_600);
         $session = new AdminSession('admin', 1_000, 1_200);
 
         self::assertTrue($policy->isValid($session, 1_499));
+        self::assertTrue($policy->isValid(new AdminSession('another-admin', 1_000, 1_200), 1_499));
         self::assertFalse($policy->isValid($session, 1_500));
         self::assertFalse($policy->isValid($session, 4_600));
         self::assertNull(AdminSession::fromArray(['admin' => 'admin']));

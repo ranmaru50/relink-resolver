@@ -47,7 +47,7 @@ Symfony などでも同じ組み立てを行い、フレームワークの contr
 
 ## 認証・セッションの置き換え
 
-管理認証は RELink L2 ではなく、ホスト管理面の責務です。標準の Plain PHP 管理面は `ConfiguredAdminCredentialVerifier` と `AdminSessionPolicy` を使いますが、ホストは `AdminCredentialVerifier` を実装して、既存の Auth/RBAC/SSO の判定を注入できます。PHP の `$_SESSION` やフレームワークの session object はホスト側で `AdminSession` に変換し、`AdminSessionPolicy` へ渡します。
+管理認証は RELink L2 ではなく、ホスト管理面の責務です。標準の Plain PHP 管理面は `ConfiguredAdminCredentialVerifier` と `AdminSessionPolicy` を使いますが、ホストは `AdminCredentialVerifier` を実装して、既存の Auth/RBAC/SSO の判定を注入できます。PHP の `$_SESSION` やフレームワークの session object はホスト側で `AdminSession` に変換し、`AdminSessionPolicy` へ渡します。`AdminSessionPolicy` は時刻の有効性だけを検査し、identity の認可は各ホストが行います。
 
 認証済みホストだけが `ResolverService::register()`、`updateLocation()`、`transition()` などの管理ユースケースを呼び出します。認証方式を変更しても Resolver のライフサイクル、公開解決、Manifest の意味論は変更しません。
 

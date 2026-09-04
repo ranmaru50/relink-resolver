@@ -70,7 +70,6 @@ $authentication = new AdminAuthenticationService(
     $config['admin_login_lockout_seconds'],
 );
 $sessionPolicy = new AdminSessionPolicy(
-    $config['admin_username'],
     $config['admin_session_idle_seconds'],
     $config['admin_session_absolute_seconds'],
 );
@@ -81,7 +80,8 @@ $sessionPolicy = new AdminSessionPolicy(
 function admin_authenticated(array $config, AdminAuthenticationService $authentication, AdminSessionPolicy $sessionPolicy): bool
 {
     $now = time();
-    if ($sessionPolicy->isValid(AdminSession::fromArray($_SESSION), $now)) {
+    $session = AdminSession::fromArray($_SESSION);
+    if ($session !== null && $session->admin === $config['admin_username'] && $sessionPolicy->isValid($session, $now)) {
         $_SESSION['last_activity_at'] = $now;
         return true;
     }
