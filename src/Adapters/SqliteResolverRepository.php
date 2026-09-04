@@ -12,6 +12,7 @@ use Relink\Resolver\Domain\AnchorUuid;
 use Relink\Resolver\Domain\DescriptionLocation;
 use Relink\Resolver\Domain\LifecycleState;
 use Relink\Resolver\Domain\ResolverRecord;
+use Relink\Resolver\Domain\ResolverHistoryEntry;
 use Relink\Resolver\Ports\ResolverRepository;
 use Relink\Resolver\Ports\AdminRecordQuery;
 use RuntimeException;
@@ -118,12 +119,6 @@ final class SqliteResolverRepository implements ResolverRepository, AdminRecordQ
         }
     }
 
-    /** @return list<ResolverRecord> */
-    public function all(): array
-    {
-        return array_map(fn (array $row): ResolverRecord => $this->map($row), $this->pdo->query('SELECT * FROM resolver_records ORDER BY anchor_uuid')->fetchAll());
-    }
-
     /** 一覧表示に必要な範囲だけをSQLiteから取得し、全件読み出しを避ける。 */
     public function search(string $needle, int $limit, int $offset): array
     {
@@ -143,12 +138,12 @@ final class SqliteResolverRepository implements ResolverRepository, AdminRecordQ
         return array_map(fn (array $row): ResolverRecord => $this->map($row), $statement->fetchAll());
     }
 
-    /** @return list<array<string, mixed>> */
+    /** @return list<ResolverHistoryEntry> */
     public function history(AnchorUuid $anchor): array
     {
         $statement = $this->pdo->prepare('SELECT * FROM resolver_history WHERE anchor_uuid = :uuid ORDER BY id DESC LIMIT 100');
         $statement->execute(['uuid' => $anchor->value]);
-        return $statement->fetchAll();
+        return array_map(fn (array $row): ResolverHistoryEntry => $this->mapHistory($row), $statement->fetchAll());
     }
 
     /** @param array<string, mixed> $row */
@@ -161,6 +156,23 @@ final class SqliteResolverRepository implements ResolverRepository, AdminRecordQ
     private function params(ResolverRecord $record): array
     {
         return ['uuid' => $record->anchor->value, 'state' => $record->state->value, 'location' => $record->location->value, 'entity' => $record->entityId, 'media' => $record->mediaType, 'algorithm' => $record->integrityAlgorithm, 'digest' => $record->integrityDigest];
+    }
+
+    /** @param array<string, mixed> $row */
+    private function mapHistory(array $row): ResolverHistoryEntry
+    {
+        return new ResolverHistoryEntry(
+            (int) $row['id'],
+            new AnchorUuid((string) $row['anchor_uuid']),
+            (string) $row['event_type'],
+            $row['old_state'] === null ? null : LifecycleState::fromInput((string) $row['old_state']),
+            $row['new_state'] === null ? null : LifecycleState::fromInput((string) $row['new_state']),
+            $row['old_location'] === null ? null : new DescriptionLocation((string) $row['old_location']),
+            $row['new_location'] === null ? null : new DescriptionLocation((string) $row['new_location']),
+            (string) $row['reason'],
+            (string) $row['actor'],
+            (string) $row['created_at'],
+        );
     }
 
     private function historyInsert(ResolverRecord $old, ResolverRecord $new, string $type, string $actor): void

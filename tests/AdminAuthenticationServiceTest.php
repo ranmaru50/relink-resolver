@@ -6,9 +6,13 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
 use Relink\Resolver\Application\AdminAuthenticationService;
+use Relink\Resolver\Application\AdminSession;
+use Relink\Resolver\Application\AdminSessionPolicy;
+use Relink\Resolver\Adapters\ConfiguredAdminCredentialVerifier;
 use Relink\Resolver\Adapters\SqliteAdminLoginThrottleStore;
 use Relink\Resolver\Adapters\SqliteMigrator;
 use Relink\Resolver\Ports\AdminLoginThrottleStore;
+use Relink\Resolver\Ports\AdminCredentialVerifier;
 
 final class AdminAuthenticationServiceTest extends TestCase
 {
@@ -16,7 +20,7 @@ final class AdminAuthenticationServiceTest extends TestCase
     public function testLockedSubjectCannotLogInUntilLockoutExpires(): void
     {
         $store = new InMemoryAdminLoginThrottleStore();
-        $service = new AdminAuthenticationService($store, 'admin', 'secret', 2, 60, 120, 300, 3_600);
+        $service = new AdminAuthenticationService($store, new ConfiguredAdminCredentialVerifier('admin', 'secret'), 2, 60, 120);
 
         self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 1_000));
         self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 1_001));
@@ -28,21 +32,38 @@ final class AdminAuthenticationServiceTest extends TestCase
     public function testLoginThrottleUsesOnlyIpBucket(): void
     {
         $store = new InMemoryAdminLoginThrottleStore();
-        $service = new AdminAuthenticationService($store, 'admin', 'secret', 1, 60, 120, 300, 3_600);
+        $service = new AdminAuthenticationService($store, new ConfiguredAdminCredentialVerifier('admin', 'secret'), 1, 60, 120);
 
         self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 1_000));
         self::assertSame('accepted', $service->attempt('192.0.2.2', 'admin', 'secret', 1_001));
         self::assertSame('rejected_locked', $service->attempt('192.0.2.1', 'other', 'wrong', 1_001));
     }
 
+    /** ホスト固有の資格情報検証を注入してもログイン制限を再利用できることを確認する。 */
+    public function testCredentialVerificationIsReplaceableByTheHost(): void
+    {
+        $verifier = new class implements AdminCredentialVerifier {
+            public function verify(string $username, string $password): bool
+            {
+                return $username === 'framework-user' && $password === 'framework-secret';
+            }
+        };
+        $service = new AdminAuthenticationService(new InMemoryAdminLoginThrottleStore(), $verifier, 5, 60, 120);
+
+        self::assertSame('accepted', $service->attempt('192.0.2.3', 'framework-user', 'framework-secret', 1_000));
+    }
+
     /** アイドル期限または絶対期限を超えたセッションは無効である。 */
     public function testSessionExpiresAtIdleAndAbsoluteLimits(): void
     {
-        $service = new AdminAuthenticationService(new InMemoryAdminLoginThrottleStore(), 'admin', 'secret', 5, 60, 120, 300, 3_600);
+        $policy = new AdminSessionPolicy(300, 3_600);
+        $session = new AdminSession('admin', 1_000, 1_200);
 
-        self::assertTrue($service->isSessionValid(['admin' => 'admin', 'authenticated_at' => 1_000, 'last_activity_at' => 1_200], 1_499));
-        self::assertFalse($service->isSessionValid(['admin' => 'admin', 'authenticated_at' => 1_000, 'last_activity_at' => 1_200], 1_500));
-        self::assertFalse($service->isSessionValid(['admin' => 'admin', 'authenticated_at' => 1_000, 'last_activity_at' => 1_200], 4_600));
+        self::assertTrue($policy->isValid($session, 1_499));
+        self::assertTrue($policy->isValid(new AdminSession('another-admin', 1_000, 1_200), 1_499));
+        self::assertFalse($policy->isValid($session, 1_500));
+        self::assertFalse($policy->isValid($session, 4_600));
+        self::assertNull(AdminSession::fromArray(['admin' => 'admin']));
     }
 
     /** 実SQLiteアダプタでも失敗累積、lock、期限後の回復、期限切れ行purgeを確認する。 */
@@ -52,7 +73,7 @@ final class AdminAuthenticationServiceTest extends TestCase
         self::assertNotFalse($path);
         try {
             SqliteMigrator::migrate($path);
-            $service = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), 'admin', 'secret', 2, 10, 20, 300, 3600);
+            $service = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), new ConfiguredAdminCredentialVerifier('admin', 'secret'), 2, 10, 20);
             self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 100));
             self::assertSame('rejected_invalid', $service->attempt('192.0.2.1', 'admin', 'wrong', 101));
             self::assertSame('rejected_locked', $service->attempt('192.0.2.1', 'admin', 'secret', 102));
@@ -71,8 +92,8 @@ final class AdminAuthenticationServiceTest extends TestCase
         self::assertNotFalse($path);
         try {
             SqliteMigrator::migrate($path);
-            $first = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), 'admin', 'secret', 3, 100, 100, 300, 3600);
-            $second = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), 'admin', 'secret', 3, 100, 100, 300, 3600);
+            $first = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), new ConfiguredAdminCredentialVerifier('admin', 'secret'), 3, 100, 100);
+            $second = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), new ConfiguredAdminCredentialVerifier('admin', 'secret'), 3, 100, 100);
             self::assertSame('rejected_invalid', $first->attempt('192.0.2.9', 'admin', 'wrong', 100));
             self::assertSame('rejected_invalid', $second->attempt('192.0.2.9', 'admin', 'wrong', 101));
             self::assertSame('rejected_invalid', $first->attempt('192.0.2.9', 'admin', 'wrong', 102));
@@ -107,7 +128,7 @@ final class AdminAuthenticationServiceTest extends TestCase
             $deadline = microtime(true) + 5; while ((!file_exists($barrier . '.' . proc_get_status($one)['pid']) || !file_exists($barrier . '.' . proc_get_status($two)['pid'])) && microtime(true) < $deadline) { usleep(1000); }
             touch($barrier . '.go'); self::assertSame(0, proc_close($one)); self::assertSame(0, proc_close($two));
             self::assertSame('rejected_invalid', file_get_contents($first)); self::assertSame('rejected_invalid', file_get_contents($second));
-            $service = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), 'admin', 'secret', 2, 100, 100, 300, 3600);
+            $service = new AdminAuthenticationService(new SqliteAdminLoginThrottleStore($path), new ConfiguredAdminCredentialVerifier('admin', 'secret'), 2, 100, 100);
             self::assertSame('rejected_locked', $service->attempt('192.0.2.77', 'admin', 'secret', 101));
         } finally { @unlink($path); @unlink($barrier . '.go'); @unlink($first); @unlink($second); }
     }

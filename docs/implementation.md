@@ -32,6 +32,10 @@ HSTS は HTTPS でのみ有効であるため、Native の TLS VirtualHost 例�
 
 `GET /relink/{uuid}` は登録済み ACTIVE レコードを `303 See Other` で HTTPS の Description Location へ転送します。公開処理は AR-XML を取得せず、Manifest に依存しません。`GET /relink/{uuid}/manifest` は利用可能な Manifest JSON を返します。
 
+## Resolver Engine の統合
+
+`src/Domain`、`src/Application`、`src/Ports` は Plain PHP の入口、Apache、SQLite、管理画面から独立しています。Laravel/Symfony/Slim 等へ組み込む場合の Request/Response 変換、ResolverRepository 実装、認証・セッション接続はホスト側の composition root と adapter で行ってください。具体的な controller、資格情報検証ポート、型付き履歴の扱いは [Resolver Engine 統合ガイド](integration.md) を参照してください。
+
 ## バックアップと復元
 
 `bin/backup.sh /secure/backup/resolver.sqlite` は SQLite の `.backup` を使用し、journal/WAL を考慮した一貫性のあるバックアップを作成します。Container の一時コンテナ内へ保存すると破棄されるため、ホストのバックアップディレクトリを必ず bind mount してください。例（Linux/macOS）は `docker compose run --rm -v /secure/host-backups:/backup resolver /var/www/bin/backup.sh /backup/resolver.sqlite`、PowerShell は `docker compose run --rm -v "C:\secure\host-backups:/backup" resolver /var/www/bin/backup.sh /backup/resolver.sqlite` です。復元時は先にアプリケーションを停止し、`bin/restore.sh` 実行後に `PRAGMA integrity_check` と UUID・状態・場所・履歴を確認してから再起動してください。空のデータディレクトリへ復元する場合は、既定の `www-data` または `RELINK_SERVICE_USER`、`RELINK_SERVICE_UID`、`RELINK_SERVICE_GID` で指定したサービスユーザーへDBとデータディレクトリを設定し、DBモードは `RELINK_DB_MODE`（既定 `660`）で設定します。NativeでApache/PHP実行ユーザーが `www-data` 以外の場合はUID/GIDを明示してください。復元前の DB は同じディレクトリの `resolver.sqlite.pre-restore.<pid>.bak` として退避されます。バックアップ先は Web ルート外のアクセス制御された場所に限定します。

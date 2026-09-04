@@ -10,6 +10,7 @@ use Relink\Resolver\Domain\AnchorUuid;
 use Relink\Resolver\Domain\DescriptionLocation;
 use Relink\Resolver\Domain\LifecycleState;
 use Relink\Resolver\Domain\ResolverRecord;
+use Relink\Resolver\Domain\ResolverHistoryEntry;
 
 interface ResolverRepository
 {
@@ -21,6 +22,6 @@ interface ResolverRepository
 
     public function transition(ResolverRecord $record, LifecycleState $target, string $reason, string $actor): ResolverRecord;
 
-    /** @return list<array<string, mixed>> */
+    /** @return list<ResolverHistoryEntry> */
     public function history(AnchorUuid $anchor): array;
 }
