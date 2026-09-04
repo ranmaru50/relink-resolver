@@ -28,3 +28,15 @@ Listen 127.0.0.1:8444
     SSLCertificateKeyFile /etc/relink/tls/key.pem
     Header always set Strict-Transport-Security "max-age=31536000"
 </VirtualHost>
+
+# HTTP 側は HSTS scope の負例確認に使う開発用 surface。通常運用では公開しない。
+Listen 127.0.0.1:8081
+<VirtualHost 127.0.0.1:8081>
+    ServerName localhost
+    DocumentRoot /var/www/relink-resolver/public
+
+    <Directory /var/www/relink-resolver/public>
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>

@@ -39,6 +39,8 @@ COPY docker-entrypoint.sh /usr/local/bin/relink-entrypoint.sh
 COPY deploy/apache-ssl-vhost.conf /etc/apache2/sites-available/relink-ssl.conf
 # Apache の既定 security.conf より後に読み込み、ServerTokens を確実に上書きする。
 COPY deploy/apache-docker.conf /etc/apache2/conf-enabled/zz-relink-security.conf
+# fault fixture は acceptance 環境から明示的に有効化するまで無効にしておく。
+COPY deploy/apache-acceptance.conf /etc/apache2/conf-available/relink-acceptance.conf
 COPY deploy/php-security.ini /usr/local/etc/php/conf.d/relink-security.ini
 
 RUN mkdir -p /var/lib/relink-resolver \
