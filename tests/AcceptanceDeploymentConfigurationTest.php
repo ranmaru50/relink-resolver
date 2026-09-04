@@ -37,7 +37,8 @@ final class AcceptanceDeploymentConfigurationTest extends TestCase
         foreach (['ServerTokens Prod', 'ServerSignature Off', 'TraceEnable Off', 'LimitRequestBody 65536'] as $directive) {
             self::assertStringContainsString($directive, $nativeConfiguration);
         }
-        self::assertStringContainsString('Listen 8444', $nativeConfiguration);
+        self::assertStringContainsString('Listen 127.0.0.1:8444', $nativeConfiguration);
+        self::assertStringContainsString('<VirtualHost 127.0.0.1:8444>', $nativeConfiguration);
     }
 
     /** Container image は受入時だけ TLS VirtualHost を有効化でき、HTTPS ポートを公開する。 */

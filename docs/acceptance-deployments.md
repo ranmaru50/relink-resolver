@@ -8,7 +8,7 @@
 - 作業ディレクトリはリポジトリルートとする。
 - 受入用 DB、証明書、環境ファイル、バックアップは `public/` の外に置く。
 - `RELINK_ADMIN_PASSWORD` はローカル受入専用の値を設定し、リポジトリへ保存しない。
-- Testbed の Node.js HTTPS client で自己署名証明書を使う場合だけ、実行プロセスへ `NODE_TLS_REJECT_UNAUTHORIZED=0` を設定する。これは本番設定ではない。
+- Testbed の Node.js HTTPS client で自己署名証明書を使う場合は、生成した証明書だけを `NODE_EXTRA_CA_CERTS` で明示的に信頼する。包括的な TLS 検証無効化は行わない。
 
 まず、受入用アカウントと共通設定を作成する。
 
@@ -41,7 +41,7 @@ $env:RELINK_NATIVE_URL = "https://127.0.0.1:8444"
 $env:RELINK_CONTAINER_URL = "https://127.0.0.1:8443"
 $env:RELINK_ADMIN_USERNAME = "acceptance-admin"
 $env:RELINK_ADMIN_PASSWORD = "<.env.acceptance と同じ値>"
-$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"
+$env:NODE_EXTRA_CA_CERTS = "<Resolver repo path>\var\acceptance\tls\cert.pem"
 pnpm conformance
 ```
 
@@ -82,13 +82,13 @@ $env:RELINK_NATIVE_URL = "https://127.0.0.1:8444"
 $env:RELINK_CONTAINER_URL = "https://127.0.0.1:8443"
 $env:RELINK_ADMIN_USERNAME = "acceptance-admin"
 $env:RELINK_ADMIN_PASSWORD = "<共通のローカル受入用 secret>"
-$env:NODE_TLS_REJECT_UNAUTHORIZED = "0"
+$env:NODE_EXTRA_CA_CERTS = "<Resolver repo path>\var\acceptance\tls\cert.pem"
 pnpm conformance
 ```
 
 結果は Testbed 側の `reports/resolver-conformance-0.1/native.json` と `container.json` へ profile 別に出力されます。HTTP security header の受入では、同じ Testbed の `pnpm security:headers` を HTTPS Native URL と Container HTTP URL へ向けて実行します。
 
-Testbed の JSON artifact と環境固有の観測結果は Testbed リポジトリへコミットします。この Resolver リポジトリには結果や DB をコミットしません。`MNET-001` は HTTPS profile URL で実行した結果だけを受入結果として扱い、自己署名証明書の信頼緩和は TLS 終端の有無を変えません。
+Testbed の JSON artifact と環境固有の観測結果は Testbed リポジトリへコミットします。この Resolver リポジトリには結果や DB をコミットしません。`MNET-001` は HTTPS profile URL で実行した結果だけを受入結果として扱います。`NODE_EXTRA_CA_CERTS` は生成した localhost 証明書だけを trust anchor として追加し、証明書・hostname 検証は維持します。
 
 ## 更新・復元
 
