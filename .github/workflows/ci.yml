@@ -42,6 +42,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Container設定
         run: cp .env.example .env
+      - name: 受入Compose設定検証
+        run: |
+          cp .env.acceptance.example .env.acceptance
+          docker compose -f compose.acceptance.yaml config --quiet
       - name: Containerイメージ構築
         run: docker compose build
       - name: Container PHPUnit

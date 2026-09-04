@@ -262,4 +262,4 @@ Implementation phaseでもこの責務分離を維持します。
 
 ## Reference implementation
 
-最初の Apache/PHP/SQLite Reference implementation は `public/`、`src/`、`migrations/`、`deploy/` に実装されています。セットアップ、security boundary、Native/Container profile、backup/restore手順は [docs/implementation.md](docs/implementation.md) を参照してください。PHPUnit による単体・SQLite 統合テストは [docs/testing.md](docs/testing.md) に記載しています。フレームワークや商用サービスへの組み込みは [docs/integration.md](docs/integration.md) に記載しており、Resolver Engine は Apache、Plain PHP UI、SQLite、フレームワーク固有の認証・セッション API から独立しています。
+最初の Apache/PHP/SQLite Reference implementation は `public/`、`src/`、`migrations/`、`deploy/` に実装されています。セットアップ、security boundary、Native/Container profile、backup/restore手順は [docs/implementation.md](docs/implementation.md) を参照してください。Testbed向けのHTTPS受入配備手順は [docs/acceptance-deployments.md](docs/acceptance-deployments.md) に記載しています。PHPUnit による単体・SQLite 統合テストは [docs/testing.md](docs/testing.md) に記載しています。フレームワークや商用サービスへの組み込みは [docs/integration.md](docs/integration.md) に記載しており、Resolver Engine は Apache、Plain PHP UI、SQLite、フレームワーク固有の認証・セッション API から独立しています。

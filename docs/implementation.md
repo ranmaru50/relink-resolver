@@ -4,7 +4,7 @@
 
 Native profile では Apache の DocumentRoot を `public/` に設定し、PHP 8.3 以上の `pdo_sqlite` 拡張を有効にします。SQLite ファイルは `RELINK_DATA_DIR`（既定は `var/data`）に作成され、`public/` 配下には置かれません。初回起動・更新時は Web リクエストに依存せず、`php bin/migrate.php` を実行します。
 
-Container profile は `docker compose --env-file .env up --build` で起動します。イメージには Composer と PHPUnit を含み、entrypoint が Apache 起動前に `bin/migrate.php` を実行します。`.env` は `.env.example` をコピーして作成し、本番パスワードを Secret 管理から注入してください。Compose の 8080 公開は loopback の開発用です。
+Container profile は `docker compose --env-file .env up --build` で起動します。イメージには Composer と PHPUnit を含み、entrypoint が Apache 起動前に `bin/migrate.php` を実行します。`.env` は `.env.example` をコピーして作成し、本番パスワードを Secret 管理から注入してください。Compose の 8080 公開は loopback の開発用です。Testbed向けに Apache 直接TLSと永続受入volumeを使う手順は [acceptance-deployments.md](acceptance-deployments.md) を参照してください。
 
 初回管理ログインには `RELINK_ADMIN_USERNAME` と `RELINK_ADMIN_PASSWORD` を使用します。空パスワードではログインできません。管理面は既定で HTTPS 必須です。ローカル HTTP の確認時だけ `.env` の `RELINK_ADMIN_ALLOW_HTTP=1` を設定し、本番では TLS、管理ネットワーク制限、プロキシ設定を構成してください。TLS 終端プロキシ配下では、プロキシの送信元 IP/CIDR を `RELINK_TRUSTED_PROXY_CIDRS` に設定し、プロキシ自身が `X-Forwarded-Proto` と単一の `X-Forwarded-For` をクライアント入力から上書きしてください。未設定または複数値の転送ヘッダーは信頼しません。`RELINK_ADMIN_ALLOW_HTTP=1` はプロキシ配下の本番設定に使用しないでください。
 

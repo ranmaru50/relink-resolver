@@ -1,12 +1,14 @@
 # .gitignore
 # ローカルの秘密情報と永続データをコミットしない。
 .env
+.env.acceptance
 var/data/
 var/phpstan/
 var/*.sqlite
 *.sqlite-wal
 *.sqlite-shm
 backups/
+var/acceptance/tls/
 vendor/
 
 # テスト・復元・エディタが生成する一時ファイルをコミット対象外にする。
