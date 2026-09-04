@@ -12,6 +12,6 @@
     },
     "scripts": {
         "test": "vendor/bin/phpunit",
-        "analyse": "vendor/bin/phpstan analyse --configuration=phpstan.neon.dist"
+        "analyse": "php -d memory_limit=-1 vendor/bin/phpstan analyse --configuration=phpstan.neon.dist"
     }
 }
