@@ -53,7 +53,7 @@ Symfony などでも同じ組み立てを行い、フレームワークの contr
 
 Manifest の公開設定は `configureManifest($uuid, $mode, ...)` で行います。`direct`、`without-integrity`、`supplied` を指定でき、手動 digest の検証は Application/Domain 境界で行われます。現在の表現を pin する `calculateAndPinIntegrity()` は `AdministrativeResourceFetcher` Port を明示的に受け取る privileged operation です。公開 `resolve()`、`manifest()`、および preview はこの Port を受け取りません。
 
-外部 HTTP 実装は `NativeAdministrativeResourceFetcher` またはホスト固有の `AdministrativeResourceFetcher` 実装へ置き換えられます。実装は final URL、terminal status、content-coding 処理後の body octets を返し、HTTPS downgrade、redirect、サイズ、timeout、接続実アドレスのポリシーを適用しなければなりません。
+外部 HTTP 実装は `NativeAdministrativeResourceFetcher` またはホスト固有の `AdministrativeResourceFetcher` 実装へ置き換えられます。実装は final URL、terminal status、content-coding 処理後の body octets を返し、HTTPS downgrade、redirect、サイズ、timeout、接続実アドレスのポリシーを適用しなければなりません。標準 adapter は `identity` content-coding のみを受け付けます。圧縮応答を扱うホスト adapter は、展開後サイズをストリーミングで上限管理してください。
 
 ## 履歴と永続化
 

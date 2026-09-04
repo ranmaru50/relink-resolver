@@ -50,7 +50,7 @@ final class NativeAdministrativeResourceFetcher implements AdministrativeResourc
                 throw new RuntimeException('OUTBOUND_REDIRECT_LIMIT');
             }
             $redirects[] = $url;
-            $url = $this->resolveRedirect($url, $next);
+            $url = HttpRedirectResolver::resolve($url, $next);
             if (!str_starts_with(strtolower($url), 'https://')) {
                 throw new RuntimeException('OUTBOUND_HTTPS_DOWNGRADE');
             }
@@ -62,7 +62,7 @@ final class NativeAdministrativeResourceFetcher implements AdministrativeResourc
     private function urlParts(string $url): array
     {
         $parts = parse_url($url);
-        if (!is_array($parts) || strtolower((string) ($parts['scheme'] ?? '')) !== 'https' || isset($parts['user'], $parts['pass']) || !isset($parts['host'])) {
+        if (!is_array($parts) || strtolower((string) ($parts['scheme'] ?? '')) !== 'https' || isset($parts['user']) || isset($parts['pass']) || !isset($parts['host'])) {
             throw new RuntimeException('OUTBOUND_HTTPS_REQUIRED');
         }
         $host = (string) $parts['host'];
@@ -130,7 +130,9 @@ final class NativeAdministrativeResourceFetcher implements AdministrativeResourc
      */
     private function request(mixed $socket, array $parts): array
     {
-        $request = "GET {$parts['path']} HTTP/1.1\r\nHost: {$parts['host']}\r\nAccept: */*\r\nAccept-Encoding: gzip, deflate\r\nConnection: close\r\n\r\n";
+        $hostHeader = $parts['host'] . ($parts['port'] !== 443 ? ':' . $parts['port'] : '');
+        // 圧縮応答は bounded に展開できないため、identity のみを要求する。
+        $request = "GET {$parts['path']} HTTP/1.1\r\nHost: {$hostHeader}\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n";
         $written = 0;
         while ($written < strlen($request)) {
             $count = @fwrite($socket, substr($request, $written));
@@ -170,7 +172,7 @@ final class NativeAdministrativeResourceFetcher implements AdministrativeResourc
         if (isset($headers['transfer-encoding']) && str_contains(strtolower($headers['transfer-encoding']), 'chunked')) {
             $body = $this->decodeChunked($body);
         }
-        $body = $this->decodeContentEncoding($body, $headers['content-encoding'] ?? null);
+        $body = NativeContentCodingDecoder::decode($body, $headers['content-encoding'] ?? null);
         if (strlen($body) > $this->maxBodyBytes) {
             throw new RuntimeException('OUTBOUND_BODY_TOO_LARGE');
         }
@@ -192,7 +194,7 @@ final class NativeAdministrativeResourceFetcher implements AdministrativeResourc
                 break;
             }
             $body .= $chunk;
-            if (strlen($body) > $this->maxBodyBytes * 2) {
+            if (strlen($body) > $this->maxBodyBytes) {
                 throw new RuntimeException('OUTBOUND_BODY_TOO_LARGE');
             }
             if ($remaining !== null) {
@@ -227,34 +229,4 @@ final class NativeAdministrativeResourceFetcher implements AdministrativeResourc
         }
     }
 
-    private function decodeContentEncoding(string $body, ?string $encoding): string
-    {
-        foreach (array_reverse(array_map('trim', explode(',', strtolower((string) $encoding)))) as $value) {
-            if ($value === '' || $value === 'identity') {
-                continue;
-            }
-            $body = match ($value) {
-                'gzip' => gzdecode($body),
-                'deflate' => zlib_decode($body),
-                default => throw new RuntimeException('OUTBOUND_ENCODING_UNSUPPORTED'),
-            };
-            if ($body === false) {
-                throw new RuntimeException('OUTBOUND_ENCODING_INVALID');
-            }
-        }
-        return $body;
-    }
-
-    private function resolveRedirect(string $current, string $next): string
-    {
-        if (parse_url($next, PHP_URL_SCHEME) !== null) {
-            return $next;
-        }
-        $parts = parse_url($current);
-        if (!is_array($parts) || !isset($parts['scheme'], $parts['host'])) {
-            throw new RuntimeException('OUTBOUND_REDIRECT_INVALID');
-        }
-        $origin = $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
-        return str_starts_with($next, '/') ? $origin . $next : $origin . '/' . $next;
-    }
 }

@@ -41,7 +41,7 @@ HSTS は HTTPS でのみ有効であるため、Native の TLS VirtualHost 例�
 - `supplied`: 管理者が入力した検証済みの algorithm/digest を公開する。`sha-256` は lowercase hex 64桁でなければなりません。
 - `calculated`: 通常の登録・設定では取得を行わず、管理者が `Calculate and pin current digest` を明示的に実行したときだけ現在の表現を一度取得して pin する。
 
-計算済み digest は自動更新されません。管理 outbound fetch は `AdministrativeResourceFetcher` Port に隔離され、HTTPS-only、redirect 上限、connect/read timeout、body 上限、接続実アドレスに対する CIDR ポリシーを適用します。計算後の永続化は Description Location、Lifecycle、version の compare-and-swap で行うため、取得中にレコードが変更された場合は競合として失敗します。Manifest preview は公開 endpoint と同じ `ResolverService::manifest()` を利用します。
+計算済み digest は自動更新されません。管理 outbound fetch は `AdministrativeResourceFetcher` Port に隔離され、HTTPS-only、redirect 上限、connect/read timeout、body 上限、接続実アドレスに対する CIDR ポリシーを適用します。標準 adapter は圧縮爆弾を防ぐため `Accept-Encoding: identity` のみを要求し、gzip/deflate 応答を展開せず拒否します。計算後の永続化は Description Location、Lifecycle、version の compare-and-swap で行うため、取得中にレコードが変更された場合は競合として失敗します。Manifest preview は公開 endpoint と同じ `ResolverService::manifest()` を利用します。
 
 `RELINK_OUTBOUND_ALLOWED_CIDRS`、`RELINK_OUTBOUND_DENIED_CIDRS` と各 `RELINK_OUTBOUND_*` 上限で配備ポリシーを構成できます。空の許可リストはアプリケーションが全アドレスを一律拒否することを意味せず、管理ネットワークの配備ポリシーに委ねます。
 
