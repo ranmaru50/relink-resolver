@@ -8,7 +8,7 @@ Container profile は `docker compose --env-file .env up --build` で起動し�
 
 初回管理ログインには `RELINK_ADMIN_USERNAME` と `RELINK_ADMIN_PASSWORD` を使用します。空パスワードではログインできません。管理面は既定で HTTPS 必須です。ローカル HTTP の確認時だけ `.env` の `RELINK_ADMIN_ALLOW_HTTP=1` を設定し、本番では TLS、管理ネットワーク制限、プロキシ設定を構成してください。TLS 終端プロキシ配下では、プロキシの送信元 IP/CIDR を `RELINK_TRUSTED_PROXY_CIDRS` に設定し、プロキシ自身が `X-Forwarded-Proto` と単一の `X-Forwarded-For` をクライアント入力から上書きしてください。未設定または複数値の転送ヘッダーは信頼しません。`RELINK_ADMIN_ALLOW_HTTP=1` はプロキシ配下の本番設定に使用しないでください。
 
-管理ログインはクライアント IP ごとに失敗回数を SQLite へ保存します。既定では 15 分の時間窓で 5 回失敗すると 15 分間ロックします。IPを変更する分散試行はこの層だけでは防げないため、管理ネットワーク制限等を併用してください。`RELINK_ADMIN_LOGIN_MAX_FAILURES`、`RELINK_ADMIN_LOGIN_WINDOW_SECONDS`、`RELINK_ADMIN_LOGIN_LOCKOUT_SECONDS` で変更できます。認証済みセッションは既定で 15 分のアイドル期限と 8 時間の絶対期限を持ち、`RELINK_ADMIN_SESSION_IDLE_SECONDS` と `RELINK_ADMIN_SESSION_ABSOLUTE_SECONDS` で調整できます。パスワードには既存の固定シークレットに加え、`password_hash()` が生成するハッシュを設定できます。更新時には Native profile で `php bin/migrate.php` を実行してください。Container profile は entrypoint が migration 002 を自動適用します。
+管理ログインはクライアント IP ごとに失敗回数を SQLite へ保存します。既定では 15 分の時間窓で 5 回失敗すると 15 分間ロックします。IPを変更する分散試行はこの層だけでは防げないため、管理ネットワーク制限等を併用してください。`RELINK_ADMIN_LOGIN_MAX_FAILURES`、`RELINK_ADMIN_LOGIN_WINDOW_SECONDS`、`RELINK_ADMIN_LOGIN_LOCKOUT_SECONDS` で変更できます。認証済みセッションは既定で 15 分のアイドル期限と 8 時間の絶対期限を持ち、`RELINK_ADMIN_SESSION_IDLE_SECONDS` と `RELINK_ADMIN_SESSION_ABSOLUTE_SECONDS` で調整できます。パスワードには既存の固定シークレットに加え、`password_hash()` が生成するハッシュを設定できます。更新時には Native profile で `php bin/migrate.php` を実行してください。Container profile は entrypoint が全 migration（現在は 003 を含む）を自動適用します。
 
 `RELINK_ENV=production` では空パスワードおよび `change-me` を拒否します。本番 Secret を必ず注入してください。
 
@@ -32,6 +32,19 @@ HSTS は HTTPS でのみ有効であるため、Native の TLS VirtualHost 例�
 
 `GET /relink/{uuid}` は登録済み ACTIVE レコードを `303 See Other` で HTTPS の Description Location へ転送します。公開処理は AR-XML を取得せず、Manifest に依存しません。`GET /relink/{uuid}/manifest` は利用可能な Manifest JSON を返します。
 
+## Manifest 公開ワークフロー
+
+管理面では、Resolver レコードごとに次の4つの運用を選択できます。
+
+- `direct`: Manifest を公開せず、Core の `303` を Description Location へ直接返す。
+- `without-integrity`: integrity なしの Manifest を公開する。
+- `supplied`: 管理者が入力した検証済みの algorithm/digest を公開する。`sha-256` は lowercase hex 64桁でなければなりません。
+- `calculated`: 通常の登録・設定では取得を行わず、管理者が `Calculate and pin current digest` を明示的に実行したときだけ現在の表現を一度取得して pin する。
+
+計算済み digest は自動更新されません。管理 outbound fetch は `AdministrativeResourceFetcher` Port に隔離され、HTTPS-only、redirect 上限、connect/read timeout、body 上限、接続実アドレスに対する CIDR ポリシーを適用します。計算後の永続化は Description Location、Lifecycle、version の compare-and-swap で行うため、取得中にレコードが変更された場合は競合として失敗します。Manifest preview は公開 endpoint と同じ `ResolverService::manifest()` を利用します。
+
+`RELINK_OUTBOUND_ALLOWED_CIDRS`、`RELINK_OUTBOUND_DENIED_CIDRS` と各 `RELINK_OUTBOUND_*` 上限で配備ポリシーを構成できます。空の許可リストはアプリケーションが全アドレスを一律拒否することを意味せず、管理ネットワークの配備ポリシーに委ねます。
+
 ## Resolver Engine の統合
 
 `src/Domain`、`src/Application`、`src/Ports` は Plain PHP の入口、Apache、SQLite、管理画面から独立しています。Laravel/Symfony/Slim 等へ組み込む場合の Request/Response 変換、ResolverRepository 実装、認証・セッション接続はホスト側の composition root と adapter で行ってください。具体的な controller、資格情報検証ポート、型付き履歴の扱いは [Resolver Engine 統合ガイド](integration.md) を参照してください。
@@ -45,6 +58,6 @@ HSTS は HTTPS でのみ有効であるため、Native の TLS VirtualHost 例�
 
 公開 Resolver、Lifecycle 状態遷移、Manifest 生成、SQLite の明示的 migration、CSRF と HTML エスケープを含む最小管理面を実装しています。管理面は HTTPS 必須（開発時のみ明示的に緩和可能）で、公開解決から分離されています。Frozen Conformance Catalog の全ケースをこのリポジトリ単独で実行したものではありません。
 
-## 既知の制限
+## 管理 outbound fetch の境界
 
-管理者向けの到達性診断、SSRF 対策付き outbound fetch、integrity publishing は未実装です。追加する場合は、設定可能なネットワークポリシー、リダイレクトごとの再評価、DNS rebinding 対策、サイズ・時間上限を備えた専用アダプタとして実装します。適合性の最終判定は `relink-testbed` の実行可能ケースを Native/Container の両 profile に適用して行ってください。
+管理 outbound fetch は公開 Resolver / Manifest GET から到達できない privileged operation です。成功した fetch や digest 一致は認証、所有権、Trust、鮮度、anti-rollback の証明を意味しません。リダイレクト先は毎回再解決・再評価し、選択した実アドレスへ直接 TLS 接続します。適合性の最終判定は `relink-testbed` の実行可能ケースを Native/Container の両 profile に適用して行ってください。

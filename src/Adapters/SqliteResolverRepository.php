@@ -11,13 +11,15 @@ use PDOException;
 use Relink\Resolver\Domain\AnchorUuid;
 use Relink\Resolver\Domain\DescriptionLocation;
 use Relink\Resolver\Domain\LifecycleState;
+use Relink\Resolver\Domain\IntegrityMetadata;
 use Relink\Resolver\Domain\ResolverRecord;
 use Relink\Resolver\Domain\ResolverHistoryEntry;
+use Relink\Resolver\Ports\ManifestPublicationRepository;
 use Relink\Resolver\Ports\ResolverRepository;
 use Relink\Resolver\Ports\AdminRecordQuery;
 use RuntimeException;
 
-final class SqliteResolverRepository implements ResolverRepository, AdminRecordQuery
+final class SqliteResolverRepository implements ResolverRepository, AdminRecordQuery, ManifestPublicationRepository
 {
     private PDO $pdo;
 
@@ -41,7 +43,7 @@ final class SqliteResolverRepository implements ResolverRepository, AdminRecordQ
     public function insert(ResolverRecord $record): void
     {
         try {
-            $statement = $this->pdo->prepare('INSERT INTO resolver_records (anchor_uuid, state, description_location, entity_id, media_type, integrity_algorithm, integrity_digest, version, created_at, updated_at) VALUES (:uuid, :state, :location, :entity, :media, :algorithm, :digest, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)');
+            $statement = $this->pdo->prepare('INSERT INTO resolver_records (anchor_uuid, state, description_location, entity_id, media_type, integrity_algorithm, integrity_digest, integrity_source, manifest_enabled, version, created_at, updated_at) VALUES (:uuid, :state, :location, :entity, :media, :algorithm, :digest, :source, :manifest_enabled, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)');
             $statement->execute($this->params($record));
         } catch (PDOException $error) {
             if ($this->isAnchorConflict($error)) {
@@ -56,12 +58,13 @@ final class SqliteResolverRepository implements ResolverRepository, AdminRecordQ
         $newVersion = $record->version + 1;
         $this->pdo->beginTransaction();
         try {
-            $statement = $this->pdo->prepare('UPDATE resolver_records SET description_location = :location, entity_id = :entity, integrity_algorithm = :algorithm, integrity_digest = :digest, version = :new_version, updated_at = CURRENT_TIMESTAMP WHERE anchor_uuid = :uuid AND version = :version');
+            $statement = $this->pdo->prepare('UPDATE resolver_records SET description_location = :location, entity_id = :entity, integrity_algorithm = :algorithm, integrity_digest = :digest, integrity_source = :source, version = :new_version, updated_at = CURRENT_TIMESTAMP WHERE anchor_uuid = :uuid AND version = :version');
             $statement->execute([
                 'location' => $location->value,
                 'entity' => $entityId,
                 'algorithm' => $algorithm,
                 'digest' => $digest,
+                'source' => null,
                 'new_version' => $newVersion,
                 'uuid' => $record->anchor->value,
                 'version' => $record->version,
@@ -69,8 +72,70 @@ final class SqliteResolverRepository implements ResolverRepository, AdminRecordQ
             if ($statement->rowCount() !== 1) {
                 throw new RuntimeException('STATE_CONFLICT');
             }
-            $updated = new ResolverRecord($record->anchor, $record->state, $location, $entityId, $record->mediaType, $algorithm, $digest, $newVersion);
+            $updated = new ResolverRecord($record->anchor, $record->state, $location, $entityId, $record->mediaType, $algorithm, $digest, $newVersion, $record->manifestEnabled, null);
             $this->historyInsert($record, $updated, 'mapping_update', 'admin');
+            $this->pdo->commit();
+            return $updated;
+        } catch (\Throwable $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
+        }
+    }
+
+    public function updateManifestPublication(ResolverRecord $record, bool $enabled, ?IntegrityMetadata $integrity, ?string $source): ResolverRecord
+    {
+        $newVersion = $record->version + 1;
+        $this->pdo->beginTransaction();
+        try {
+            $statement = $this->pdo->prepare('UPDATE resolver_records SET manifest_enabled = :enabled, integrity_algorithm = :algorithm, integrity_digest = :digest, integrity_source = :source, version = :new_version, updated_at = CURRENT_TIMESTAMP WHERE anchor_uuid = :uuid AND version = :version');
+            $statement->execute([
+                'enabled' => $enabled ? 1 : 0,
+                'algorithm' => $integrity?->algorithm,
+                'digest' => $integrity?->digest,
+                'source' => $source,
+                'new_version' => $newVersion,
+                'uuid' => $record->anchor->value,
+                'version' => $record->version,
+            ]);
+            if ($statement->rowCount() !== 1) {
+                throw new RuntimeException('STATE_CONFLICT');
+            }
+            $updated = new ResolverRecord($record->anchor, $record->state, $record->location, $record->entityId, $record->mediaType, $integrity?->algorithm, $integrity?->digest, $newVersion, $enabled, $source);
+            $this->historyInsert($record, $updated, 'manifest_publication_update', 'admin');
+            $this->pdo->commit();
+            return $updated;
+        } catch (\Throwable $error) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $error;
+        }
+    }
+
+    public function publishIntegrity(ResolverRecord $record, IntegrityMetadata $integrity, string $source): ResolverRecord
+    {
+        $newVersion = $record->version + 1;
+        $this->pdo->beginTransaction();
+        try {
+            // Location/version の CAS により、取得中の変更へ digest を誤適用しない。
+            $statement = $this->pdo->prepare('UPDATE resolver_records SET manifest_enabled = 1, integrity_algorithm = :algorithm, integrity_digest = :digest, integrity_source = :source, version = :new_version, updated_at = CURRENT_TIMESTAMP WHERE anchor_uuid = :uuid AND version = :version AND state = :state AND description_location = :location');
+            $statement->execute([
+                'algorithm' => $integrity->algorithm,
+                'digest' => $integrity->digest,
+                'source' => $source,
+                'new_version' => $newVersion,
+                'uuid' => $record->anchor->value,
+                'version' => $record->version,
+                'state' => $record->state->value,
+                'location' => $record->location->value,
+            ]);
+            if ($statement->rowCount() !== 1) {
+                throw new RuntimeException('STATE_CONFLICT');
+            }
+            $updated = new ResolverRecord($record->anchor, $record->state, $record->location, $record->entityId, $record->mediaType, $integrity->algorithm, $integrity->digest, $newVersion, true, $source);
+            $this->historyInsert($record, $updated, 'integrity_publish', 'admin');
             $this->pdo->commit();
             return $updated;
         } catch (\Throwable $error) {
@@ -97,7 +162,7 @@ final class SqliteResolverRepository implements ResolverRepository, AdminRecordQ
             if ($statement->rowCount() !== 1) {
                 throw new RuntimeException('STATE_CONFLICT');
             }
-            $updated = new ResolverRecord($record->anchor, $target, $record->location, $record->entityId, $record->mediaType, $record->integrityAlgorithm, $record->integrityDigest, $newVersion);
+            $updated = new ResolverRecord($record->anchor, $target, $record->location, $record->entityId, $record->mediaType, $record->integrityAlgorithm, $record->integrityDigest, $newVersion, $record->manifestEnabled, $record->integritySource);
             $history = $this->pdo->prepare('INSERT INTO resolver_history (anchor_uuid, event_type, old_state, new_state, old_location, new_location, reason, actor, created_at) VALUES (:uuid, :type, :old_state, :new_state, :old_location, :new_location, :reason, :actor, CURRENT_TIMESTAMP)');
             $history->execute([
                 'uuid' => $record->anchor->value,
@@ -149,13 +214,13 @@ final class SqliteResolverRepository implements ResolverRepository, AdminRecordQ
     /** @param array<string, mixed> $row */
     private function map(array $row): ResolverRecord
     {
-        return new ResolverRecord(new AnchorUuid($row['anchor_uuid']), LifecycleState::fromInput($row['state']), new DescriptionLocation($row['description_location']), $row['entity_id'], $row['media_type'], $row['integrity_algorithm'], $row['integrity_digest'], (int) $row['version']);
+        return new ResolverRecord(new AnchorUuid($row['anchor_uuid']), LifecycleState::fromInput($row['state']), new DescriptionLocation($row['description_location']), $row['entity_id'], $row['media_type'], $row['integrity_algorithm'], $row['integrity_digest'], (int) $row['version'], (bool) ($row['manifest_enabled'] ?? 1), $row['integrity_source'] ?? null);
     }
 
     /** @return array<string, mixed> */
     private function params(ResolverRecord $record): array
     {
-        return ['uuid' => $record->anchor->value, 'state' => $record->state->value, 'location' => $record->location->value, 'entity' => $record->entityId, 'media' => $record->mediaType, 'algorithm' => $record->integrityAlgorithm, 'digest' => $record->integrityDigest];
+        return ['uuid' => $record->anchor->value, 'state' => $record->state->value, 'location' => $record->location->value, 'entity' => $record->entityId, 'media' => $record->mediaType, 'algorithm' => $record->integrityAlgorithm, 'digest' => $record->integrityDigest, 'source' => $record->integritySource, 'manifest_enabled' => $record->manifestEnabled ? 1 : 0];
     }
 
     /** @param array<string, mixed> $row */

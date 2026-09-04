@@ -28,6 +28,7 @@ final class AdminRequestGuard
             'media_type' => $limits->maxMediaTypeBytes,
             'integrity_algorithm' => $limits->maxIntegrityAlgorithmBytes,
             'integrity_digest' => $limits->maxIntegrityDigestBytes,
+            'publication_mode' => 64,
             'reason' => $limits->maxReasonBytes,
         ];
         $this->queryFieldLimits = [

@@ -7,12 +7,14 @@ declare(strict_types=1);
 use Relink\Resolver\Adapters\SqliteResolverRepository;
 use Relink\Resolver\Adapters\SqliteAdminLoginThrottleStore;
 use Relink\Resolver\Adapters\ConfiguredAdminCredentialVerifier;
+use Relink\Resolver\Adapters\NativeAdministrativeResourceFetcher;
 use Relink\Resolver\Application\AdminAuthenticationService;
 use Relink\Resolver\Application\AdminRequestException;
 use Relink\Resolver\Application\AdminRequestGuard;
 use Relink\Resolver\Application\AdminSession;
 use Relink\Resolver\Application\AdminSessionPolicy;
 use Relink\Resolver\Application\TrustedProxyPolicy;
+use Relink\Resolver\Application\OutboundNetworkPolicy;
 use Relink\Resolver\Application\ResolverService;
 use Relink\Resolver\Ports\AdminRecordQuery;
 use Relink\Resolver\Domain\ResolverHistoryEntry;
@@ -153,6 +155,10 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
                 'state' => $record->state->value,
                 'location' => $record->location->value,
                 'entity_id' => $record->entityId,
+                'manifest_enabled' => $record->manifestEnabled,
+                'integrity_algorithm' => $record->integrityAlgorithm,
+                'integrity_digest' => $record->integrityDigest,
+                'integrity_source' => $record->integritySource,
                 'version' => $record->version,
             ], 'history' => array_map(static fn (ResolverHistoryEntry $entry): array => [
                 'id' => $entry->id,
@@ -202,6 +208,22 @@ try {
     if ($action === 'register') {
         $service->register($_POST);
         $message = '登録しました。';
+    } elseif ($action === 'publication') {
+        $service->configureManifest((string) $_POST['uuid'], (string) $_POST['publication_mode'], isset($_POST['integrity_algorithm']) ? (string) $_POST['integrity_algorithm'] : null, isset($_POST['integrity_digest']) ? (string) $_POST['integrity_digest'] : null);
+        $message = 'Manifest 公開設定を更新しました。';
+    } elseif ($action === 'calculate-integrity') {
+        $fetcher = new NativeAdministrativeResourceFetcher(
+            new OutboundNetworkPolicy($config['outbound_allowed_cidrs'], $config['outbound_denied_cidrs']),
+            $config['outbound_max_redirects'],
+            $config['outbound_max_body_bytes'],
+            $config['outbound_connect_timeout'],
+            $config['outbound_read_timeout'],
+        );
+        $service->calculateAndPinIntegrity((string) $_POST['uuid'], $fetcher);
+        $message = '現在の表現から sha-256 digest を計算して pin しました。';
+    } elseif ($action === 'manifest-preview') {
+        $preview = $service->previewManifest((string) $_POST['uuid']);
+        $message = $preview === null ? 'Manifest は無効化されています。' : 'Manifest preview: ' . json_encode($preview, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     } elseif ($action === 'location') {
         $service->updateLocation((string) $_POST['uuid'], (string) $_POST['location'], isset($_POST['entity_id']) ? (string) $_POST['entity_id'] : null);
         $message = '更新しました。';
@@ -221,6 +243,8 @@ try {
         'NOT_FOUND' => '対象レコードが見つかりません。',
         'RECORD_EXISTS' => '同じ UUID は既に登録されています。',
         'PERSISTENCE_FAILURE' => '永続化処理に失敗しました。',
+        'FETCH_FAILURE' => '外部表現の取得に失敗しました。ネットワークポリシー、redirect、サイズ、timeout を確認してください。',
+        'UNSUPPORTED_OPERATION' => 'この保存アダプタでは操作を利用できません。',
     ];
     $message = '操作に失敗しました: ' . ($messages[$code] ?? '要求を処理できませんでした。');
     error_log('RELink admin operation failed: ' . preg_replace('/[^A-Z_]/', '', (string) $code));
@@ -230,7 +254,10 @@ header('Content-Type: text/html; charset=utf-8');
 $csrf = htmlspecialchars((string) $_SESSION['csrf'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 $esc = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 echo '<!doctype html><meta charset="utf-8"><title>RELink Admin</title><h1>RELink Admin</h1><p>' . $esc($message) . '</p>';
-echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="register"><h2>登録</h2><input name="uuid" placeholder="UUID" required><input name="location" placeholder="https://..." required><input name="entity_id" placeholder="Entity URI" required><button>登録</button></form>';
+echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="register"><h2>登録</h2><input name="uuid" placeholder="UUID" required><input name="location" placeholder="https://..." required><input name="entity_id" placeholder="Entity URI" required><select name="publication_mode"><option value="direct">直接 AR-XML（Manifest なし）</option><option value="without-integrity">Manifest（integrity なし）</option><option value="supplied">Manifest（手動 digest）</option><option value="calculated">Manifest（後で明示計算）</option></select><input name="integrity_algorithm" placeholder="sha-256"><input name="integrity_digest" placeholder="64桁の lowercase hex"><button>登録</button></form>';
+echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="publication"><h2>Manifest 公開設定</h2><input name="uuid" placeholder="UUID" required><select name="publication_mode"><option value="direct">直接 AR-XML（Manifest なし）</option><option value="without-integrity">Manifest（integrity なし）</option><option value="supplied">Manifest（手動 digest）</option></select><input name="integrity_algorithm" placeholder="sha-256"><input name="integrity_digest" placeholder="64桁の lowercase hex"><button>設定を保存</button></form>';
+echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="calculate-integrity"><h2>Manifest digest の明示計算</h2><input name="uuid" placeholder="UUID" required><button>Calculate and pin current digest</button></form>';
+echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="manifest-preview"><h2>Manifest preview</h2><input name="uuid" placeholder="UUID" required><button>Preview</button></form>';
 echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="location"><h2>場所更新</h2><input name="uuid" placeholder="UUID" required><input name="location" placeholder="https://..." required><input name="entity_id" placeholder="Entity URI"><button>更新</button></form>';
 echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="transition"><h2>Lifecycle</h2><input name="uuid" placeholder="UUID" required><select name="state"><option>ACTIVE</option><option>SUSPENDED</option><option>RETIRED</option></select><input name="reason" placeholder="理由"><button>変更</button></form>';
 echo '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="resolution-test"><h2>公開解決テスト</h2><input name="uuid" placeholder="UUID" required><button>テスト</button></form>';

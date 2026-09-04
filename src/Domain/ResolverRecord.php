@@ -17,6 +17,10 @@ final readonly class ResolverRecord
         public ?string $integrityAlgorithm,
         public ?string $integrityDigest,
         public int $version,
+        // Manifest 公開可否は Core 解決とは独立した永続化事実。
+        public bool $manifestEnabled = true,
+        // integrity の出所は管理画面用メタデータであり、Manifest には出力しない。
+        public ?string $integritySource = null,
     ) {
     }
 }
