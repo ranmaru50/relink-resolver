@@ -17,6 +17,7 @@ use Relink\Resolver\Application\AdminSessionPolicy;
 use Relink\Resolver\Application\OutboundNetworkPolicy;
 use Relink\Resolver\Application\ResolverService;
 use Relink\Resolver\Application\TrustedProxyPolicy;
+use Relink\Resolver\Hosting\AdminManifestPublicationInput;
 use Relink\Resolver\Hosting\AdminTranslator;
 use Relink\Resolver\Domain\LifecycleState;
 use Relink\Resolver\Domain\ResolverHistoryEntry;
@@ -289,7 +290,9 @@ function admin_render_manifest_controls(AdminTranslator $translator, ResolverRec
     foreach ($options as $value => $labelKey) {
         echo '<option value="' . admin_escape($value) . '"' . ($mode === $value ? ' selected' : '') . '>' . admin_escape(admin_text($translator, $labelKey)) . '</option>';
     }
-    echo '</select><p class="help-text">' . admin_escape(admin_text($translator, 'detail.manifest_mode_help')) . '</p></div><div class="field"><label for="manifest-algorithm">' . admin_escape(admin_text($translator, 'register.algorithm')) . '</label><input id="manifest-algorithm" name="integrity_algorithm" value="' . admin_escape($record->integrityAlgorithm ?? '') . '" placeholder="' . admin_escape(admin_text($translator, 'register.algorithm_placeholder')) . '"></div><div class="field"><label for="manifest-digest">' . admin_escape(admin_text($translator, 'register.digest')) . '</label><input id="manifest-digest" name="integrity_digest" value="' . admin_escape($record->integrityDigest ?? '') . '" placeholder="' . admin_escape(admin_text($translator, 'register.digest_placeholder')) . '"></div><button type="submit" class="button-primary">' . admin_escape(admin_text($translator, 'detail.manifest_save')) . '</button></form>';
+    $algorithm = $mode === 'supplied' ? ($record->integrityAlgorithm ?? '') : '';
+    $digest = $mode === 'supplied' ? ($record->integrityDigest ?? '') : '';
+    echo '</select><p class="help-text">' . admin_escape(admin_text($translator, 'detail.manifest_mode_help')) . '</p></div><div class="field"><label for="manifest-algorithm">' . admin_escape(admin_text($translator, 'register.algorithm')) . '</label><input id="manifest-algorithm" name="integrity_algorithm" value="' . admin_escape($algorithm) . '" placeholder="' . admin_escape(admin_text($translator, 'register.algorithm_placeholder')) . '"></div><div class="field"><label for="manifest-digest">' . admin_escape(admin_text($translator, 'register.digest')) . '</label><input id="manifest-digest" name="integrity_digest" value="' . admin_escape($digest) . '" placeholder="' . admin_escape(admin_text($translator, 'register.digest_placeholder')) . '"></div><button type="submit" class="button-primary">' . admin_escape(admin_text($translator, 'detail.manifest_save')) . '</button></form>';
     if ($record->manifestEnabled) {
         echo '<form method="post" class="action-form"><input type="hidden" name="action" value="calculate-integrity">' . admin_locale_field($translator) . admin_csrf_field($csrf) . '<input type="hidden" name="uuid" value="' . admin_escape($record->anchor->value) . '"><button type="submit" class="button-secondary">' . admin_escape(admin_text($translator, 'detail.manifest_calculate')) . '</button><p class="help-text">' . admin_escape(admin_text($translator, 'detail.manifest_calculate_help')) . '</p></form>';
     }
@@ -515,7 +518,8 @@ if ($action !== '') {
             $returnUuid = $created->anchor->value;
             admin_set_flash('success', admin_text($translator, 'action.registered'));
         } elseif ($action === 'publication') {
-            $service->configureManifest((string) $_POST['uuid'], (string) $_POST['publication_mode'], isset($_POST['integrity_algorithm']) ? (string) $_POST['integrity_algorithm'] : null, isset($_POST['integrity_digest']) ? (string) $_POST['integrity_digest'] : null);
+            $integrity = AdminManifestPublicationInput::fromPost($_POST);
+            $service->configureManifest((string) $_POST['uuid'], (string) $_POST['publication_mode'], $integrity->algorithm, $integrity->digest);
             admin_set_flash('success', admin_text($translator, 'action.manifest_updated'));
         } elseif ($action === 'calculate-integrity') {
             $fetcher = new NativeAdministrativeResourceFetcher(
