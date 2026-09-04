@@ -96,6 +96,7 @@ HTTP security header の受入は、[relink-testbed#3](https://github.com/ranmar
 $env:RELINK_SECURITY_NATIVE_HTTPS_URL = "https://127.0.0.1:8444"
 $env:RELINK_SECURITY_NATIVE_HTTP_URL = "http://127.0.0.1:8081"
 $env:RELINK_SECURITY_CONTAINER_HTTP_URL = "http://127.0.0.1:8080"
+$env:RELINK_SECURITY_CONTAINER_HTTPS_URL = "https://127.0.0.1:8443"
 $env:RELINK_SECURITY_NATIVE_5XX_URL = "https://127.0.0.1:8444/__security__/503"
 $env:RELINK_SECURITY_CONTAINER_5XX_URL = "http://127.0.0.1:8080/__security__/503"
 $env:RELINK_SECURITY_APACHE_ERROR_PATH = "/__security__/apache-error"

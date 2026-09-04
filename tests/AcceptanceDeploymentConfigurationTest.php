@@ -98,7 +98,7 @@ final class AcceptanceDeploymentConfigurationTest extends TestCase
     {
         $documentation = $this->read('docs/acceptance-deployments.md');
 
-        foreach (['RELINK_SECURITY_NATIVE_HTTPS_URL', 'RELINK_SECURITY_NATIVE_HTTP_URL', 'RELINK_SECURITY_CONTAINER_HTTP_URL', 'RELINK_SECURITY_NATIVE_5XX_URL', 'RELINK_SECURITY_CONTAINER_5XX_URL', 'pnpm security:headers', 'relink-testbed'] as $term) {
+        foreach (['RELINK_SECURITY_NATIVE_HTTPS_URL', 'RELINK_SECURITY_NATIVE_HTTP_URL', 'RELINK_SECURITY_CONTAINER_HTTP_URL', 'RELINK_SECURITY_CONTAINER_HTTPS_URL', 'RELINK_SECURITY_NATIVE_5XX_URL', 'RELINK_SECURITY_CONTAINER_5XX_URL', 'pnpm security:headers', 'relink-testbed'] as $term) {
             self::assertStringContainsString($term, $documentation);
         }
     }
