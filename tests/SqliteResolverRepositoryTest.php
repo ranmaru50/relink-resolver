@@ -95,6 +95,25 @@ final class SqliteResolverRepositoryTest extends TestCase
         $this->assertSame('https://entity.example/22-new.xml', $history[0]->newLocation?->value);
     }
 
+    /** Manifest 公開設定と integrity の出所を migration 後の SQLite へ保存できることを確認する。 */
+    public function testManifestPublicationModesPersistAndDirectModeHidesManifest(): void
+    {
+        SqliteMigrator::migrate($this->path);
+        $repository = new SqliteResolverRepository($this->path);
+        $service = new ResolverService($repository);
+        $uuid = '550e8400-e29b-41d4-a716-446655440027';
+        $service->register(['uuid' => $uuid, 'location' => 'https://entity.example/27.xml', 'entity_id' => 'urn:relink:entity:27']);
+
+        $configured = $service->configureManifest($uuid, 'supplied', 'sha-256', str_repeat('d', 64));
+        self::assertSame('SUPPLIED', $configured->integritySource);
+        self::assertSame('SUPPLIED', $repository->find(new AnchorUuid($uuid))->integritySource);
+        self::assertNotNull($service->manifest($uuid));
+
+        $disabled = $service->configureManifest($uuid, 'direct');
+        self::assertFalse($disabled->manifestEnabled);
+        self::assertNull($service->manifest($uuid));
+    }
+
     /** 同一状態指定がバージョンと履歴を増やさないことを確認する。 */
     public function testSameStateTransitionIsNoOpWithoutHistory(): void
     {
