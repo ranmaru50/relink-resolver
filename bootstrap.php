@@ -29,6 +29,14 @@ $trustedProxyCidrs = array_values(array_filter(
     array_map('trim', explode(',', (string) (getenv('RELINK_TRUSTED_PROXY_CIDRS') ?: ''))),
     static fn (string $value): bool => $value !== '',
 ));
+$outboundAllowedCidrs = array_values(array_filter(
+    array_map('trim', explode(',', (string) (getenv('RELINK_OUTBOUND_ALLOWED_CIDRS') ?: ''))),
+    static fn (string $value): bool => $value !== '',
+));
+$outboundDeniedCidrs = array_values(array_filter(
+    array_map('trim', explode(',', (string) (getenv('RELINK_OUTBOUND_DENIED_CIDRS') ?: ''))),
+    static fn (string $value): bool => $value !== '',
+));
 
 return [
     'database_path' => $databasePath,
@@ -54,4 +62,11 @@ return [
     ),
     'cache_max_age' => (int) (getenv('RELINK_CACHE_MAX_AGE') ?: 60),
     'service_prefix' => getenv('RELINK_SERVICE_PREFIX') ?: '/relink',
+    // 空の許可リストは全アドレスを許可し、配備側が必要に応じて明示的に制限する。
+    'outbound_allowed_cidrs' => $outboundAllowedCidrs,
+    'outbound_denied_cidrs' => $outboundDeniedCidrs,
+    'outbound_max_redirects' => max(0, (int) (getenv('RELINK_OUTBOUND_MAX_REDIRECTS') ?: 5)),
+    'outbound_max_body_bytes' => max(1024, (int) (getenv('RELINK_OUTBOUND_MAX_BODY_BYTES') ?: 8388608)),
+    'outbound_connect_timeout' => max(1.0, (float) (getenv('RELINK_OUTBOUND_CONNECT_TIMEOUT') ?: 5)),
+    'outbound_read_timeout' => max(1.0, (float) (getenv('RELINK_OUTBOUND_READ_TIMEOUT') ?: 10)),
 ];

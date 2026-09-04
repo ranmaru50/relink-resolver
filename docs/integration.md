@@ -51,6 +51,10 @@ Symfony などでも同じ組み立てを行い、フレームワークの contr
 
 認証済みホストだけが `ResolverService::register()`、`updateLocation()`、`transition()` などの管理ユースケースを呼び出します。認証方式を変更しても Resolver のライフサイクル、公開解決、Manifest の意味論は変更しません。
 
+Manifest の公開設定は `configureManifest($uuid, $mode, ...)` で行います。`direct`、`without-integrity`、`supplied` を指定でき、手動 digest の検証は Application/Domain 境界で行われます。現在の表現を pin する `calculateAndPinIntegrity()` は `AdministrativeResourceFetcher` Port を明示的に受け取る privileged operation です。公開 `resolve()`、`manifest()`、および preview はこの Port を受け取りません。
+
+外部 HTTP 実装は `NativeAdministrativeResourceFetcher` またはホスト固有の `AdministrativeResourceFetcher` 実装へ置き換えられます。実装は final URL、terminal status、content-coding 処理後の body octets を返し、HTTPS downgrade、redirect、サイズ、timeout、接続実アドレスのポリシーを適用しなければなりません。標準 adapter は `identity` content-coding のみを受け付けます。圧縮応答を扱うホスト adapter は、展開後サイズをストリーミングで上限管理してください。
+
 ## 履歴と永続化
 
 `ResolverRepository::history()` は DB 行の汎用配列ではなく `ResolverHistoryEntry` を返します。履歴はライフサイクル遷移を含む Resolver の変更履歴であり、会社固有の管理監査ログや認証ログではありません。ホスト UI/API は必要な wire 表現へ明示的に変換します。

@@ -1,5 +1,7 @@
 # テスト
 
+`tests/ManifestPublicationTest.php` は direct、supplied、integrity なし、明示計算、body octets、stale version、Location 更新時の pin 破棄を外部ネットワークなしで検証します。
+
 ホストに PHP 8.3 以上、`pdo_sqlite`、Composer がある場合は、リポジトリルートで次を実行します。
 
 ```sh

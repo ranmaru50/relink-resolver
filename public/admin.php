@@ -5,6 +5,7 @@
 declare(strict_types=1);
 
 use Relink\Resolver\Adapters\ConfiguredAdminCredentialVerifier;
+use Relink\Resolver\Adapters\NativeAdministrativeResourceFetcher;
 use Relink\Resolver\Adapters\SqliteAdminLoginThrottleStore;
 use Relink\Resolver\Adapters\SqliteResolverRepository;
 use Relink\Resolver\Application\AdminAuthenticationService;
@@ -13,9 +14,10 @@ use Relink\Resolver\Application\AdminRequestException;
 use Relink\Resolver\Application\AdminRequestGuard;
 use Relink\Resolver\Application\AdminSession;
 use Relink\Resolver\Application\AdminSessionPolicy;
+use Relink\Resolver\Application\OutboundNetworkPolicy;
 use Relink\Resolver\Application\ResolverService;
-use Relink\Resolver\Application\AdminTranslator;
 use Relink\Resolver\Application\TrustedProxyPolicy;
+use Relink\Resolver\Hosting\AdminTranslator;
 use Relink\Resolver\Domain\LifecycleState;
 use Relink\Resolver\Domain\ResolverHistoryEntry;
 use Relink\Resolver\Domain\ResolverRecord;
@@ -269,6 +271,31 @@ function admin_render_records(AdminTranslator $translator, array $records, Admin
     admin_render_end($translator);
 }
 
+/** レコード単位のManifest公開設定・計算・preview操作を出力する。 */
+function admin_render_manifest_controls(AdminTranslator $translator, ResolverRecord $record, string $csrf): void
+{
+    $mode = !$record->manifestEnabled ? 'direct' : match ($record->integritySource) {
+        'SUPPLIED' => 'supplied',
+        'CALCULATED' => 'calculated',
+        default => 'without-integrity',
+    };
+    $options = [
+        'direct' => 'register.mode_direct',
+        'without-integrity' => 'register.mode_without_integrity',
+        'supplied' => 'register.mode_supplied',
+        'calculated' => 'register.mode_calculated',
+    ];
+    echo '<section class="panel detail-section manifest-controls"><div class="section-heading"><div><p class="eyebrow">' . admin_escape(admin_text($translator, 'detail.manifest.eyebrow')) . '</p><h2>' . admin_escape(admin_text($translator, 'detail.manifest.heading')) . '</h2></div></div><form method="post" class="stack-form"><input type="hidden" name="action" value="publication">' . admin_locale_field($translator) . admin_csrf_field($csrf) . '<input type="hidden" name="uuid" value="' . admin_escape($record->anchor->value) . '"><div class="field"><label for="manifest-mode">' . admin_escape(admin_text($translator, 'detail.manifest_mode')) . '</label><select id="manifest-mode" name="publication_mode">';
+    foreach ($options as $value => $labelKey) {
+        echo '<option value="' . admin_escape($value) . '"' . ($mode === $value ? ' selected' : '') . '>' . admin_escape(admin_text($translator, $labelKey)) . '</option>';
+    }
+    echo '</select><p class="help-text">' . admin_escape(admin_text($translator, 'detail.manifest_mode_help')) . '</p></div><div class="field"><label for="manifest-algorithm">' . admin_escape(admin_text($translator, 'register.algorithm')) . '</label><input id="manifest-algorithm" name="integrity_algorithm" value="' . admin_escape($record->integrityAlgorithm ?? '') . '" placeholder="' . admin_escape(admin_text($translator, 'register.algorithm_placeholder')) . '"></div><div class="field"><label for="manifest-digest">' . admin_escape(admin_text($translator, 'register.digest')) . '</label><input id="manifest-digest" name="integrity_digest" value="' . admin_escape($record->integrityDigest ?? '') . '" placeholder="' . admin_escape(admin_text($translator, 'register.digest_placeholder')) . '"></div><button type="submit" class="button-primary">' . admin_escape(admin_text($translator, 'detail.manifest_save')) . '</button></form>';
+    if ($record->manifestEnabled) {
+        echo '<form method="post" class="action-form"><input type="hidden" name="action" value="calculate-integrity">' . admin_locale_field($translator) . admin_csrf_field($csrf) . '<input type="hidden" name="uuid" value="' . admin_escape($record->anchor->value) . '"><button type="submit" class="button-secondary">' . admin_escape(admin_text($translator, 'detail.manifest_calculate')) . '</button><p class="help-text">' . admin_escape(admin_text($translator, 'detail.manifest_calculate_help')) . '</p></form>';
+    }
+    echo '<form method="post" class="action-form"><input type="hidden" name="action" value="manifest-preview">' . admin_locale_field($translator) . admin_csrf_field($csrf) . '<input type="hidden" name="uuid" value="' . admin_escape($record->anchor->value) . '"><button type="submit" class="button-secondary">' . admin_escape(admin_text($translator, 'detail.manifest_preview')) . '</button><p class="help-text">' . admin_escape(admin_text($translator, 'detail.manifest_preview_help')) . '</p></form></section>';
+}
+
 /** 登録フォームを出力する。 */
 /** @param array{type: string, message: string}|null $flash */
 function admin_render_register(AdminTranslator $translator, string $csrf, ?array $flash): void
@@ -278,7 +305,7 @@ function admin_render_register(AdminTranslator $translator, string $csrf, ?array
     admin_render_page_heading($translator, 'register.eyebrow', 'register.heading', 'register.lede');
     $required = '<span class="required">' . admin_escape(admin_text($translator, 'register.required')) . '</span>';
     $optional = '<span class="optional">' . admin_escape(admin_text($translator, 'register.optional')) . '</span>';
-    echo '<section class="panel narrow-panel"><form method="post" class="stack-form"><input type="hidden" name="action" value="register">' . admin_locale_field($translator) . admin_csrf_field($csrf) . '<div class="field"><label for="register-uuid">' . admin_escape(admin_text($translator, 'register.uuid')) . ' ' . $required . '</label><input id="register-uuid" name="uuid" required aria-describedby="uuid-help" placeholder="' . admin_escape(admin_text($translator, 'register.uuid_placeholder')) . '"><p id="uuid-help" class="help-text">' . admin_escape(admin_text($translator, 'register.uuid_help')) . '</p></div><div class="field"><label for="register-entity">' . admin_escape(admin_text($translator, 'register.entity')) . ' ' . $required . '</label><input id="register-entity" name="entity_id" type="url" required aria-describedby="entity-help" placeholder="' . admin_escape(admin_text($translator, 'register.entity_placeholder')) . '"><p id="entity-help" class="help-text">' . admin_escape(admin_text($translator, 'register.entity_help')) . '</p></div><div class="field"><label for="register-location">' . admin_escape(admin_text($translator, 'register.location')) . ' ' . $required . '</label><input id="register-location" name="location" type="url" required aria-describedby="location-help" placeholder="' . admin_escape(admin_text($translator, 'register.location_placeholder')) . '"><p id="location-help" class="help-text">' . admin_escape(admin_text($translator, 'register.location_help')) . '</p></div><div class="field"><label for="register-media">' . admin_escape(admin_text($translator, 'register.media_type')) . ' ' . $optional . '</label><input id="register-media" name="media_type" placeholder="' . admin_escape(admin_text($translator, 'register.media_placeholder')) . '"></div><details class="advanced-fields"><summary>' . admin_escape(admin_text($translator, 'register.integrity_summary')) . '</summary><p class="help-text">' . admin_escape(admin_text($translator, 'register.integrity_help')) . '</p><div class="field"><label for="register-algorithm">' . admin_escape(admin_text($translator, 'register.algorithm')) . '</label><input id="register-algorithm" name="integrity_algorithm" placeholder="' . admin_escape(admin_text($translator, 'register.algorithm_placeholder')) . '"></div><div class="field"><label for="register-digest">' . admin_escape(admin_text($translator, 'register.digest')) . '</label><input id="register-digest" name="integrity_digest" placeholder="' . admin_escape(admin_text($translator, 'register.digest_placeholder')) . '"></div></details><div class="form-actions"><button type="submit" class="button-primary">' . admin_escape(admin_text($translator, 'register.submit')) . '</button><a class="button-secondary" href="' . admin_escape(admin_url($translator, 'records')) . '">' . admin_escape(admin_text($translator, 'register.cancel')) . '</a></div></form></section>';
+    echo '<section class="panel narrow-panel"><form method="post" class="stack-form"><input type="hidden" name="action" value="register">' . admin_locale_field($translator) . admin_csrf_field($csrf) . '<div class="field"><label for="register-uuid">' . admin_escape(admin_text($translator, 'register.uuid')) . ' ' . $required . '</label><input id="register-uuid" name="uuid" required aria-describedby="uuid-help" placeholder="' . admin_escape(admin_text($translator, 'register.uuid_placeholder')) . '"><p id="uuid-help" class="help-text">' . admin_escape(admin_text($translator, 'register.uuid_help')) . '</p></div><div class="field"><label for="register-entity">' . admin_escape(admin_text($translator, 'register.entity')) . ' ' . $required . '</label><input id="register-entity" name="entity_id" type="url" required aria-describedby="entity-help" placeholder="' . admin_escape(admin_text($translator, 'register.entity_placeholder')) . '"><p id="entity-help" class="help-text">' . admin_escape(admin_text($translator, 'register.entity_help')) . '</p></div><div class="field"><label for="register-location">' . admin_escape(admin_text($translator, 'register.location')) . ' ' . $required . '</label><input id="register-location" name="location" type="url" required aria-describedby="location-help" placeholder="' . admin_escape(admin_text($translator, 'register.location_placeholder')) . '"><p id="location-help" class="help-text">' . admin_escape(admin_text($translator, 'register.location_help')) . '</p></div><div class="field"><label for="register-media">' . admin_escape(admin_text($translator, 'register.media_type')) . ' ' . $optional . '</label><input id="register-media" name="media_type" placeholder="' . admin_escape(admin_text($translator, 'register.media_placeholder')) . '"></div><div class="field"><label for="register-publication-mode">' . admin_escape(admin_text($translator, 'register.publication_mode')) . '</label><select id="register-publication-mode" name="publication_mode"><option value="direct">' . admin_escape(admin_text($translator, 'register.mode_direct')) . '</option><option value="without-integrity" selected>' . admin_escape(admin_text($translator, 'register.mode_without_integrity')) . '</option><option value="supplied">' . admin_escape(admin_text($translator, 'register.mode_supplied')) . '</option><option value="calculated">' . admin_escape(admin_text($translator, 'register.mode_calculated')) . '</option></select><p class="help-text">' . admin_escape(admin_text($translator, 'register.publication_mode_help')) . '</p></div><details class="advanced-fields"><summary>' . admin_escape(admin_text($translator, 'register.integrity_summary')) . '</summary><p class="help-text">' . admin_escape(admin_text($translator, 'register.integrity_help')) . '</p><div class="field"><label for="register-algorithm">' . admin_escape(admin_text($translator, 'register.algorithm')) . '</label><input id="register-algorithm" name="integrity_algorithm" placeholder="' . admin_escape(admin_text($translator, 'register.algorithm_placeholder')) . '"></div><div class="field"><label for="register-digest">' . admin_escape(admin_text($translator, 'register.digest')) . '</label><input id="register-digest" name="integrity_digest" placeholder="' . admin_escape(admin_text($translator, 'register.digest_placeholder')) . '"></div></details><div class="form-actions"><button type="submit" class="button-primary">' . admin_escape(admin_text($translator, 'register.submit')) . '</button><a class="button-secondary" href="' . admin_escape(admin_url($translator, 'records')) . '">' . admin_escape(admin_text($translator, 'register.cancel')) . '</a></div></form></section>';
     admin_render_end($translator);
 }
 
@@ -307,6 +334,7 @@ function admin_render_record_detail(AdminTranslator $translator, ResolverRecord 
     admin_render_start($translator, 'detail.title', true, $csrf, 'records', ['uuid' => $record->anchor->value]);
     admin_render_flash($translator, $flash);
     $publicBehavior = match ($record->state) { LifecycleState::ACTIVE => admin_text($translator, 'detail.public_active'), LifecycleState::SUSPENDED => admin_text($translator, 'detail.public_suspended'), LifecycleState::RETIRED => admin_text($translator, 'detail.public_retired') };
+    admin_render_manifest_controls($translator, $record, $csrf);
     echo '<div class="breadcrumb"><a href="' . admin_escape(admin_url($translator, 'records')) . '">' . admin_escape(admin_text($translator, 'nav.records')) . '</a><span aria-hidden="true">/</span><span>' . admin_escape(admin_text($translator, 'detail.breadcrumb')) . '</span></div><div class="detail-heading"><div><p class="eyebrow">' . admin_escape(admin_text($translator, 'detail.eyebrow')) . '</p><h1><code>' . admin_escape($record->anchor->value) . '</code></h1></div><div>'; admin_render_state($record->state, $translator); echo '</div></div><div class="detail-grid"><section class="panel detail-section"><div class="section-heading"><div><p class="eyebrow">' . admin_escape(admin_text($translator, 'detail.identity.eyebrow')) . '</p><h2>' . admin_escape(admin_text($translator, 'detail.identity.heading')) . '</h2></div></div><dl class="definition-list"><div><dt>' . admin_escape(admin_text($translator, 'detail.anchor_uuid')) . '</dt><dd><code class="breakable">' . admin_escape($record->anchor->value) . '</code></dd></div><div><dt>' . admin_escape(admin_text($translator, 'detail.entity_identity')) . '</dt><dd><code class="breakable">' . admin_escape($record->entityId) . '</code></dd></div><div><dt>' . admin_escape(admin_text($translator, 'detail.version')) . '</dt><dd>' . $record->version . '</dd></div></dl></section><section class="panel detail-section"><div class="section-heading"><div><p class="eyebrow">' . admin_escape(admin_text($translator, 'detail.resolution.eyebrow')) . '</p><h2>' . admin_escape(admin_text($translator, 'detail.resolution.heading')) . '</h2></div></div><dl class="definition-list"><div><dt>' . admin_escape(admin_text($translator, 'records.description_location')) . '</dt><dd><code class="breakable">' . admin_escape($record->location->value) . '</code></dd></div><div><dt>' . admin_escape(admin_text($translator, 'detail.public_behavior')) . '</dt><dd>' . admin_escape($publicBehavior) . '</dd></div></dl><form method="post" class="action-form">' . admin_locale_field($translator) . admin_csrf_field($csrf) . '<input type="hidden" name="action" value="resolution-test"><input type="hidden" name="uuid" value="' . admin_escape($record->anchor->value) . '"><button type="submit" class="button-secondary">' . admin_escape(admin_text($translator, 'detail.resolution_test')) . '</button><p class="help-text">' . admin_escape(admin_text($translator, 'detail.resolution_help')) . '</p></form></section><section class="panel detail-section"><div class="section-heading"><div><p class="eyebrow">' . admin_escape(admin_text($translator, 'detail.lifecycle.eyebrow')) . '</p><h2>' . admin_escape(admin_text($translator, 'detail.lifecycle.heading')) . '</h2></div></div><p>' . admin_escape(admin_text($translator, 'detail.current_state')) . ' '; admin_render_state($record->state, $translator); echo '</p>';
     $transitions = admin_available_transitions($record->state, $translator);
     if ($transitions === []) {
@@ -436,7 +464,28 @@ if (isset($_GET['format']) && $_GET['format'] === 'json') {
     try {
         if ($uuid !== '') {
             $record = $service->findRecord($uuid);
-            echo json_encode(['record' => ['uuid' => $record->anchor->value, 'state' => $record->state->value, 'location' => $record->location->value, 'entity_id' => $record->entityId, 'version' => $record->version], 'history' => array_map(static fn (ResolverHistoryEntry $entry): array => ['id' => $entry->id, 'anchor_uuid' => $entry->anchor->value, 'event_type' => $entry->eventType, 'old_state' => $entry->oldState?->value, 'new_state' => $entry->newState?->value, 'old_location' => $entry->oldLocation?->value, 'new_location' => $entry->newLocation?->value, 'reason' => $entry->reason, 'actor' => $entry->actor, 'created_at' => $entry->createdAt], $service->history($uuid))], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            echo json_encode(['record' => [
+                'uuid' => $record->anchor->value,
+                'state' => $record->state->value,
+                'location' => $record->location->value,
+                'entity_id' => $record->entityId,
+                'manifest_enabled' => $record->manifestEnabled,
+                'integrity_algorithm' => $record->integrityAlgorithm,
+                'integrity_digest' => $record->integrityDigest,
+                'integrity_source' => $record->integritySource,
+                'version' => $record->version,
+            ], 'history' => array_map(static fn (ResolverHistoryEntry $entry): array => [
+                'id' => $entry->id,
+                'anchor_uuid' => $entry->anchor->value,
+                'event_type' => $entry->eventType,
+                'old_state' => $entry->oldState?->value,
+                'new_state' => $entry->newState?->value,
+                'old_location' => $entry->oldLocation?->value,
+                'new_location' => $entry->newLocation?->value,
+                'reason' => $entry->reason,
+                'actor' => $entry->actor,
+                'created_at' => $entry->createdAt,
+            ], $service->history($uuid))], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         } else {
             $rows = $recordQuery->search($listQuery->needle, $listQuery->perPage + 1, $listQuery->offset());
             $hasMore = count($rows) > $listQuery->perPage;
@@ -465,6 +514,25 @@ if ($action !== '') {
             $created = $service->register($_POST);
             $returnUuid = $created->anchor->value;
             admin_set_flash('success', admin_text($translator, 'action.registered'));
+        } elseif ($action === 'publication') {
+            $service->configureManifest((string) $_POST['uuid'], (string) $_POST['publication_mode'], isset($_POST['integrity_algorithm']) ? (string) $_POST['integrity_algorithm'] : null, isset($_POST['integrity_digest']) ? (string) $_POST['integrity_digest'] : null);
+            admin_set_flash('success', admin_text($translator, 'action.manifest_updated'));
+        } elseif ($action === 'calculate-integrity') {
+            $fetcher = new NativeAdministrativeResourceFetcher(
+                new OutboundNetworkPolicy($config['outbound_allowed_cidrs'], $config['outbound_denied_cidrs']),
+                $config['outbound_max_redirects'],
+                $config['outbound_max_body_bytes'],
+                $config['outbound_connect_timeout'],
+                $config['outbound_read_timeout'],
+            );
+            $service->calculateAndPinIntegrity($returnUuid, $fetcher);
+            admin_set_flash('success', admin_text($translator, 'action.integrity_calculated'));
+        } elseif ($action === 'manifest-preview') {
+            $preview = $service->previewManifest($returnUuid);
+            $previewMessage = $preview === null
+                ? admin_text($translator, 'action.manifest_preview_empty')
+                : admin_text($translator, 'action.manifest_preview', json_encode($preview, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            admin_set_flash('notice', $previewMessage);
         } elseif ($action === 'location') {
             $service->updateLocation($returnUuid, (string) $_POST['location'], isset($_POST['entity_id']) ? (string) $_POST['entity_id'] : null);
             admin_set_flash('success', admin_text($translator, 'action.mapping_updated'));
@@ -484,7 +552,7 @@ if ($action !== '') {
         }
     } catch (Throwable $error) {
         $code = $error instanceof \Relink\Resolver\Application\ApplicationException ? $error->errorCode : $error->getMessage();
-        $messages = ['INVALID_INPUT' => 'error.invalid_input', 'INVALID_TRANSITION' => 'error.invalid_transition', 'STATE_CONFLICT' => 'error.state_conflict', 'NOT_FOUND' => 'error.not_found', 'RECORD_EXISTS' => 'error.record_exists', 'PERSISTENCE_FAILURE' => 'error.persistence', 'RETIREMENT_CONFIRMATION_REQUIRED' => 'error.retirement_confirmation'];
+        $messages = ['INVALID_INPUT' => 'error.invalid_input', 'INVALID_TRANSITION' => 'error.invalid_transition', 'STATE_CONFLICT' => 'error.state_conflict', 'NOT_FOUND' => 'error.not_found', 'RECORD_EXISTS' => 'error.record_exists', 'PERSISTENCE_FAILURE' => 'error.persistence', 'FETCH_FAILURE' => 'error.fetch_failure', 'UNSUPPORTED_OPERATION' => 'error.unsupported', 'RETIREMENT_CONFIRMATION_REQUIRED' => 'error.retirement_confirmation'];
         admin_set_flash('error', admin_text($translator, 'error.operation_failed', admin_text($translator, $messages[$code] ?? 'error.generic')));
         error_log('RELink admin operation failed: ' . preg_replace('/[^A-Z_]/', '', (string) $code));
     }

@@ -43,7 +43,13 @@ if (count($parts) === 2 && $parts[1] === 'manifest') {
         exit;
     }
     if ($manifest === null) {
-        http_response_code(404);
+        // Manifest 無効化中でも RETIRED の終端状態は公開仕様に従い 410 とする。
+        try {
+            $record = $service->findRecord($parts[0]);
+            http_response_code($record->state->value === 'RETIRED' ? 410 : 404);
+        } catch (Throwable) {
+            http_response_code(404);
+        }
         header('Cache-Control: no-store');
         exit;
     }

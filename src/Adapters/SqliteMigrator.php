@@ -20,7 +20,7 @@ final class SqliteMigrator
         $pdo = new PDO('sqlite:' . $databasePath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $pdo->exec('PRAGMA foreign_keys = ON');
         $pdo->exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
-        $migrations = [1 => '001_initial.sql', 2 => '002_admin_login_throttles.sql'];
+        $migrations = [1 => '001_initial.sql', 2 => '002_admin_login_throttles.sql', 3 => '003_manifest_publication.sql'];
         foreach ($migrations as $version => $filename) {
             $applied = (int) $pdo->query('SELECT COALESCE(MAX(version), 0) FROM schema_migrations')->fetchColumn();
             if ($applied >= $version) {

@@ -9,9 +9,12 @@ namespace Relink\Resolver\Application;
 use Relink\Resolver\Domain\AnchorUuid;
 use Relink\Resolver\Domain\DescriptionLocation;
 use Relink\Resolver\Domain\LifecycleState;
+use Relink\Resolver\Domain\IntegrityMetadata;
 use Relink\Resolver\Domain\ResolutionResult;
 use Relink\Resolver\Domain\ResolverRecord;
 use Relink\Resolver\Domain\ResolverHistoryEntry;
+use Relink\Resolver\Ports\AdministrativeResourceFetcher;
+use Relink\Resolver\Ports\ManifestPublicationRepository;
 use Relink\Resolver\Ports\ResolverRepository;
 use RuntimeException;
 
@@ -71,6 +74,9 @@ final class ResolverService
         if ($record === null) {
             return null;
         }
+        if (!$record->manifestEnabled) {
+            return null;
+        }
         return [
             'manifestVersion' => '0.1',
             'anchor' => ['id' => $record->anchor->value],
@@ -85,6 +91,92 @@ final class ResolverService
             ], static fn ($value): bool => $value !== null),
             'lifecycle' => ['status' => $record->state->manifestValue()],
         ];
+    }
+
+    /**
+     * Manifest 公開設定を管理者の明示操作で更新する。
+     * integrity は supplied の場合だけ渡し、calculated は別の pin 操作で処理する。
+     */
+    public function configureManifest(string $uuid, string $mode, ?string $algorithm = null, ?string $digest = null): ResolverRecord
+    {
+        $record = $this->requireRecord($uuid);
+        $publisher = $this->publicationRepository();
+        $mode = strtolower(trim($mode));
+        $integrity = null;
+        $source = null;
+        if (in_array($mode, ['direct', 'no-manifest'], true)) {
+            $enabled = false;
+        } elseif (in_array($mode, ['without-integrity', 'manifest-without-integrity', 'none'], true)) {
+            $enabled = true;
+        } elseif (in_array($mode, ['supplied', 'with-supplied-integrity'], true)) {
+            $enabled = true;
+            $integrity = $this->makeIntegrity($algorithm, $digest);
+            $source = 'SUPPLIED';
+        } elseif (in_array($mode, ['calculated', 'with-calculated-integrity'], true)) {
+            // 計算はこの設定操作では行わず、calculateAndPinIntegrity の明示操作で行う。
+            $enabled = true;
+            if ($algorithm !== null || $digest !== null) {
+                throw new \InvalidArgumentException('Integrity is only accepted in supplied mode');
+            }
+        } else {
+            throw new \InvalidArgumentException('Invalid Manifest publication mode');
+        }
+        if ($integrity === null && ($algorithm !== null || $digest !== null) && !in_array($mode, ['supplied', 'with-supplied-integrity'], true)) {
+            throw new \InvalidArgumentException('Integrity is only accepted in supplied mode');
+        }
+
+        try {
+            return $publisher->updateManifestPublication($record, $enabled, $integrity, $source);
+        } catch (ApplicationException $error) {
+            throw $error;
+        } catch (\Throwable $error) {
+            if ($error->getMessage() === 'STATE_CONFLICT') {
+                throw new ApplicationException('STATE_CONFLICT', 'Record was changed concurrently', 0, $error);
+            }
+            throw new ApplicationException('PERSISTENCE_FAILURE', 'Manifest publication update failed', 0, $error);
+        }
+    }
+
+    /**
+     * 現在の Location の表現を一度だけ取得して sha-256 digest を pin する。
+     * fetcher は管理面の composition root からだけ注入され、公開処理からは到達できない。
+     */
+    public function calculateAndPinIntegrity(string $uuid, AdministrativeResourceFetcher $fetcher): ResolverRecord
+    {
+        $record = $this->requireRecord($uuid);
+        $publisher = $this->publicationRepository();
+        try {
+            $fetched = $fetcher->fetch($record->location);
+        } catch (\Throwable $error) {
+            throw new ApplicationException('FETCH_FAILURE', 'Administrative resource fetch failed', 0, $error);
+        }
+        if ($fetched->status < 200 || $fetched->status >= 300) {
+            throw new ApplicationException('FETCH_FAILURE', 'Administrative resource was not successful');
+        }
+        try {
+            // Fetch Port の契約により、digest 対象は decoded text ではなく body octets である。
+            $integrity = new IntegrityMetadata('sha-256', hash('sha256', $fetched->body));
+            new DescriptionLocation($fetched->finalUrl);
+        } catch (\InvalidArgumentException $error) {
+            throw new ApplicationException('FETCH_FAILURE', 'Administrative resource response is invalid', 0, $error);
+        }
+        try {
+            return $publisher->publishIntegrity($record, $integrity, 'CALCULATED');
+        } catch (ApplicationException $error) {
+            throw $error;
+        } catch (\Throwable $error) {
+            if ($error->getMessage() === 'STATE_CONFLICT') {
+                throw new ApplicationException('STATE_CONFLICT', 'Record was changed concurrently', 0, $error);
+            }
+            throw new ApplicationException('PERSISTENCE_FAILURE', 'Integrity publication failed', 0, $error);
+        }
+    }
+
+    /** 管理画面の preview と公開 Manifest endpoint が同じ生成経路を使う。 */
+    /** @return array<string, mixed>|null */
+    public function previewManifest(string $uuid): ?array
+    {
+        return $this->manifest($uuid);
     }
 
     /**
@@ -119,16 +211,31 @@ final class ResolverService
     {
         $algorithm = isset($input['integrity_algorithm']) && $input['integrity_algorithm'] !== '' ? (string) $input['integrity_algorithm'] : null;
         $digest = isset($input['integrity_digest']) && $input['integrity_digest'] !== '' ? (string) $input['integrity_digest'] : null;
-        $this->validateIntegrity($algorithm, $digest);
+        $integrity = $this->makeOptionalIntegrity($algorithm, $digest);
+        $mode = strtolower((string) ($input['publication_mode'] ?? $input['manifest_mode'] ?? ($integrity !== null ? 'supplied' : 'manifest-without-integrity')));
+        $manifestEnabled = !in_array($mode, ['direct', 'no-manifest'], true);
+        if (!in_array($mode, ['direct', 'no-manifest', 'manifest-without-integrity', 'without-integrity', 'none', 'supplied', 'with-supplied-integrity', 'calculated', 'with-calculated-integrity'], true)) {
+            throw new \InvalidArgumentException('Calculated integrity requires an explicit pin operation');
+        }
+        if ($mode === 'supplied' || $mode === 'with-supplied-integrity') {
+            if ($integrity === null) {
+                throw new \InvalidArgumentException('Supplied integrity is required');
+            }
+        } elseif ($integrity !== null) {
+            throw new \InvalidArgumentException('Integrity is only accepted in supplied mode');
+        }
+        $source = $integrity === null ? null : 'SUPPLIED';
         $record = new ResolverRecord(
             new AnchorUuid((string) ($input['uuid'] ?? '')),
             LifecycleState::fromInput((string) ($input['state'] ?? 'ACTIVE')),
             new DescriptionLocation((string) ($input['location'] ?? '')),
             $this->validateEntityId((string) ($input['entity_id'] ?? '')),
             isset($input['media_type']) && $input['media_type'] !== '' ? (string) $input['media_type'] : null,
-            $algorithm,
-            $digest,
+            $integrity?->algorithm,
+            $integrity?->digest,
             1,
+            $manifestEnabled,
+            $source,
         );
         try {
             $this->repository->insert($record);
@@ -206,19 +313,28 @@ final class ResolverService
         return $entityId;
     }
 
-    private function validateIntegrity(?string $algorithm, ?string $digest): void
+    private function makeOptionalIntegrity(?string $algorithm, ?string $digest): ?IntegrityMetadata
     {
         if (($algorithm === null) !== ($digest === null)) {
             throw new \InvalidArgumentException('Integrity algorithm and digest must be provided together');
         }
         if ($algorithm === null) {
-            return;
+            return null;
         }
-        if (!preg_match('/^[a-z0-9][a-z0-9-]*$/D', $algorithm)) {
-            throw new \InvalidArgumentException('Invalid integrity algorithm');
+        return new IntegrityMetadata($algorithm, (string) $digest);
+    }
+
+    private function makeIntegrity(?string $algorithm, ?string $digest): IntegrityMetadata
+    {
+        $integrity = $this->makeOptionalIntegrity($algorithm, $digest);
+        return $integrity ?? throw new \InvalidArgumentException('Supplied integrity is required');
+    }
+
+    private function publicationRepository(): ManifestPublicationRepository
+    {
+        if (!$this->repository instanceof ManifestPublicationRepository) {
+            throw new ApplicationException('UNSUPPORTED_OPERATION', 'Manifest publication is not supported by this repository');
         }
-        if ($algorithm === 'sha-256' && !preg_match('/^[0-9a-f]{64}$/D', (string) $digest)) {
-            throw new \InvalidArgumentException('Invalid sha-256 digest');
-        }
+        return $this->repository;
     }
 }
