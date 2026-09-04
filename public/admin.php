@@ -360,6 +360,8 @@ function admin_render_record_detail(AdminTranslator $translator, ResolverRecord 
 }
 
 // 管理画面の全応答でキャッシュと埋め込みを抑止し、ローカルCSSだけを許可する。
+// PHP sessionの既定キャッシュ制御を無効化し、wire responseのCache-Controlを明示値へ統一する。
+session_cache_limiter('');
 header('Cache-Control: no-store');
 header("Content-Security-Policy: default-src 'none'; style-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
 
