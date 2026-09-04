@@ -4,7 +4,8 @@ services:
   resolver:
     build: .
     ports:
-      # Testbed と同じホストからだけ到達できる受入用 HTTPS 公開。
+      # Testbed と同じホストからだけ到達できる HTTP/HTTPS 受入用公開。
+      - "127.0.0.1:${RELINK_CONTAINER_HTTP_PORT:-8080}:80"
       - "127.0.0.1:${RELINK_CONTAINER_HTTPS_PORT:-8443}:443"
     env_file:
       - .env.acceptance

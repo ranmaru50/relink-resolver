@@ -13,4 +13,12 @@ if test "${RELINK_TLS_ENABLED:-0}" = "1"; then
     a2ensite relink-ssl >/dev/null
 fi
 
+if test "${RELINK_ENV:-development}" = "acceptance"; then
+    # 受入 profile の fault fixture を HTTP/HTTPS の両面へ有効化する。
+    a2enconf relink-acceptance >/dev/null
+else
+    # 同一コンテナを再利用して環境変数だけ変更した場合も受入設定を残さない。
+    a2disconf relink-acceptance >/dev/null 2>&1 || true
+fi
+
 exec "$@"
