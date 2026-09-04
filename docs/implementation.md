@@ -26,7 +26,7 @@ Native と Container の Apache 設定は、公開・管理・Apache 標準エ�
 
 HSTS は HTTPS でのみ有効であるため、Native の TLS VirtualHost 例で `Strict-Transport-Security: max-age=31536000` を常時付与します。Container の標準 Compose 公開は loopback HTTP の開発用途であり、HSTS を設定しません。本番で TLS 終端プロキシを使用する Container profile では、プロキシ側で同じ HSTS を HTTPS 応答に付与してください。HTTP 応答に HSTS を付与してはなりません。
 
-管理画面は全応答に `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`、および `Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'` を設定します。`frame-ancestors 'none'` により管理画面の iframe 埋め込みを禁止します。公開 Resolver は CORS と `Referrer-Policy: no-referrer` を維持し、`X-Content-Type-Options: nosniff` を付与します。
+管理画面は全応答に `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`、および `Content-Security-Policy: default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'` を設定します。`frame-ancestors 'none'` により管理画面の iframe 埋め込みを禁止します。PHP session の既定キャッシュ制御は `session_start()` より前に無効化するため、Native/Container の両 profile で wire response の `Cache-Control` field は1つだけで、値は正確に `no-store` になります。Apache profile は `Cache-Control` を追加せず、複数fieldや `no-store, no-cache, must-revalidate` のような結合値は受入契約上の管理応答として扱いません。公開 Resolver は CORS と `Referrer-Policy: no-referrer` を維持し、`X-Content-Type-Options: nosniff` を付与します。
 
 ## 公開エンドポイント
 

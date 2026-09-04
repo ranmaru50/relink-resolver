@@ -50,6 +50,28 @@ final class HttpSecurityConfigurationTest extends TestCase
         self::assertStringContainsString('assertRawVariableCount', $adminAdapter);
     }
 
+    /** PHPセッションの既定キャッシュ制御を抑止し、管理応答を単一の no-store に統一する。 */
+    public function testAdminDisablesSessionCacheLimiterBeforeStartingSession(): void
+    {
+        $adminAdapter = file_get_contents(dirname(__DIR__) . '/public/admin.php');
+        self::assertNotFalse($adminAdapter);
+
+        $sessionCacheLimiter = strpos($adminAdapter, "session_cache_limiter('');");
+        // 関数定義内の再セッション開始ではなく、リクエスト処理本体の開始位置を確認する。
+        $sessionStart = strrpos($adminAdapter, "session_start(['cookie_httponly'");
+        self::assertNotFalse($sessionCacheLimiter);
+        self::assertNotFalse($sessionStart);
+        self::assertLessThan($sessionStart, $sessionCacheLimiter);
+        self::assertSame(1, substr_count($adminAdapter, "session_cache_limiter('');"));
+        self::assertSame(1, substr_count($adminAdapter, "header('Cache-Control: no-store');"));
+
+        foreach (['deploy/apache-vhost.conf.example', 'deploy/apache-docker.conf'] as $path) {
+            $configuration = file_get_contents(dirname(__DIR__) . '/' . $path);
+            self::assertNotFalse($configuration);
+            self::assertStringNotContainsString('Cache-Control', $configuration);
+        }
+    }
+
     /** Native/Containerで本文、ヘッダー、低速接続、過大要求の応答方針を一致させる。 */
     public function testNativeAndContainerApplyRequestResourceLimits(): void
     {
