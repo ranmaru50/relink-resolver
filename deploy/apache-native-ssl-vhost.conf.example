@@ -1,0 +1,30 @@
+# deploy/apache-native-ssl-vhost.conf.example
+# Native acceptance profile の Apache 直接 TLS 終端例。
+# /etc/relink/tls は公開 DocumentRoot 外に作成し、秘密鍵は非公開権限にする。
+ServerTokens Prod
+ServerSignature Off
+TraceEnable Off
+Header always set X-Content-Type-Options "nosniff"
+LimitRequestBody 65536
+LimitRequestFields 50
+LimitRequestFieldSize 8190
+RequestReadTimeout header=10-20,MinRate=500 body=10,MinRate=500
+ErrorDocument 400 "要求が不正です。"
+ErrorDocument 413 "要求が大きすぎます。"
+
+# 受入用 URL を Container profile と分離した loopback ポートへ公開する。
+Listen 8444
+<VirtualHost *:8444>
+    ServerName localhost
+    DocumentRoot /var/www/relink-resolver/public
+
+    <Directory /var/www/relink-resolver/public>
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    SSLEngine on
+    SSLCertificateFile /etc/relink/tls/cert.pem
+    SSLCertificateKeyFile /etc/relink/tls/key.pem
+    Header always set Strict-Transport-Security "max-age=31536000"
+</VirtualHost>

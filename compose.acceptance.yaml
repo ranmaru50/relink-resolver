@@ -1,0 +1,22 @@
+# compose.acceptance.yaml
+# Testbed 受入用の Container profile。Apache が TLS を直接終端し、公開は loopback に限定する。
+services:
+  resolver:
+    build: .
+    ports:
+      # Testbed と同じホストからだけ到達できる受入用 HTTPS 公開。
+      - "127.0.0.1:${RELINK_CONTAINER_HTTPS_PORT:-8443}:443"
+    env_file:
+      - .env.acceptance
+    environment:
+      RELINK_ENV: acceptance
+      RELINK_DATA_DIR: /var/lib/relink-resolver
+      RELINK_TLS_ENABLED: "1"
+      RELINK_ADMIN_ALLOW_HTTP: "0"
+    volumes:
+      - resolver-acceptance-data:/var/lib/relink-resolver
+      - ./var/acceptance/tls:/etc/relink/tls:ro
+
+volumes:
+  # コンテナ再作成後も Resolver state と lifecycle history を保持する。
+  resolver-acceptance-data:
