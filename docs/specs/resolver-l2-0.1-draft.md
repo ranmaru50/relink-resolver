@@ -152,7 +152,9 @@ L2 MUST NOT:
 7. move Capability discovery, authorization, or execution into Resolver;
 8. redefine Description Location semantics, cache, CORS, privacy, or error boundaries;
 9. make Manifest retrieval a prerequisite for L2 statement issuance, or L2 a prerequisite
-   for L1 resolution.
+   for L1 resolution;
+10. convert frozen Core SHOULD-level rules (unsupported `l` response codes, `p` response
+    codes, `no-store` cache guidance) into MUST rules for Core-only deployments.
 
 L2 MUST be additive and independently observable:
 
@@ -166,8 +168,12 @@ A statement that fails L2 verification MUST NOT alter the public L1 response. L2
 success MUST NOT alter the public L1 response. Consumers MUST treat L2 results as metadata
 about the resolution, not as a substitute for L1 HTTP status.
 
-A Core 0.1-only Resolver receiving `l=2` MUST fail closed exactly as Core 0.1 requires:
-`501 Not Implemented` with `Cache-Control: no-store`.
+A Core 0.1-only Resolver receiving `l=2` MUST NOT process the request as L1, MUST NOT
+accept it as L2, and MUST NOT accept it as L3. The request is handled as an unsupported
+level exactly as Frozen Resolver Core 0.1 §§5 and 14.2 prescribe, including the SHOULD-level
+`501 Not Implemented` and `Cache-Control: no-store` guidance. L2 requirements bind
+L2-supporting implementations; L2 MUST NOT convert frozen Core SHOULD rules into MUST rules
+for Core-only deployments.
 
 ## 6. L2 request and resource shape
 
@@ -182,7 +188,7 @@ For an L2-supporting Resolver and an ACTIVE record:
 ```http
 200 OK
 Content-Type: application/json
-Cache-Control: <bounded by remaining validity, §14.4>
+Cache-Control: <bounded by remaining validity, §14.2>
 ```
 
 with a conforming L2 Trust Statement.
@@ -202,11 +208,20 @@ Public status behavior mirrors Resolver Core and Lifecycle 0.1:
 SUSPENDED and RETIRED L2 statements MUST NOT be served on the public path, for the same
 privacy reasons as the public Manifest surface.
 
+Each row inherits the normative strength of the governing Resolver Core 0.1 / Lifecycle 0.1
+rule. L2 0.1 adds no MUST-level status requirements for Core-only deployments; the fixed
+codes above bind L2-supporting implementations.
+
 ### 6.2 `p` parameter
 
-Baseline L2 defines no required `p` semantics. A request containing `p` without L2-defined
-semantics MUST be processed as Core 0.1 requires: `400 Bad Request`, no L1 downgrade.
-`p` MAY later carry L2 profile identifiers, nonce, or challenge binding (OPEN, §21).
+Baseline L2 defines no required `p` semantics. A Core 0.1-only Resolver receiving `p`
+without a defining `l` MUST NOT process the request as L1, MUST NOT accept it as L2, and
+MUST NOT accept it as L3; the request is handled exactly as Frozen Resolver Core 0.1 §5
+prescribes, including the SHOULD-level `400 Bad Request` guidance. For L2-supporting
+implementations, an `l=2` request containing `p` without L2-defined semantics MUST return
+`400 Bad Request` before record lookup; this fixed response code binds L2-supporting
+implementations only. `p` MAY later carry L2 profile identifiers, nonce, or challenge
+binding (OPEN, §21).
 
 ### 6.3 Authority material request
 
@@ -214,9 +229,11 @@ semantics MUST be processed as Core 0.1 requires: `400 Bad Request`, no L1 downg
 GET /{resolver-service}/{uuid}/authority
 ```
 
-For an ACTIVE record, `200` + an Authority Record (§9). Same status mapping as §6.1.
-The Authority Record is signed metadata (self-signed by current authority; bootstrap by
-trust anchor binding, §9.3).
+For an ACTIVE record, `200` + an Authority Record. Same status mapping as §6.1.
+The Authority Record is a signed L2 object (`statementType = "authority"`) whose required
+members, wire format, acceptance order, chain rules, and anti-rollback rules are defined in
+§§9.5–9.8. The initial Authority Record MAY self-sign; it is accepted through the Trust
+Anchor Binding (§9.3).
 
 ### 6.4 Non-mutation rule
 
@@ -270,30 +287,42 @@ values as L2 0.1. An unsupported `l2Version` MUST fail closed (not an ignorable 
 Optional payload members (baseline): none are REQUIRED; any additional member is treated
 under §7.5.
 
+The `transfer` payload (§12.2) and the Authority Record payload (§9.5) add `recordGeneration`
+as defined there. All canonicalization and signing rules of §7.3 apply to every statement
+type, including Authority Records and transfer statements.
+
 ### 7.3 Canonical serialization and signing bytes
 
-The signing target MUST be deterministic and interoperable.
+The signing target MUST be uniquely determined so that independent implementations compute
+identical bytes.
 
-The signing target is the UTF-8 encoding of the canonical serialization of `payload`, with:
+The canonical serialization is RFC 8785, the JSON Canonicalization Scheme (JCS), applied to
+the parsed `payload` object. The signing target is the UTF-8 encoding of that JCS
+serialization. JCS fixes object member order (keys sorted by code point), string escaping,
+and number serialization; the §7.2 enumeration is a display order, not a serialization
+order.
 
-1. members serialized in the fixed order defined in §7.2, then any additional members in
-   lexicographic ascending order of member name;
-2. strict JSON with minimal whitespace (no insignificant whitespace);
-3. lowercase hexadecimal in UUID values;
-4. Unicode text serialized as defined by standard JSON escaping rules with non-ASCII
-   characters emitted as UTF-8 (not escaped);
-5. no duplicate members, no numeric-format ambiguity: integer-valued members MUST be
-   serialized as decimal integers without exponent, fraction, `+`, leading zeros, or trailing
-   `.0`;
-6. base64url for `keyId` digest material as defined in §10.1.
+Wire canonicality:
 
-The verifier MUST canonicalize the parsed `payload` and verify the signature against the
-canonical octets. A payload that fails §7.3 canonicalization rules, contains duplicate
-members, contains a non-canonical number format, or fails to parse as strict JSON MUST
-produce `INVALID`.
+1. the `payload` as presented on the wire MUST itself already be a JCS serialization;
+2. the verifier MUST detect duplicate object-member names in the raw wire text, before
+   parsing, and MUST reject the statement as `INVALID` for any wire-text non-canonicality
+   (member order, whitespace, number form, escaping);
+3. because the wire is canonical, `1` and `1.0` cannot both appear: JCS emits the canonical
+   number form, and integer-valued fields MUST appear as wire integers.
+
+Integer fields (`issuedAt`, `expiresAt`, `generation`, `recordGeneration`,
+`effectiveGeneration`, `revokedFrom`) MUST be non-negative integers in JCS canonical form,
+within the IEEE-754 double safe-integer range, `0` to `2^53 - 1`. A fractional,
+exponent-form, non-integer, negative, or out-of-range value MUST produce `INVALID`.
+
+Nested objects inside `payload`, including unknown extension members, canonicalize under
+JCS with sorted keys, so extension bytes are reproducible. `keyId`, `algorithm`, UUID,
+`l2Version`, `statementType`, and string values are exact strings; `keyId` case is
+preserved (§10.1).
 
 The signing target MUST NOT depend on XML canonicalization, transport framing, content
-coding, or the consumer's JSON parser quirks.
+coding, or the consumer's JSON parser quirks. Test vectors are in Appendix A.
 
 ### 7.4 Statement-to-L1 consistency
 
@@ -309,9 +338,9 @@ response. It is not, by itself, authority, authenticity, or freshness.
 
 ### 7.5 Extensions
 
-- Unknown members inside `payload` are covered by the signature via §7.3; they MUST be
-  accepted, MUST NOT override defined member semantics, and MUST NOT be treated as
-  security-critical evidence by verifiers.
+- Unknown members inside `payload` are canonicalized under JCS via §7.3 and are covered by
+  the signature; they MUST be accepted, MUST NOT override defined member semantics, and
+  MUST NOT be treated as security-critical evidence by verifiers.
 - Extensions outside `payload` (e.g., in the statement object) are NOT signed. They MUST be
   ignored by verifiers for trust decisions.
 - An L2 extension that changes the meaning of a required 0.1 member is not compatible and
@@ -415,13 +444,95 @@ produce `UNKNOWN_AUTHORITY` for statements signed by keys absent from the accept
 `CONFLICT` per §8.3 for contradictory bindings, and `UNVERIFIED` when authority material is
 unavailable (missing, unretrievable, not fresh per §11.4).
 
+### 9.5 Authority Record format
+
+The Authority Record is a signed L2 object, `{ payload, signature }` per §7.1, with
+required payload members:
+
+```text
+l2Version          = "0.1"
+statementType      = "authority"
+anchorId
+entityId           (MUST match the record's Canonical Entity Identity)
+recordGeneration   = non-negative integer, strictly increasing per Anchor
+signerKeyId        = key that signed this Record
+algorithm
+issuedAt
+expiresAt
+keys               = array of key entries
+```
+
+Each key entry:
+
+```text
+keyId
+algorithm
+validFrom          (Unix seconds)
+validUntil         (Unix seconds; retired keys use an explicit past validUntil)
+status             = "current" | "retired" | "revoked" | "compromised"
+revokedFrom        = generation (required for status "revoked" and "compromised")
+```
+
+Record payloads canonicalize and sign per §7.3, including wire canonicality. Records are
+served on the authority endpoint (§6.3) and MAY be distributed via the policy channel
+(§9.2). The key set in Record G is the complete, current snapshot of accepted keys at
+`recordGeneration = G`. Revocation, retirement, compromise, and rotation status changes
+are expressed by successive Records.
+
+### 9.6 Chain acceptance
+
+Verifiers MUST accept Records only by chain walk from the Trust Anchor Binding (§9.3):
+
+1. Record `recordGeneration = 0` MUST match the Trust Anchor Binding (`anchorId`, initial
+   `keyId`, initial epoch start) and MUST verify under the initial key;
+2. Record `recordGeneration = G > 0` MUST be accepted only when: Records `0..G-1` are
+   accepted and Record G is the next contiguous generation; Record G verifies under its
+   `signerKeyId`; `signerKeyId` is present in accepted Records `0..G-1` with
+   `status = "current"` and `validFrom <= issuedAt(G) <= validUntil`; and every key
+   introduced by Record G is authorized by rotation (signed by a key current in Records
+   `0..G-1`, §10.3) or by a verified transfer (§12) in force at
+   `recordGeneration >= effectiveGeneration`;
+3. a Record that self-signs the introduction of a new key (signer not accepted in
+   `0..G-1`) MUST NOT be accepted: this is the key-substitution defense;
+4. Records not verifiable by chain walk MUST NOT be accepted as authority material; the
+   result is `UNVERIFIED` (material not presented) or `UNKNOWN_AUTHORITY` (signer outside
+   the accepted chain), per §15.2 ordering;
+5. L2 0.1 acceptance: a verifier holding only the initial Trust Anchor Binding MUST be
+   able to reach the current signing key after rotation, transfer, and revocation, using
+   the signed Record chain alone. A verifier that cannot do this fails L2 0.1. This
+   acceptance criterion is catalog-owned follow-up work (§20, §21).
+
+### 9.7 Authority-material anti-rollback and equivocation
+
+- the verifier MUST track the highest accepted `recordGeneration` per Anchor;
+- Records below the accepted maximum MUST NOT be accepted (authority rollback attempt;
+  `STALE` per §15.2);
+- a Record re-presented at the accepted maximum MUST be byte-identical, compared after
+  §7.3 canonicalization, to the accepted Record; a different payload at the same
+  `recordGeneration` MUST produce `CONFLICT` (equivocation, §17);
+- the verifier MUST NOT accept two Records with the same `recordGeneration` and different
+  payloads, and MUST NOT pick one.
+
+### 9.8 State loss
+
+After verifier state loss (accepted Records, chain position, generation maxima), the
+verifier MUST re-establish authority material by walking the chain from its Trust Anchor
+Binding via the policy channel (§9.2). Authority material received on first contact
+without chain provenance MUST NOT be trusted. A verifier without a trusted lower bound
+MUST NOT claim `VERIFIED` from first-contact material, because old data inside a validity
+window cannot be identified as old.
+
 ## 10. Key lifecycle
 
 ### 10.1 Key identifiers
 
-`keyId` MUST be a lowercase base64url string of the first 16 bytes of the SHA-256 digest of
-the public key's canonical encoding. The public key encoding per algorithm is defined in
-§10.8. Verifiers MUST treat `keyId` as an opaque lookup key, not as an authorization claim.
+`keyId` MUST be the standard base64url alphabet (RFC 4648 §5) of the first 8 bytes of the
+SHA-256 digest of the public key's canonical encoding, with `=` padding stripped. Base64url
+is case-sensitive: `A`-`Z` and `a`-`z` are distinct characters, and 8 bytes produce exactly
+11 characters (6 bytes encode to 8 characters, the remaining 2 bytes encode to 3 characters
+with one `=` pad, which is stripped). Verifiers MUST compare `keyId` by exact, case-sensitive
+string equality. The public key encoding per algorithm is defined in §10.8. Verifiers MUST
+treat `keyId` as an opaque lookup key, not as an authorization claim.
 
 ### 10.2 Baseline algorithms
 
@@ -434,9 +545,10 @@ products, external trust services, specialized hardware, or patent-dependent mec
 ### 10.3 Rotation
 
 Key rotation is a signed act of the current authority. The baseline model represents
-rotation via the Authority Record: a new key's validity window is established by a record
+rotation via the Authority Record: a new key's validity window is established by a Record
 signed by a key that is current at signing time. The Authority Record MUST NOT be
-constructible by the new key alone.
+constructible by the new key alone. Record chain acceptance (§9.6) governs which Records
+establish windows.
 
 Rotation validity windows SHOULD overlap (§10.4). Rotation MUST NOT change the authority
 binding's epoch; generations continue to increase monotonically across rotation.
@@ -516,13 +628,18 @@ Generation numbers within an epoch MUST be strictly increasing for successive ac
 statements. A statement with generation below the epoch floor (set by a transfer, §12, or
 revocation, §13) MUST produce `STALE`.
 
-### 11.4 Authority Record freshness
+### 11.4 Authority material freshness and revocation coverage
 
 Authority material has its own validity window. Expired authority material MUST NOT be
-accepted as current authority. Retrieval failure, expired authority material, or missing
-revocation coverage when policy requires it MUST produce `UNVERIFIED`, not `VERIFIED`.
-Revocation evidence is required for `REVOKED` (§13), not for `VERIFIED` when revocation
-state is available and the signer is not revoked.
+accepted as current authority. Retrieval failure, expired authority material, a chain-walk
+gap, or a coverage gap MUST produce `UNVERIFIED`, not `VERIFIED`.
+
+Baseline `VERIFIED` requires revocation coverage: at evaluation time `T`, the verifier's
+accepted chain (§§9.5–9.7) MUST cover every key, statement, and epoch in effect at `T`
+that has a validity window touching `T..expiresAt` of the statement under verification,
+with `status` and `revokedFrom` marked for every key in effect. A verifier that has not
+evaluated revocation coverage MUST NOT claim `VERIFIED`. Revocation evidence is required
+for `REVOKED` (§13) and, per baseline, for `VERIFIED` (§13.5).
 
 ### 11.5 Offline verification
 
@@ -556,6 +673,7 @@ anchorId
 entityId            (MUST match the record's Canonical Entity Identity)
 outgoingKeyId
 incomingKeyId
+recordGeneration    (chain position per §9.6; equals effectiveGeneration at the epoch floor)
 effectiveGeneration (the first generation of the new epoch)
 issuedAt
 expiresAt
@@ -568,6 +686,13 @@ A transfer statement whose `outgoingKeyId` is not the verifier's accepted curren
 MUST produce `UNKNOWN_AUTHORITY`. A transfer statement that is not fresh MUST NOT create an
 epoch. A verifier MUST NOT accept unsigned, self-attested, `incomingKeyId`-signed,
 administratively signed, origin-signed, DNS-signed, or CDN-signed transfer claims.
+
+A transfer MUST bind to the authority Record chain: it MUST be presented at
+`recordGeneration` strictly above the last accepted Record, MUST be signed by the outgoing
+key (`current` under the last accepted Record, §9.6), and MUST set `effectiveGeneration` at
+its `recordGeneration`. The first Record signed by the incoming key MUST be at
+`recordGeneration >= effectiveGeneration` and MUST be accepted under §9.6. Transfers below
+the accepted maximum are authority rollback (§9.7).
 
 ### 12.3 Epoch semantics
 
@@ -630,12 +755,27 @@ statements below remain governed by §11.3. A fresh, verified revocation of a st
 that statement `REVOKED` regardless of cache freshness; verifier caches of revoked statements
 MUST be invalidated at the verifier's next accepted evaluation.
 
+Revocation, retirement, and compromise are expressed as Record chain operations (§9.5): the
+signing key is `current` under Record `G-1`, and Record `G` marks the target key
+`status = "revoked"` or `"compromised"` with `revokedFrom`.
+
+A key marked `compromised` in the accepted chain MUST NOT be accepted as current by the
+verifier, for any signature, at any generation, at any time. A compromised key that
+re-signs old `generation`/`issuedAt` values after compromise produces a signature the
+verifier MUST NOT accept as current: without independently trusted evidence, the verifier
+MUST NOT recognize a signature from a compromised key as current (§17, leak-replay). A
+signature by a compromised key, evaluated with fresh coverage, MUST be surfaced as `REVOKED`,
+never as `VERIFIED`.
+
 ### 13.5 Fail-closed revocation availability
 
-When policy requires revocation currency and revocation state is unavailable, the result is
-`UNVERIFIED` (fail-closed for L2-VERIFIED claims). A verifier MUST NOT treat revocation
-unavailability as `VERIFIED` when its policy requires revocation coverage. Revoked-but-cached
-statements MUST NOT be surfaced as current.
+Baseline requires revocation coverage for `VERIFIED` (§11.4). When revocation chain state
+is unavailable, when coverage is incomplete, or when the chain walk cannot be completed,
+the result is `UNVERIFIED` (fail-closed for L2-VERIFIED claims). Revoked-but-cached
+statements MUST NOT be surfaced as current. Revoked material present in an HTTP cache MAY
+remain HTTP-reusable per RFC 9111 cache rules (§14.2); HTTP reusability is a separate
+judgment, and the L2 verifier's currency decision (§§11, 13) MUST NOT be derived from cache
+freshness, MUST NOT accept revoked material as current.
 
 ### 13.6 Offline revocation
 
@@ -666,6 +806,11 @@ cached, as in Core 0.1, because retirement is terminal.
 Caches MUST NOT serve an L2 statement past its `expiresAt`, past a revocation covering it,
 or past an epoch transition affecting it.
 
+These cache rules govern HTTP reusability of stored L2 responses (RFC 9111). The L2
+verifier's currency decision (§§11, 13) is a separate judgment: an HTTP-reusable response
+is not L2-current by virtue of reuse. HTTP caches have no automatic knowledge of
+revocation, rotation, or transfer during their freshness window (§17).
+
 ### 14.3 Privacy
 
 Anchor UUIDs in L2 requests MUST be treated as loggable operational metadata with the same
@@ -681,15 +826,16 @@ Core.
 
 ## 15. Verification result model
 
-A verifier MUST produce exactly one deterministic primary state for a statement evaluation.
-The verifier MUST be able to distinguish structural/signature failure from missing trust
-information and from freshness failure.
+A verifier MUST produce exactly one deterministic primary state for a statement evaluation,
+recorded with its verification mode (§15.1) and evaluated in the normative ordering of
+§15.2. The verifier MUST be able to distinguish structural/signature failure from missing
+trust information and from freshness failure.
 
 ```text
 VERIFIED
     canonical parse, signature under accepted current key within window, accepted
-    authority binding, freshness valid, §7.4 consistency satisfied when required,
-    revocation coverage satisfied per policy
+    authority binding, freshness valid, revocation coverage satisfied (§11.4, baseline),
+    §7.4 consistency satisfied in `l1-bound` mode (§15.1)
 UNVERIFIED
     verification incomplete: missing trust material, unavailable authority, missing
     trusted clock, revocation coverage required by policy and unavailable, offline
@@ -713,6 +859,8 @@ CONFLICT
     contradictory current authority bindings for the same Anchor with overlapping validity
 MISMATCH
     statement's descriptionLocation does not match the observed L1 Location (§7.4)
+ANCHOR_MISMATCH
+    statement's anchorId does not equal the verifier's expected anchorId (§15.1)
 ```
 
 `UNVERIFIED` MUST NOT be surfaced as `VERIFIED`, and MUST NOT be surfaced as a failure of
@@ -731,6 +879,65 @@ L2 failure           ≠ network failure, integrity failure, or L1 failure
 The verifier MUST NOT fetch AR-XML as part of L2 verification, MUST NOT execute capabilities,
 and MUST NOT treat L2 verification as a dereference permission (§16, network policy stays
 where L1 places it).
+
+### 15.1 Verification modes
+
+The verifier MUST evaluate in one of two modes, recorded in the result as
+`verificationMode`:
+
+```text
+statement-only   the statement is verified against the verifier's accepted authority
+                 material; §7.4 consistency is not evaluated
+l1-bound         the statement is verified against the verifier's accepted authority
+                 material AND §7.4 consistency is evaluated against the observed L1 303
+                 response for the same expected Anchor
+```
+
+The verifier MUST obtain its expected `anchorId` out of band, from the Anchor UUID of the
+original request, not from the statement, the response, or the wire. A statement whose
+`anchorId` does not equal the expected Anchor MUST be rejected as `ANCHOR_MISMATCH`: a valid
+signature for a different Anchor pointing at the same Description Location is not a valid
+assertion for the expected Anchor, and Location equality alone MUST NOT override
+`anchorId` equality.
+
+`statement-only` results MUST NOT be presented, stated, or displayed as "current L1
+resolution confirmed by signature". A `VERIFIED` result MUST expose its mode; a modeless
+boolean is not permitted. In `statement-only` mode, `VERIFIED` means signature, authority,
+freshness, and coverage checks passed with no L1 observation evaluated; in `l1-bound` mode,
+`VERIFIED` additionally means §7.4 passed.
+
+When `l1-bound` evaluation is required and the L1 observation cannot be obtained, the
+result is `UNVERIFIED`, not `MISMATCH`, not `VERIFIED`.
+
+### 15.2 Precedence order
+
+When multiple failure conditions apply, the result is the state of the first failing phase,
+in the normative order below. All phases passing yields `VERIFIED`.
+
+```text
+1. wire canonicality, strict parse, duplicate members, integer range,
+   l2Version, payload/signature separation     INVALID
+2. expected anchorId match (§15.1)             ANCHOR_MISMATCH
+3. algorithm identifier known and supported    UNSUPPORTED_ALGORITHM
+4. authority material present, chain walk complete   UNVERIFIED
+5. Record chain position: contiguous recordGeneration, accepted maximum,
+   epoch floor, same-generation byte-identity   STALE / CONFLICT / UNKNOWN_AUTHORITY
+6. signature verification under signerKeyId      INVALID
+7. signer key status at issuedAt: compromised/revoked, retired, key absent
+   from accepted chain, entityId mismatch        REVOKED / UNKNOWN_AUTHORITY
+8. statement freshness [issuedAt, expiresAt] vs T; generation vs accepted
+   maximum / epoch floor                        EXPIRED / STALE
+9. revocation coverage (§11.4)                  REVOKED on evidence; UNVERIFIED on
+   coverage gap
+10. l1-bound mode, §7.4                         UNVERIFIED on missing observation;
+   MISMATCH on equality failure
+```
+
+Within a phase, conditions apply in listed order. Authority rollback (Record below the
+accepted maximum) is `STALE`; a same-generation Record with a different payload is
+`CONFLICT`; a signer outside the accepted chain is `UNKNOWN_AUTHORITY`. A verifier MUST NOT
+reorder phases, MUST NOT pick by severity, recency, or origin preference. The result MUST
+record which phase failed.
 
 ## 16. Relationship to L1, Manifest 0.1, and administration
 
@@ -785,17 +992,21 @@ in this draft.
 | Replay | validity window + generation + accepted-maximum (§11.3) |
 | Rollback | monotonic generations, epoch floors, `STALE` (§11.3, §12.3) |
 | Stale signed data | `expiresAt`, epoch floor, `EXPIRED`/`STALE` (§11) |
-| Key compromise | revocation, short windows, fail-closed revocation (§10.6, §13) |
-| Key substitution | Authority Record signed by prior-current key, not by new key alone (§10.3) |
+| Key compromise | revocation, short windows, fail-closed revocation, compromised flag in Records, never-current signatures (§10.6, §13.4) |
+| Key substitution | Authority Record chain: signed by prior-current key, never by new key alone (§10.3, §9.6) |
 | Conflicting authorities | `CONFLICT`, fail-closed, no reconciliation heuristics (§8.3) |
-| Downgrade to L1 | Core `l` rules preserved; `l=2` to Core-only → `501`, never L1 (§6.1, §5) |
+| Downgrade to L1 | frozen Core `l` rules preserved (SHOULD-level `501` guidance), never L1 (§6.1, §5) |
 | Signature stripping | signing target = canonical payload octets; signature in payload rejected; `VERIFIED` requires signature (§7.1, §15 `INVALID`) |
-| Canonicalization ambiguity | fixed serialization order, number rules, no XML canonicalization (§7.3) |
+| Canonicalization ambiguity | single JCS scheme (RFC 8785), wire canonicality, duplicate-member detection in raw wire text, test vectors (§7.3, Appendix A) |
 | Clock skew | documented skew tolerance, bounded validity, `UNVERIFIED` without trusted clock (§11.2) |
 | Trust-anchor compromise | bootstrap provenance is a policy channel; authority material self-bootstrapping forbidden (§9.2–9.3) |
 | Transfer race | outgoing-key signature required, single current epoch, `CONFLICT` (§12.2, §12.6) |
 | Revoked-but-cached statements | revocation overrides cache, cache bounded by remaining validity (§13.4, §14.2) |
 | Offline verification limits | `UNVERIFIED` for clock/revocation gaps, never `VERIFIED` from offline gaps (§11.5, §13.6) |
+| Compromised key re-signing old generation/issuedAt | compromised flag propagates through the Record chain; signatures from a compromised key are never current; revocation coverage required for `VERIFIED` (§13.4, §11.4) |
+| Authority Record rollback / equivocation | `recordGeneration` contiguity, accepted maximum, byte-identity at the same generation, `STALE`/`CONFLICT` (§9.7, §15.2) |
+| Cross-anchor statement substitution | expected `anchorId` obtained out of band, `ANCHOR_MISMATCH`; Location equality alone never overrides (§15.1) |
+| First-contact authority bootstrap | chain walk from the Trust Anchor Binding, re-establishment after state loss, no first-contact `VERIFIED` (§9.6, §9.8) |
 
 Explicit non-goal boundary: L2 does not provide physical Entity authentication, device
 authorization, capability authorization, AR-XML semantic validation, or general PKI
@@ -823,9 +1034,12 @@ L2 0.1 MUST NOT define:
 ## 19. Baseline vs extensions
 
 Baseline mandatory guarantees: G1–G8 (§4). A verifier claiming L2 0.1 baseline conformance
-MUST implement: canonical serialization, `ed25519` verification, statement parsing,
-authority binding checks, freshness, anti-rollback, revocation state handling, the full
-state model in §15, §7.4 consistency, and fail-closed behavior everywhere required.
+MUST implement: JCS canonical serialization (§7.3), `ed25519` verification, statement
+parsing, Record chain acceptance from the Trust Anchor Binding (§9.6), authority-material
+anti-rollback and equivocation handling (§9.7), freshness, statement anti-rollback,
+revocation coverage (§11.4), the full state model in §15 with verification modes and the
+§15.2 precedence order, §7.4 consistency in `l1-bound` mode, and fail-closed behavior
+everywhere required.
 
 Optional extensions: `ES256` and later algorithms (§10.8), delegation/chained authority,
 nonce/challenge online checks, Manifest association, third-party timestamps, transparency
@@ -859,6 +1073,12 @@ L2-VERIFIER      (state model, all §15 states, fail-closed rules)
 L2-AUTHORITY     (rotation/transfer/revocation signature semantics)
 ```
 
+L2-VERIFIER / L2-AUTHORITY acceptance includes: chain acceptance from an initial Trust
+Anchor Binding reaching the current key after rotation, transfer, and revocation (§9.6
+item 5); §9.7 equivocation handling; revocation coverage for `VERIFIED` (§11.4); §15.2
+precedence cases; Appendix A canonical and signature vectors. Identifiers remain
+catalog-owned; this draft MUST NOT invent them.
+
 This draft MUST NOT invent `RES-*`, `LIFE-*`, `MAN-*`, `INT-*`, `NET-*`, `RT-*`, or L2
 catalog case identifiers. The Frozen Catalog owns 0.1 identifiers; a future L2 catalog owns
 L2 identifiers. Local PHPUnit tests map to the L2 catalog only after it exists; the
@@ -869,21 +1089,22 @@ reported as relink-testbed results.
 ## 21. Open issues requiring follow-up decisions
 
 1. `p` semantics for L2 profiles, nonce/challenge binding for online freshness;
-2. canonicalization of signed extension members inside `payload` (member-order rules for
-   vendor extensions);
-3. transfer/revocation as public resources (paths, status codes, discovery, submission
-   channel: administrative vs. L2-signed material);
-4. Trust Anchor Binding provisioning profile (factory pairing, operator trust lists,
+2. transfer/revocation as public resources (paths, status codes, discovery, submission
+   channel: administrative vs. L2-signed material); revocation status itself is a Record
+   chain operation (§9.5, §13.4);
+3. Trust Anchor Binding provisioning profile (factory pairing, operator trust lists,
    device-bundled anchors) and its conformance;
-5. URI comparison normalization for §7.4 beyond exact byte equality;
-6. `statementType` registry governance and version negotiation;
-7. delegation / chained authority design;
-8. authority material for SUSPENDED/RETIRED lifecycle edges in administrative, export, and
+4. URI comparison normalization for §7.4 beyond exact byte equality;
+5. `statementType` registry governance and version negotiation;
+6. delegation / chained authority design;
+7. authority material for SUSPENDED/RETIRED lifecycle edges in administrative, export, and
    archival contexts;
-9. revocation propagation latency targets and cache invalidation interfaces;
-10. ES256 adoption as MUST, and a profile mechanism for adding algorithms;
-11. L2 conformance catalog case set;
-12. Japanese normative translation after stabilization.
+8. revocation propagation latency targets, cache invalidation interfaces, and coverage
+   horizon profiles beyond the §11.4 baseline;
+9. ES256 adoption as MUST, and a profile mechanism for adding algorithms;
+10. L2 conformance catalog case set, including §9.6 chain-acceptance, §9.7 equivocation,
+    §11.4 coverage, §15.2 precedence, and signature test vectors beyond Appendix A;
+11. Japanese normative translation after stabilization.
 
 ## 22. Acceptance-criteria mapping (Issue #28)
 
@@ -891,17 +1112,17 @@ reported as relink-testbed results.
 | --- | --- |
 | L2 is a separate versioned layer, frozen Core 0.1 semantics unchanged | §1, §5, freeze policy |
 | Integrity / authenticity / authority / freshness / ownership / authorization distinguished | §4, §8.2, §15, §16.3 |
-| Signed / verifiable object defined | §7 (payload, canonical serialization, signing bytes) |
-| Signer identity and Entity authority rules defined | §8, §9 |
-| Key discovery and rotation semantics defined | §10 (discovery windows; OPEN items in §21) |
-| Freshness and anti-rollback defined | §11 |
+| Signed / verifiable object defined | §7 (payload, JCS canonical serialization, signing bytes), Appendix A vectors |
+| Signer identity and Entity authority rules defined | §8, §§9.1–9.8 (Authority Record format, chain acceptance, anti-rollback, state loss) |
+| Key discovery and rotation semantics defined | §§9.5–9.7, §10 (validity windows, rotation Records, keyId); OPEN items in §21 |
+| Freshness and anti-rollback defined | §11 (statement anti-rollback, authority-material anti-rollback §9.7, revocation coverage §11.4) |
 | Ownership / authority transfer semantics defined | §12 |
-| Revocation semantics defined | §13 (revocation material resource OPEN, §21) |
-| Verification result states deterministic and documented | §15 |
+| Revocation semantics defined | §13, §9.5, §13.4 (revocation, retirement, compromise as Record chain operations); revocation material resource OPEN, §21 |
+| Verification result states deterministic and documented | §15 (modes, precedence order, `ANCHOR_MISMATCH`) |
 | Relationship to Manifest 0.1 explicit | §16.2, §7.6 |
 | Relationship to administrative authentication explicit | §16.3 |
 | L1 downgrade / fallback explicit and fail-closed | §5, §6.1, §6.5, §17 |
-| Security analysis covers replay, rollback, key compromise, conflicting authority, signature stripping | §17 |
+| Security analysis covers replay, rollback, key compromise, conflicting authority, signature stripping, Record rollback/equivocation, cross-anchor substitution, compromised-key re-signing, first-contact bootstrap | §17 |
 | Capability execution and authorization out of scope | §18, §16.4, §15 |
 
 All criteria are draft-covered at the specification level; implementation, L2 conformance
@@ -918,11 +1139,11 @@ Request:
     GET /{resolver-service}/{uuid}?l=2
     ACTIVE    → 200 + L2 Trust Statement
     SUSPENDED → 404, RETIRED → 410, unknown → 404
-    Core-only Resolver → 501, never L1
+    Core-only Resolver → frozen Core §§5/14.2 guidance (SHOULD 501), never L1
 
 Signed object:
     strict JSON { payload, signature }
-    signing target = canonical payload octets
+    signing target = UTF-8 of JCS(payload) (RFC 8785); wire payload is canonical
     duplicate members forbidden
     l2Version = "0.1", statementType = "resolution"
     anchorId, entityId, descriptionLocation, lifecycleStatus,
@@ -935,9 +1156,13 @@ Authority:
     transfer  = explicit signed transfer, outgoing key signs, epoch floor
     revocation= signed by current authority, fail-closed
     one current binding per anchor; conflicts → CONFLICT
+    Authority Record = signed snapshot, recordGeneration strictly increasing
+    chain walk 0..G from the Trust Anchor Binding; self-signing new key forbidden
+    Record rollback → STALE; same generation, different payload → CONFLICT
 
 Keys:
-    keyId = base64url(SHA-256(public key)[0..15])
+    keyId = base64url(SHA-256(public key)[0..7]), 11 chars, padding stripped,
+    case-sensitive comparison
     baseline MUST: ed25519; RECOMMENDED: ES256
     algorithm agility with fail-closed UNSUPPORTED_ALGORITHM
     no single permanent key
@@ -946,10 +1171,13 @@ Freshness:
     [issuedAt, expiresAt], skew tolerance documented
     generation monotonic, epoch floors, replay/rollback → STALE
     no trusted clock → UNVERIFIED, never VERIFIED
+    VERIFIED requires revocation coverage (§11.4)
 
 Verifier states (deterministic, no boolean):
     VERIFIED | UNVERIFIED | INVALID | EXPIRED | REVOKED | STALE |
-    UNKNOWN_AUTHORITY | UNSUPPORTED_ALGORITHM | CONFLICT | MISMATCH
+    UNKNOWN_AUTHORITY | UNSUPPORTED_ALGORITHM | CONFLICT | MISMATCH | ANCHOR_MISMATCH
+Verification modes: statement-only | l1-bound; result records mode and failing phase
+(§15.1, §15.2 precedence order)
 
 Boundaries:
     L1 unchanged; L2 additive
@@ -961,3 +1189,113 @@ Boundaries:
     no capability discovery/authorization/execution in L2
     L2 failure ≠ network / integrity / parse failure
 ```
+
+---
+
+## Appendix A. Deterministic Ed25519 + JCS test vectors (informative)
+
+These vectors pin the L2 statement signing pipeline (§7.3, §10.1, §10.2) so
+implementations can be cross-checked bit-for-bit ahead of the Conformance Catalog
+and testbed work in Issue #28. The fixed key is published here for this purpose
+only. All encodings are lowercase hex; base64url follows RFC 4648 §5 with `=`
+padding stripped.
+
+Fixed test key:
+
+    seed string    = "relink-l2-0.1-draft-test-vector-seed-1" (UTF-8)
+    private seed   = SHA-256(seed string)
+                   = 62d7fed7cdbced7fb568f23de5442ab57ebe2fe567f76ac092d85ffd882c693e
+    public key     = b3edee607589a8e02950718078cc737507e1f47b678b933635f673ed45919fe2
+    SHA-256(public key)
+                   = 10230445dbe957492b6d67f2a0d1d66d655e167c9fc1a58f93f2fbf788acbdbb
+    keyId          = base64url(first 8 bytes 10230445dbe95749, padding stripped)
+                   = ECMERdvpV0k
+
+The signing scalar is derived per RFC 8032 §5.6 step 1: the first 32 bytes of
+SHA-512(private seed), interpreted little-endian, bits 0..2 cleared, bit 254
+set, bit 255 cleared. Signatures below are 64-byte Ed25519 signatures over the
+UTF-8 octets of the JCS canonical string (§7.3), shown base64url with padding
+stripped (86 characters).
+
+### A.1 Vector 1: resolution statement, no extension members
+
+Payload #1 (displayed in wire order; this display is not the canonical form):
+
+    {
+      "l2Version": "0.1",
+      "statementType": "resolution",
+      "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+      "entityId": "urn:relink:entity:thermal-sensor-42",
+      "descriptionLocation": "https://sensors.example/thermal/42/ar-xml",
+      "lifecycleStatus": "active",
+      "keyId": "ECMERdvpV0k",
+      "algorithm": "ed25519",
+      "issuedAt": 1769996400,
+      "expiresAt": 1770000000,
+      "generation": 7
+    }
+
+JCS canonical string (the signing target, one line):
+
+    {"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml","entityId":"urn:relink:entity:thermal-sensor-42","expiresAt":1770000000,"generation":7,"issuedAt":1769996400,"keyId":"ECMERdvpV0k","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+
+Signing target as UTF-8 octets, hex (344 bytes; line breaks are display-only):
+
+    7b22616c676f726974686d223a2265643235353139222c22616e63686f724964
+    223a2235353065383430302d653239622d343164342d613731362d3434363635
+    35343430303030222c226465736372697074696f6e4c6f636174696f6e223a22
+    68747470733a2f2f73656e736f72732e6578616d706c652f746865726d616c2f
+    34322f61722d786d6c222c22656e746974794964223a2275726e3a72656c696e
+    6b3a656e746974793a746865726d616c2d73656e736f722d3432222c22657870
+    697265734174223a313737303030303030302c2267656e65726174696f6e223a
+    372c226973737565644174223a313736393939363430302c226b65794964223a
+    2245434d455264767056306b222c226c3256657273696f6e223a22302e31222c
+    226c6966656379636c65537461747573223a22616374697665222c2273746174
+    656d656e7454797065223a227265736f6c7574696f6e227d
+
+Signature (base64url, padding stripped):
+
+    e3n7gW0aCkpdXWHN2NNiE6seesgj-aA76xNUbs14nsa5zf6Oevil_Y4tIJ0C31Y61gAWmUGFk7xDCvywfDmhAw
+
+Verification against the public key above MUST succeed; verification over any
+changed octet of the signing target MUST fail.
+
+### A.2 Vector 2: resolution statement with extension members
+
+Payload #2 = payload #1 plus the extension member:
+
+    "extExample": {"z": 1, "a": [2, 3]}
+
+JCS canonical string (the signing target, one line; extension object members
+sort by code-point order, `a` before `z`):
+
+    {"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml","entityId":"urn:relink:entity:thermal-sensor-42","expiresAt":1770000000,"extExample":{"a":[2,3],"z":1},"generation":7,"issuedAt":1769996400,"keyId":"ECMERdvpV0k","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+
+Signing target as UTF-8 octets, hex (375 bytes; line breaks are display-only):
+
+    7b22616c676f726974686d223a2265643235353139222c22616e63686f724964
+    223a2235353065383430302d653239622d343164342d613731362d3434363635
+    35343430303030222c226465736372697074696f6e4c6f636174696f6e223a22
+    68747470733a2f2f73656e736f72732e6578616d706c652f746865726d616c2f
+    34322f61722d786d6c222c22656e746974794964223a2275726e3a72656c696e
+    6b3a656e746974793a746865726d616c2d73656e736f722d3432222c22657870
+    697265734174223a313737303030303030302c226578744578616d706c65223a
+    7b2261223a5b322c335d2c227a223a317d2c2267656e65726174696f6e223a37
+    2c226973737565644174223a313736393939363430302c226b65794964223a22
+    45434d455264767056306b222c226c3256657273696f6e223a22302e31222c22
+    6c6966656379636c65537461747573223a22616374697665222c227374617465
+    6d656e7454797065223a227265736f6c7574696f6e227d
+
+Signature (base64url, padding stripped):
+
+    ln1L_4Y8AdkJIRcvUspfs-kJL4OcK7jqkmJ5ZjnMPYijANFzoIf1P6UgmdMx45Ae2gbZSqunNrZlIVdCpqs3Aw
+
+### A.3 Reproduction
+
+1. Compute private seed = SHA-256(seed string); derive the public key per
+   RFC 8032 §5.6.
+2. Derive `keyId` per §10.1 and embed it in the payload as shown.
+3. Canonicalize each payload with JCS (RFC 8785): object members sorted by
+   code-point order recursively, integers as plain decimal, no whitespace.
+4. Sign the UTF-8 octets of the canonical string with the fixed key.
+5. Compare canonical strings and signatures byte-for-byte.
