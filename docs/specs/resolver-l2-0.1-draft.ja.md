@@ -199,6 +199,8 @@ Baseline 0.1 response form: response body は strict JSON object
 
 `recordGeneration` の厳格昇順、各要素は §9.5 の署名済み `{ payload, signature }` Record。Array framing は unsigned transport であり、Record は自己完結の署名済み object のまま保たれるため、任意の transport（array、paging、policy channel）でも signing target は保持される。Verifier は Record `G` を受理する前にすべての Record `0..G` を持有しなければならない（MUST）；chain 内の欠落 Record は chain gap であり、result は `UNVERIFIED`（§9.6）。contiguous かつ厳格昇順でない array は authority material として受理してはならない（MUST NOT）。
 
+Transfer evidence は Record の内部を運ばれる：transfer-introducing Record `G` は、署名済み transfer trail を embedded の `transfer` payload member として携带する（§9.5、§12.2）。Baseline response は transfer evidence を得るために追加の collection を要求してはならない（MUST NOT）し、verifier は Records array の外で transfer evidence を要求してはならない（MUST NOT）。Embedded trail が欠落した transfer-introducing Record は authority material として受理してはならない（MUST NOT）。chain は Record `G-1` で停止し、resolution result は `UNVERIFIED` となる（§9.6）。
+
 ### 6.4 Non-mutation rule
 
 Public L2 endpoints は GET のみ・read-only・anonymous である。L2 は public な `PUT`/`PATCH` mutation、認証付き public mutation、Resolver 側 trust enforcement を導入してはならない（MUST NOT）。認証付き statement 提出は administrative surface に留まる（§16）。
@@ -245,7 +247,7 @@ epochId            = stable epoch identifier (§9.5, §12.2); MUST equal the ver
 
 Optional payload members（baseline）：REQUIRED なものはなく、追加メンバーはすべて §7.5 に従って扱われる。
 
-`transfer` payload（§12.2）と Authority Record payload（§9.5）は、そこに定義されるとおり `recordGeneration`、`epochId` / `newEpochId`、`statementFloor` を追加する。Statement の `generation` 系列と Record の `recordGeneration` 系列は別系列であり、互いに比較してはならない（MUST NOT）。§7.3 の canonicalization・signing rules は Authority Record と transfer statement を含むすべての statement type に適用される。
+`transfer` trail（§12.2）は、transfer-introducing Authority Record の embedded の `transfer` payload member として携带される（§9.5）。Authority Record payload（§9.5）は `recordGeneration`、`epochId`、`statementFloor` を定義する。trail は §12.2 に定義されるとおり `outgoingKeyId`、`incomingKeyId`、`newEpochId`、`epochId`、`recordGeneration`、`statementFloor` を追加し、`keyId`、`generation`、`issuedAt`、`expiresAt`、`descriptionLocation`、`lifecycleStatus`、`effectiveGeneration` を禁止する。Statement の `generation` 系列と Record の `recordGeneration` 系列は別系列であり、互いに比較してはならない（MUST NOT）。§7.3 の canonicalization・signing rules は Authority Record、embedded transfer trail、key entries を含むすべての payload に適用される。
 
 ### 7.3 Canonical serialization と signing bytes
 
@@ -259,7 +261,7 @@ Wire canonicality：
 2. Verifier は raw wire text において parse 前に duplicate object-member names を検出しなければならず（MUST）、wire text の非 canonicality（member order・whitespace・number form・escaping）に対し statement を `INVALID` として拒否しなければならない（MUST）；
 3. wire が canonical であるため、`1` と `1.0` が同時に現れることはできない。JCS は canonical な number form を出力し、integer-valued fields は wire integers として現れなければならない。
 
-Integer fields（`issuedAt`・`expiresAt`・`generation`・`recordGeneration`・`effectiveGeneration`・`revokedFrom`）は、JCS canonical form の非負整数であり、IEEE-754 double の safe-integer range（`0`〜`2^53 - 1`）内でなければならない。Fractional・exponent form・non-integer・negative・range 外の値は `INVALID` を生成しなければならない（MUST）。
+Integer fields（`issuedAt`・`expiresAt`・`generation`・`recordGeneration`・`revokedFrom`・`validFrom`・`validUntil`）は、JCS canonical form の非負整数であり、IEEE-754 double の safe-integer range（`0`〜`2^53 - 1`）内でなければならない。Fractional・exponent form・non-integer・negative・range 外の値は `INVALID` を生成しなければならない（MUST）。
 
 `payload` 内の nested objects（unknown extension members を含む）は JCS に従い sorted keys で canonicalize され、extension bytes は再現可能である。`keyId`・`algorithm`・UUID・`l2Version`・`statementType`・string values は exact strings であり、`keyId` の大文字小文字は保持される（§10.1）。
 
@@ -367,11 +369,18 @@ expiresAt
 epochId            = the epoch this Record establishes. Record 0 carries the Trust Anchor
                      Binding's initial epochId (§9.3); a transfer-introduced Record G
                      carries the transfer's newEpochId (§12.2)
-prevRecordDigest   = lowercase hex SHA-256 of the canonical wire bytes of Record G-1
-                     (§7.3 target); null for Record 0
-statementFloor     = statement generation floor established by this epoch; required on
-                     epoch-establishing Records (baseline 0)
+prevRecordDigest   = lowercase hex SHA-256 of the UTF-8 octets of the JCS canonical
+                     serialization of the `payload` member of Record G-1 (§7.3 target);
+                     the Record `signature` and the outer `{ payload, signature }` envelope
+                     are NOT included; null for Record 0
+statementFloor     = statement generation floor in force at this Record; required on every
+                     Record; epoch-establishing Records set the floor (baseline 0),
+                     non-transfer Records repeat Record G-1's floor
 keys               = array of key entries
+transfer           = embedded signed transfer trail, { payload, signature } per §7.1 with
+                     the trail payload defined in §12.2; REQUIRED on transfer-introducing
+                     Records (epochId differs from Record G-1), FORBIDDEN on all other
+                     Records
 ```
 
 各 key entry：
@@ -387,17 +396,19 @@ status             = "current" | "retired" | "revoked" | "compromised"
 revokedFrom        = generation (required for status "revoked" and "compromised")
 ```
 
-Record payload は §7.3 に従い、wire canonicality を含めて canonicalize および署名する。Records は authority endpoint（§6.3）で serve され、policy チャネル（§9.2）経由で配布してもよい（MAY）。Record G の鍵集合は `recordGeneration = G` における受理済み鍵群の完全な現行スナップショットである。`recordGeneration = G+1..` のいずれかの Record に署名しうるすべての鍵は、その `publicKey` bytes とともに Record `G` に存在しなければならず（MUST）、これにより Record `G` のみを保持する Verifier も wire material だけで Record `G+1` の署名を検証できる。`prevRecordDigest` は Record `G` を Record `G-1` に byte-for-byte で束ね（bind）、chain walk は各ステップでこの binding を検証する。Revocation・retirement・compromise・rotation の状態変化は successive Records により表現される。
+Record payload は §7.3 に従い、wire canonicality を含めて canonicalize および署名する。Records は authority endpoint（§6.3）で serve され、policy チャネル（§9.2）経由で配布してもよい（MAY）。Record G の鍵集合は `recordGeneration = G` における受理済み鍵群の完全な現行スナップショットである。Record `G+1` の signer は、その `publicKey` bytes とともに Record `G` に存在しなければならず（MUST）、これにより Record `G` のみを保持する Verifier も wire material だけで Record `G+1` の署名を検証できる。`prevRecordDigest` は Record `G` を Record `G-1` に byte-for-byte で束ね（bind）、chain walk は各ステップでこの binding を検証する。Revocation・retirement・compromise・rotation の状態変化は successive Records により表現される。
 
 ### 9.6 Chain acceptance
 
 Verifier は Trust Anchor Binding（§9.3）からの chain walk により Records を受理しなければならない（MUST）：
 
 1. `recordGeneration = 0` の Record は Trust Anchor Binding（`anchorId`、initial `keyId`、初期 public key bytes、初期 `epochId`、初期 `statementFloor`、initial epoch start）と一致しなければならず（MUST）、binding の初期 public key material の下で検証されなければならない（MUST）；
-2. `recordGeneration = G > 0` の Record は次の条件でのみ受理しなければならない（MUST）：Records `0..G-1` が受理済みであり Record G が次の連続 generation であること；Record G の `prevRecordDigest` が Record `G-1` の canonical wire bytes の SHA-256 に等しいこと（§9.5）；Record G は自身の `signerKeyId` の下で、Record `G-1` に存在するその鍵の `publicKey` bytes を用いて検証されること；`signerKeyId` が Record `G-1` に `status = "current"` かつ `validFrom <= issuedAt(G) <= validUntil` で存在すること；Record G が導入する各鍵は rotation により（Record `G-1` で `current` な鍵により署名される、§10.3）または `recordGeneration >= effectiveGeneration` で有効な検証済み transfer（§12）により承認されていること；
+2. `recordGeneration = G > 0` の Record は次の条件でのみ受理しなければならない（MUST）：Records `0..G-1` が受理済みであり Record G が次の連続 generation であること；Record G の `prevRecordDigest` が Record `G-1` の `payload` の JCS canonical serialization の SHA-256 に等しいこと（§9.5、§7.3）；Record G は自身の `signerKeyId` の下で、Record `G-1` に存在するその鍵の `publicKey` bytes を用いて検証されること；`signerKeyId` が Record `G-1` に `status = "current"` かつ `validFrom <= issuedAt(G) <= validUntil` で存在すること；Record G が `transfer` member を持たない場合、Record G の `epochId` は Record `G-1` の `epochId` と等しくなければならず（MUST）、持つ場合は異ならなければならない（MUST）。新しい `epochId` はこの Anchor の chain history で一度も受理されたことのない identifier でなければならず、non-transfer Record では Record G の `statementFloor` は Record `G-1` の `statementFloor` と等しくなければならず（MUST）、transfer-introducing Record では `0` でなければならない（MUST）。Record G が導入する各鍵は、rotation により（Record `G-1` で `current` な鍵により署名される、§10.3）または Record G の embedded trail により承認されねばならず、trail は検証され、§12.2 のすべての matching rule を満たさなければならない（MUST）；
 3. 新鍵の導入を自己署名する Record（signer が Record `G-1` で `current` でない）は受理してはならない（MUST NOT）：これは key-substitution defense であり、Record boundary において適用されるのであって、歴史的な鍵集合に対してではない；
 4. chain walk で検証不能な Record は authority material として受理してはならない（MUST NOT）。結果は §15.2 の順序に従い、`UNVERIFIED`（material 未提示）または `UNKNOWN_AUTHORITY`（signer が受理済み chain の外）；
 5. L2 0.1 acceptance 条件：初期 Trust Anchor Binding のみを保持する Verifier は、rotation・transfer・revocation の後で、署名済み Record chain だけを用いて現行署名鍵に到達できなければならない（MUST）。到達できないものは L2 0.1 に失敗する。この acceptance criteria は catalog-owned の follow-up work である（§20、§21）。
+
+The chain walk は歴史的証跡の検証である：各 Record の署名はそのステップで Record `G-1` の中で `current` であった鍵の下で検証され、その鍵の validity window は Record `G` の signing time を束縛する（`validFrom <= issuedAt(G) <= validUntil`）。Record の `expiresAt` は、評価時刻 `T` において revocation snapshot としての使用を束縛する（§11.4）。歴史的 Record の expiry は、`T` において受理済み chain を無効化してはならない（MUST NOT）。後で `compromised` とマークされた鍵の下で行われた歴史的署名の検証は record trail を証明するにすぎず、その鍵に対する現行の信頼として扱ってはならない（MUST NOT）（§13.4）。
 
 ### 9.7 Authority-material anti-rollback と equivocation
 
@@ -405,10 +416,13 @@ Verifier は Trust Anchor Binding（§9.3）からの chain walk により Recor
 - 受理済み maximum 未満の Record は受理してはならない（MUST NOT）（authority rollback 試行；§15.2 に従い `STALE`）；
 - 受理済み maximum で再提示される Record は、§7.3 canonicalization の後で受理済み Record と byte-identical でなければならない（MUST）；同一 `recordGeneration` で異なる payload は `CONFLICT` を生成しなければならない（MUST）（equivocation、§17）；
 - Verifier は同一 `recordGeneration` で異なる payload を持つ 2 つの Record を受理してはならず（MUST NOT）、一方を選択してはならない（MUST NOT）。
+- 受理済み maximum において re-fetch・retransmission・re-presentation・HTTP revalidation された Record は、snapshot の freshness point を進めてはならない（MUST NOT）：freshness は Record の署名済み `issuedAt` に束縛され、retrieval time には束縛されない。higher な `recordGeneration` の受理のみが chain position を動かし、その window が fresh である場合に revocation snapshot を動かす。
 
 ### 9.8 State loss
 
 Verifier の state 喪失（受理済み Records、chain position、generation maxima）の後、Verifier は policy チャネル（§9.2）経由で自身の Trust Anchor Binding から chain を walk し、authority material を再確立しなければならない（MUST）。chain provenance なしに first contact で受信した authority material は信頼してはならない（MUST NOT）。信頼済み lower bound を持たない Verifier は first-contact material から `VERIFIED` を主張してはならない（MUST NOT）。validity window 内の古いデータは「古い」と識別できないからである。
+
+受理済み chain history 内で Record に署名した鍵の compromise の後の recovery は、その鍵により署名された material を用いて行ってはならない（MUST NOT）：compromised な鍵を通る chain walk は trail を検証するが、現行の信頼は検証しない。compromise から recovery する Verifier は re-bootstrap しなければならず（MUST）、policy チャネル経由で新しい初期 public key material を持つ新しい Trust Anchor Binding を取得しなければならない（§9.3）。compromised な初期鍵の下で再構成された chain は authority state として扱ってはならない（MUST NOT）。
 
 ## 10. Key lifecycle
 
@@ -479,7 +493,7 @@ Statement の `expiresAt - issuedAt` は deployment・cache・revocation・incid
 
 Verifier は Anchor UUID と `epochId` ごとに、current として受理した最高 statement generation を tracking しなければならない（MUST）。Epoch の statement floor は、その epoch を確立する Record が確立した `statementFloor` であり（§9.5、§12.2）、baseline floor は `0` である。Statement generations は epoch ごとの系列であり、Record の `recordGeneration` と比較できない（§7.2）。
 
-`epochId` が verifier の現受理 epoch でない statement は current として受理してはならない（MUST NOT）：`STALE`（cross-epoch replay）。現 epoch 内では、`generation` が受理済み最大より小さい statement は `STALE` を生成しなければならない（MUST）。受理済み最大と等しい statement は freshness progress として再受理してはならない（MUST NOT）；同一受理済み statement の replay は validity window 内でのみ許可され、それを覆う revocation の後は受理してはならない（MUST NOT）。
+`epochId` が verifier の現受理 epoch でない statement は current として受理してはならない（MUST NOT）：`STALE`（cross-epoch replay）。prior-epoch の結果は statement freshness phase（§15.2 phase 10）で生成される；snapshot coverage check（§11.4）は署名鍵・現受理 epoch・chain を評価し、statement 自身の `epochId` を評価しない。現 epoch 内では、`generation` が受理済み最大より小さい statement は `STALE` を生成しなければならない（MUST）。受理済み最大と等しい statement は freshness progress として再受理してはならない（MUST NOT）；同一受理済み statement の replay は validity window 内でのみ許可され、それを覆う revocation の後は受理してはならない（MUST NOT）。
 
 Epoch 内の generation numbers は successive accepted statements に対して strictly increasing でなければならない（MUST）。受理済み statement と同一の `epochId` と `generation` を持ち、payload が異なる statement は `CONFLICT` を生成しなければならない（MUST）（statement equivocation、§9.7 の mirror）。
 
@@ -487,9 +501,9 @@ Epoch 内の generation numbers は successive accepted statements に対して 
 
 Authority material はそれ自身の validity window を持つ。Expired authority material は current authority として受理してはならない（MUST NOT）。Retrieval failure・expired authority material・chain-walk gap・coverage gap は `UNVERIFIED` を生成しなければならず（MUST）、`VERIFIED` ではない。
 
-時刻 `T` における `VERIFIED` は、verifier の revocation snapshot に対する point-in-time judgment である：chain walk で検証された最高受理済み Record（§9.6）であり、その key entries は `status` と `revokedFrom` を運ぶ。評価時刻 `T` において、snapshot は最高受理済み Record でなければならず（MUST）、deployment の文書化された bounded freshness upper bound 内で受理済みでなければならず（MUST）、statement の署名鍵・statement の `epochId`・受理済み chain を覆わなければならない（MUST）、`T` で fresh でなければならない（MUST）。Freshness upper bound より古い snapshot、missing snapshot、incomplete chain、coverage gap は `UNVERIFIED` を生成しなければならず（MUST）、`VERIFIED` は決して生成しない。
+時刻 `T` における `VERIFIED` は、verifier の revocation snapshot に対する point-in-time judgment である：chain walk で検証された最高受理済み Record（§9.6）であり、その key entries は `status` と `revokedFrom` を運ぶ。Snapshot の freshness は retrieval time ではなく signed time で評価される：snapshot は、`issuedAt(snapshot) >= T - W` かつ `T <= expiresAt(snapshot)` のときに限って（iff）`T` で fresh であり、`W` は deployment の文書化された bounded freshness upper bound である。受理済み maximum の Record の re-fetch・retransmission・re-presentation・HTTP revalidation は freshness point を更新してはならない（MUST NOT）（§9.7）：freshness point は Record の署名済み `issuedAt` である。Higher な `recordGeneration` の、window が fresh な受理のみが snapshot を更新する。評価時刻 `T` において、snapshot は最高受理済み Record でなければならず（MUST）、この規則で `T` で fresh でなければならず（MUST）、statement の署名鍵・現受理 epoch・受理済み chain を覆わなければならない（MUST）；snapshot coverage check は statement 自身の `epochId` を評価しない（§11.3）。Signed time が `W` より古い snapshot、missing snapshot、incomplete chain、coverage gap は `UNVERIFIED` を生成しなければならず（MUST）、`VERIFIED` は決して生成しない。
 
-`T` における `VERIFIED` は `T` より後の revocation について何も主張しない：後 occurrence の revocation は継続的に保証されず、`VERIFIED` を future currency の保証として提示してはならず（MUST NOT）、consumer は任意の `T' > T` で currency を再評価しなければならない（MUST）（§13.5）。Baseline coverage は key-status based である：`revokedFrom` を持つ `revoked` および `compromised` key entries（§13.4）；per-statement revocation は baseline の保証ではない（§13.1、§21 OPEN）。Statement validity windows は statement を束縛し、snapshot freshness upper bounds は revocation knowledge を束縛するのであり、statement expiry を束縛しない。Revocation publication latency は statement validity windows と snapshot freshness upper bounds とに同等オーダーであるべきである（SHOULD）（§11.6、§21）。
+`T` における `VERIFIED` は `T` より後の revocation について何も主張しない：後 occurrence の revocation は継続的に保証されず、`VERIFIED` を future currency の保証として提示してはならず（MUST NOT）、consumer は任意の `T' > T` で currency を再評価しなければならない（MUST）（§13.5）。Baseline coverage は key-status based である：`revokedFrom` を持つ `revoked` および `compromised` key entries（§13.4）；per-statement revocation は baseline の保証ではない（§13.1、§21 OPEN）。Statement validity windows は statement を束縛し、snapshot freshness upper bound `W` は revocation knowledge を束縛するのであり、statement expiry を束縛しない。Distributor が `W` 内に隠した revocation updates は verifier に検出不能である：`W` は knowledge gap を束縛し、bounded な revocation publication latency を必要とする deployment は、distributor の publication SLA に対して `W` を文書化しなければならない（MUST）（§11.6、§21）。
 
 ### 11.5 Offline verification
 
@@ -503,38 +517,45 @@ Deployment は skew tolerance・cache lifetime・revocation latency が同等オ
 
 ### 12.1 Transfer は明示的な authority 遷移
 
-Transfer は署名済み transfer statement により表現されなければならず（MUST）、Description Location の暗黙的な administrative update、Authority Record に鍵が現れること、lifecycle change により表現されてはならない（MUST NOT）。
+Transfer は、Authority Record に embedded された署名済み transfer trail により表現されなければならず（MUST）、Description Location の暗黙的な administrative update、Authority Record に鍵が現れること、lifecycle change により表現されてはならない（MUST NOT）。
 
-### 12.2 Transfer statement（follow-up resource; model はここで固定）
+### 12.2 Transfer trail（Record G に embedded；model はここで固定）
 
 ```text
 statementType       = "transfer"
+l2Version           = "0.1"
 anchorId
 entityId            (MUST match the record's Canonical Entity Identity)
-outgoingKeyId
-incomingKeyId
-recordGeneration    (chain position per §9.6; strictly above the last accepted Record)
-effectiveGeneration (recordGeneration + 1: the first Record position signed by the
-                     incoming key)
-newEpochId          (stable identifier of the new epoch, carried by Record G, §9.5)
-issuedAt
-expiresAt
+outgoingKeyId       (the signing key of Record G; MUST equal Record G's signerKeyId)
+incomingKeyId       (MUST equal the keyId Record G introduces as current)
+algorithm           (the outgoing key's algorithm for the trail signature; MUST match
+                     Record G's algorithm)
+epochId             (MUST equal Record G-1's epochId: the epoch being left)
+newEpochId          (MUST equal Record G's epochId; MUST be an identifier never accepted
+                     in this Anchor's chain history, §9.6)
+recordGeneration    (MUST equal Record G's recordGeneration)
+statementFloor      (MUST equal Record G's statementFloor, baseline 0: floor reset)
+
+forbidden payload members: keyId, generation, issuedAt, expiresAt,
+descriptionLocation, lifecycleStatus, effectiveGeneration
 ```
 
-Transfer statement は outgoing authority key により署名されなければならない（MUST）。Bootstrap から最初の transfer は適用されない；初期 binding は Trust Anchor Binding に由来する。
+Trail は Record `G` の embedded `transfer` payload member であり、§7.1 に従う署名済み object `{ payload, signature }`、outgoing key により JCS canonical trail payload の上で署名される（§7.3）ため、Record `G` の signature は trail bytes を包含する。Trail は validity window を运ばない：freshness と chain position は chain acceptance により Record `G` から継承される（§9.6）ため、有効な歴史的 trail は任意の後続 `T` で検証可能であり続ける。
 
-`outgoingKeyId` が verifier の受理済み current authority でない transfer statement は `UNKNOWN_AUTHORITY` を生成しなければならない（MUST）。Fresh でない transfer statement は epoch を生成してはならない（MUST NOT）。Verifier は unsigned・自己 attest・`incomingKeyId` 署名・administrative 署名・origin 署名・DNS 署名・CDN 署名の transfer 主張を受理してはならない（MUST NOT）。
+Trail は outgoing authority key により署名されなければならない（MUST）。Bootstrap から最初の transfer は適用されない；初期 binding は Trust Anchor Binding に由来する。
+
+`outgoingKeyId` が Record `G` の signer でない trail は受理してはならない（MUST NOT）（§9.6）。受理済み Record の外で提示される trail — standalone、policy チャネル、supplementary collection — は epoch を生成してはならない（MUST NOT）：transfer evidence は、受理済み transfer-introducing Record の内部の embedded trail のみである。Verifier は unsigned・自己 attest・`incomingKeyId` 署名・administrative 署名・origin 署名・DNS 署名・CDN 署名の transfer 主張を受理してはならない（MUST NOT）。
 
 Transfer は authority Record chain に固定順序で束縛されなければならない（MUST）：
 
-1. transfer statement は `recordGeneration = G`、最高受理済み Record `G-1` より厳密に大きい位置で提示され（MUST）、outgoing key（Record `G-1` で `current`）により署名され、`newEpochId` が設定されていなければならない（MUST）；
-2. verifier は transfer statement を outgoing key の下で検証する；
-3. Record `G` は outgoing key により署名されなければならず（MUST）、検証済み transfer により導入されなければならず（MUST）、`newEpochId` と新 epoch の `statementFloor`（baseline `0`）を运ばなければならない（MUST）；incoming key を `current` として、`issuedAt(G)` を含む window で導入する；
-4. verifier は Record `G` を epoch switch として atomic に受理しなければならない（MUST）：outgoing key は Record `G` の受理以降 non-current、incoming key は Record `G + 1` 以降の署名に対して current となる；
+1. Record `G` は baseline Records array（§6.3）において、最高受理済み Record `G-1` の上の次の連続 generation で提示され、embedded `transfer` trail を运び、Record `G` の `epochId` は Record `G-1` の `epochId` と異なる；
+2. chain acceptance は Record `G` の Record signature を outgoing key の下で検証する。outgoing key は Record `G-1` で `issuedAt(G)` を含む window を持つ `current` である（§9.5、§9.6）；
+3. embedded trail は outgoing key の下で署名済み object として検証され、上の表のすべての matching rule が成立する；missing・unverifiable・duplicated・mismatched な trail は受理してはならない（MUST NOT）：Record `G` は拒否され、chain は `G-1` で停止し、statement は `UNVERIFIED` となる（§9.6）；
+4. verifier は Record `G` を epoch switch として atomic に受理しなければならない（MUST）：Record `G` は `newEpochId` と新 epoch の `statementFloor`（baseline `0`）を运び、outgoing key は Record `G` の受理以降 non-current であり、incoming key は Record `G` により `issuedAt(G)` を含む window で `current` として導入され、`G + 1` 以降の Record に署名する唯一の鍵となる；
 5. incoming key により署名された最初の Record は `recordGeneration = G + 1` でなければならず（MUST）、§9.6 に従って受理されなければならない（MUST）；
-6. 受理済み最大未満の transfer と Records は authority rollback である（§9.7）。
+6. 受理済み最大未満の trail と Records は authority rollback である（§9.7）。
 
-Signer state は直前に受理された Record（Record `G` に対しては `G-1`）に対してだけ判定されなければならず（MUST）、より早い Record に対して判定してはならない（MUST NOT）。
+Signer state は直前に受理された Record（Record `G` に対しては `G-1`）に対してだけ判定されなければならず（MUST）、より早い Record に対して判定してはならない（MUST NOT）。Appendix A.5 は、embedded trail・payload-only `prevRecordDigest` values・post-transfer statement を持つ Records `0..3` の完全な chain vector を、fixed seed strings から再現可能に固定する。
 
 ### 12.3 Epoch semantics
 
@@ -580,11 +601,11 @@ Revocation evidence は authority material（§9.2）、利用可能な場合 re
 
 ### 13.4 Revocation effects
 
-Fresh で検証済み key revocation：key の window は revocation の effective generation で終了する；その key 下で generation ≥ effective generation の statement は `REVOKED`；未満の statement は §11.3 に従う。Per-statement revocation は baseline の保証ではない（§13.1）：baseline coverage は key-status based である（§11.4）。定義される場合、statement revocation extension は、verifier の次の受理済み評価において revoked statements の verifier caches を無効化しなければならない（MUST）（§21 OPEN）。
+Fresh で検証済み key revocation：key の window は revocation を运ぶ Record の `issuedAt` で終了する；その key 下で、その Record の `issuedAt` 以降の `issuedAt` を持つ statement は `REVOKED`；未満の statement は §11.3 に従う。Per-statement revocation は baseline の保証ではない（§13.1）：baseline coverage は key-status based である（§11.4）。定義される場合、statement revocation extension は、verifier の次の受理済み評価において revoked statements の verifier caches を無効化しなければならない（MUST）（§21 OPEN）。
 
-Revocation・retirement・compromise は Record chain operations として表現される（§9.5）：署名鍵は Record `G-1` の下で `current` であり、Record `G` は target key を `revokedFrom` を伴う `status = "revoked"` または `"compromised"` とマークする。
+Revocation・retirement・compromise は Record chain operations として表現される（§9.5）：署名鍵は Record `G-1` の下で `current` であり、Record `G` は target key を `revokedFrom` を伴う `status = "revoked"` または `"compromised"` とマークする。`revokedFrom` は Record position である：`revokedFrom = G` は、revocation が Record `G` により表現され、Record `G` の `issuedAt` で発効することを意味する。
 
-受理済み chain で `compromised` とマークされた鍵は、いかなる signature・いかなる generation・いかなる時点においても、verifier により current として受理されてはならない（MUST NOT）。Compromise の後で古い `generation`/`issuedAt` values を再署名した compromised key は、verifier が current として受理してはならない signature を生成する：独立に信頼された evidence なしで、verifier は compromised key からの signature を current と認識してはならない（MUST NOT）（§17、leak-replay）。Fresh な coverage の下で評価された compromised key による signature は、`REVOKED` として surface されなければならず（MUST）、`VERIFIED` として surface してはならない（MUST NOT）。
+受理済み chain で `compromised` とマークされた鍵は、いかなる signature・いかなる generation・いかなる時点においても、verifier により current として受理されてはならない（MUST NOT）。Compromise の後で古い `generation`/`issuedAt` values を再署名した compromised key は、verifier が current として受理してはならない signature を生成する：独立に信頼された evidence なしで、verifier は compromised key からの signature を current と認識してはならない（MUST NOT）（§17、leak-replay）。Fresh な coverage の下で評価された compromised key による signature は、`REVOKED` として surface されなければならず（MUST）、`VERIFIED` として surface してはならない（MUST NOT）。後で `compromised` とマークされた鍵による歴史的 Record signature の検証は record trail を証明するにすぎず（§9.6）、その鍵による signature を current にしてはならない（MUST NOT）し、初期 binding key の compromise からの recovery は、新しい Trust Anchor Binding key material を用いた re-bootstrap を必要とする（§9.8）。
 
 ### 13.5 Fail-closed revocation availability
 
@@ -641,8 +662,9 @@ INVALID
 EXPIRED
     structurally valid statement with T outside [issuedAt, expiresAt]
 REVOKED
-    fresh revocation snapshot marks the signing key compromised, or revoked with
-    `revokedFrom` ≤ evaluation scope (§11.4, §13.4)
+    fresh revocation snapshot marks the signing key compromised, or revoked with the
+    statement `issuedAt` at or after the `issuedAt` of Record `revokedFrom` (§11.4, §13.4,
+    §15.2 phase 9)
 STALE
     statement generation below accepted maximum / statement floor, prior-epoch `epochId`,
     accepted rollback attempt
@@ -665,7 +687,7 @@ ANCHOR_MISMATCH
 - **UNVERIFIED**：検証未完：trust material 欠落、authority 利用不能、trusted clock 欠如、revocation snapshot の欠落・stale・incomplete・最高受理済み Record でないこと、offline 制約。
 - **INVALID**：構造失敗：strict-JSON 違反、duplicate members、`l2Version` 違反、非 canonical payload、signature 失敗、payload/signature 分離則の違反、keyId/publicKey recomputation 不一致（§9.4、§10.1）。
 - **EXPIRED**：構造妥当だが `T` が `[issuedAt, expiresAt]` 外。
-- **REVOKED**：fresh な revocation snapshot が署名鍵を compromised と、または `revokedFrom` ≤ evaluation scope で revoked とマークする（§11.4、§13.4）。
+- **REVOKED**：fresh な revocation snapshot が署名鍵を compromised と、または statement の `issuedAt` が Record `revokedFrom` の `issuedAt` 以降で revoked とマークする（§11.4、§13.4、§15.2 phase 9）。
 - **STALE**：statement generation が受理済み最大／statement floor 未満、prior-epoch の `epochId`、受理済み rollback 試行。
 - **UNKNOWN_AUTHORITY**：signer key が受理済み authority binding にない、`entityId` 不一致、unsigned transfer 試行、outgoing key が current でない。
 - **UNSUPPORTED_ALGORITHM**：algorithm identifier が verifier により unknown／unsupported。
@@ -716,30 +738,35 @@ Verifier は expected `anchorId` を out of band で取得しなければなら�
 4.  trusted clock available (§11.2)                                    UNVERIFIED
 5.  authority material present, chain walk 0..G complete, Record contiguity,
     prevRecordDigest binding, signerKeyId resolvable with publicKey in the accepted
-    chain (§9.6)                                                       UNVERIFIED (chain gap,
+    chain, embedded transfer trails verified with all §12.2 matching rules
+    (§9.6, §12.2)                                                       UNVERIFIED (chain gap,
     missing material, no trusted lower bound §9.8); UNKNOWN_AUTHORITY (signer outside the
     accepted chain; keyId/publicKey recomputation failure §9.4)
-6.  revocation snapshot fresh at T: highest accepted Record, within the freshness upper
-    bound, covering the signing key, epochId, and chain (§11.4)       UNVERIFIED on gap,
-    staleness, coverage gap
+6.  revocation snapshot fresh at T by the §11.4 signed-time rule: highest accepted Record
+    with `issuedAt >= T - W` and `expiresAt` covering `T`, covering the signing key, the
+    current accepted epoch, and the chain; snapshot coverage does not evaluate the
+    statement's own `epochId` (§11.3, §11.4)                          UNVERIFIED on gap,
+    signed-time staleness, coverage gap
 7.  Record chain position: Record below accepted maximum, same-generation byte-identity,
     epoch establishment (§9.7, §12.2, §12.3)                          STALE / CONFLICT
 8.  signature verification under the signerKeyId publicKey bytes (§9.6)
     INVALID
-9.  signer key status in the fresh snapshot, at issuedAt: compromised, revoked
-    (revokedFrom ≤ evaluation scope), retired, outside validity window, entityId
+9.  signer key status in the fresh snapshot, at issuedAt: compromised, revoked (statement
+    `issuedAt` at or after the `issuedAt` of Record `revokedFrom`), retired, outside
+    validity window, entityId
     mismatch                                                          REVOKED (compromised,
     revoked); UNVERIFIED (retired, §10.5; outside window, §10.4);
     UNKNOWN_AUTHORITY (entityId mismatch, §15)
-10. statement freshness [issuedAt, expiresAt] vs T; statement epochId match; statement
-    generation vs accepted maximum and statement floor; statement equivocation
+10. statement freshness [issuedAt, expiresAt] vs T; statement `epochId` vs current
+    accepted epoch — a prior-epoch `epochId` yields `STALE` here and nowhere earlier;
+    statement generation vs accepted maximum and statement floor; statement equivocation
     (§11.3, §12.3)                                                    EXPIRED; STALE (prior-epoch
     epochId, below floor, below accepted maximum); CONFLICT (equivocation)
 11. l1-bound mode, §7.4 (§15.1)                                        UNVERIFIED on missing
     observation; MISMATCH on equality failure
 ```
 
-phase 内では条件は列挙順に applicable となり、各 branch は exactly one result を得る。受理済み chain に存在しない signer は phase 5 で `UNKNOWN_AUTHORITY` として失败し、phase 8-9 には到達しない；`keyId`/`publicKey` recomputation 不一致は Record に対して phase 1 で `INVALID`、従属する statement に対して phase 5 で失败し、§9.4 と整合する。Retired key は `UNVERIFIED`（§10.5）を生成し、`REVOKED` は決して生成しない；`REVOKED` は fresh な snapshot を要求し、phase 6 が phase 9 に先立ってそれを保証する。受理済み maximum で validity window 内に replay された statement は freshness progress ではない（§11.3）。Authority rollback（受理済み maximum 未満の Record）は `STALE`。同一 generation で異なる payload の Record は `CONFLICT`。受理済み chain の外の signer は `UNKNOWN_AUTHORITY`。Verifier は phases を並べ替えてはならず（MUST NOT）、severity・recency・origin preference で選択してはならない（MUST NOT）。結果はどの phase が failed かを記録しなければならない（MUST）。
+phase 内では条件は列挙順に applicable となり、各 branch は exactly one result を得る。受理済み chain に存在しない signer は phase 5 で `UNKNOWN_AUTHORITY` として失败し、phase 8-9 には到達しない；`keyId`/`publicKey` recomputation 不一致は Record に対して phase 1 で `INVALID`、従属する statement に対して phase 5 で失败し、§9.4 と整合する。Retired key は `UNVERIFIED`（§10.5）を生成し、`REVOKED` は決して生成しない；`REVOKED` は fresh な snapshot を要求し、phase 6 が phase 9 に先立ってそれを保証する。受理済み maximum で validity window 内に replay された statement は freshness progress ではなく（§11.3）、受理済み maximum の受理済み Record の re-fetch・retransmission・re-presentation・HTTP revalidation は revocation snapshot を refresh しない（§9.7、§11.4）。固定期待結果：prior-epoch の `epochId` を运ぶ署名済み statement は phase 10 で `STALE`；revocation boundary — statement の `issuedAt` が Record `revokedFrom` の `issuedAt` 以降 — は phase 9 で `REVOKED`；missing snapshot、signed time で stale な snapshot、incomplete chain は phase 6 で `UNVERIFIED`、`VERIFIED` は決して生成しない。Authority rollback（受理済み maximum 未満の Record）は `STALE`。同一 generation で異なる payload の Record は `CONFLICT`。受理済み chain の外の signer は `UNKNOWN_AUTHORITY`。Verifier は phases を並べ替えてはならず（MUST NOT）、severity・recency・origin preference で選択してはならない（MUST NOT）。結果はどの phase が failed かを記録しなければならない（MUST）。
 
 ## 16. L1・Manifest 0.1・administration との関係
 
@@ -776,7 +803,7 @@ L2 baseline は最低以下を扱わなければならない（MUST）。各脅�
 | Replay | validity window + per-epoch generation + accepted-maximum（§11.3） |
 | Rollback | monotonic Record generations、per-epoch statement floors、`STALE`（§9.7、§11.3、§12.3） |
 | Stale signed data | `expiresAt`、epoch floor、`EXPIRED`/`STALE`（§11） |
-| Key compromise | revocation、short windows、fail-closed revocation、Records 内の compromised flag、never-current signatures（§10.6、§13.4） |
+| Key compromise | revocation、short windows、fail-closed revocation、Records 内の compromised flag、never-current signatures、初期鍵 compromise 後の re-bootstrap（§9.8、§10.6、§13.4） |
 | Key substitution | Authority Record chain：prior-current key が署名し、新 key 単独では構築不能；key material は wire に `publicKey` として运び、`keyId` は再計算される（§9.4、§9.5、§9.6、§10.3） |
 | Conflicting authorities | `CONFLICT`、fail-closed、reconciliation heuristics 禁止（§8.3） |
 | Downgrade to L1 | frozen Core `l` rules を維持（SHOULD-level `501` guidance）、never L1（§6.1、§5） |
@@ -793,6 +820,9 @@ L2 baseline は最低以下を扱わなければならない（MUST）。各脅�
 | First-contact authority bootstrap | Trust Anchor Binding からの chain walk、state loss 後の再確立、first-contact から `VERIFIED` なし（§9.6、§9.8） |
 | keyId ↔ publicKey substitution | `keyId` は wire の `publicKey` bytes から recomputed、Records は full key material を运び、chain acceptance は binding material から（§9.3、§9.4、§9.5、§10.1） |
 | cross-epoch replay / generation mixing | statement `epochId` は signing target に含まれる、per-epoch statement floors、`recordGeneration` と statement `generation` は別系列（`STALE`、§11.3、§12.2、§12.3） |
+| freshness refresh by re-fetching accepted old Records | freshness は Record の署名済み `issuedAt` と `expiresAt` で評価される；受理済み maximum での re-fetch・retransmission・re-presentation・HTTP revalidation は freshness point を決して進めない；distributor が `W` 内に隠した revocation updates は検出不能であり、`W` は knowledge gap を束縛する（§9.7、§11.4） |
+| compromised initial-key chain recovery limits | compromised な鍵を通る chain walk は歴史的 trail を検証するのみで、現行の信頼は検証しない；recovery は、policy チャネル経由で新しい Trust Anchor Binding key material を用いた re-bootstrap を必要とする（§9.6、§9.8、§13.4） |
+| transfer trail absence, tampering, duplication | Record `G` の内部の embedded trail が唯一の transfer evidence である；§12.2 の全 matching rules；chain は `G-1` で停止し statement は `UNVERIFIED`、同一 generation の Record 重複は `CONFLICT`（§12.2、§9.6、§9.7、§15.2） |
 
 明示的な non-goal boundary：L2 は physical Entity authentication・device authorization・capability authorization・AR-XML semantic validation・general PKI replacement を提供せず、`VERIFIED` はそれらのいずれとしても surface してはならない（MUST NOT）（§15、§21）。
 
@@ -813,7 +843,7 @@ L2 0.1 は以下を定義してはならない（MUST NOT）：
 
 ## 19. Baseline と extensions
 
-Baseline mandatory guarantees：G1–G8（§4）。L2 0.1 baseline conformance を主張する verifier は以下を実装しなければならない（MUST）：UTF-16 code-unit member order を持つ JCS canonical serialization（§7.3）、`ed25519` verification、statement parsing、public key material を含む Trust Anchor Binding からの Record chain acceptance（§9.6）、wire `publicKey` bytes からの keyId recomputation（§9.4、§10.1）、authority-material anti-rollback と equivocation handling（§9.7）、freshness、per-epoch statement anti-rollback、revocation snapshot（§11.4）、verification modes と §15.2 precedence order を含む §15 の full state model、`l1-bound` mode での §7.4 consistency、要求されるすべての fail-closed behavior。
+Baseline mandatory guarantees：G1–G8（§4）。L2 0.1 baseline conformance を主張する verifier は以下を実装しなければならない（MUST）：UTF-16 code-unit member order を持つ JCS canonical serialization（§7.3）、`ed25519` verification、statement parsing、public key material と embedded transfer trails を含む Trust Anchor Binding からの Record chain acceptance（§9.6、§12.2）、wire `publicKey` bytes からの keyId recomputation（§9.4、§10.1）、authority-material anti-rollback と equivocation handling（§9.7）、freshness、per-epoch statement anti-rollback、signed time に対して評価される revocation snapshot（§11.4）、verification modes と §15.2 precedence order を含む §15 の full state model、`l1-bound` mode での §7.4 consistency、要求されるすべての fail-closed behavior。
 
 Optional extensions：`ES256` と later algorithms（§10.8）、delegation / chained authority、nonce/challenge online checks、per-statement revocation（§13.1）、Manifest association、third-party timestamps、transparency logs、`p` による profile identifiers。Extensions は baseline conformance 必須であってはならず（MUST NOT）、baseline semantics を再定義してはならず（MUST NOT）、baseline verifier により security-critical と扱われてはならない（MUST NOT）。
 
@@ -842,14 +872,14 @@ L2-VERIFIER      (state model, all §15 states, fail-closed rules)
 L2-AUTHORITY     (rotation/transfer/revocation signature semantics)
 ```
 
-L2-VERIFIER / L2-AUTHORITY acceptance は次を含む：public key material を运ぶ initial Trust Anchor Binding からの chain acceptance で rotation・transfer・revocation の後に wire を経て current key に到達すること（§9.3、§9.6 item 5）、§9.7 の equivocation handling、`VERIFIED` のための revocation snapshot freshness（§11.4）、§15.2 の precedence cases、Appendix A の canonical および signature vectors（非 BMP UTF-16 code-unit vector を含む）。Identifiers は catalog が所有し、本 draft は発明してはならない（MUST NOT）。
+L2-VERIFIER / L2-AUTHORITY acceptance は次を含む：public key material を运ぶ initial Trust Anchor Binding からの chain acceptance で rotation・transfer・revocation の後に wire を経て current key に到達すること（§9.3、§9.6 item 5）、initial binding のみを保持する verifier が embedded transfer trails により Records `0..G` を受理し post-transfer key に到達し新 epoch で post-transfer resolution statement を検証する Record chain vector（Appendix A.5）、payload-only target を持つ Record 0→1 `prevRecordDigest` vector（§9.5）、§9.7 の equivocation handling、`VERIFIED` のための Record の signed time に対する revocation snapshot freshness（§11.4）、受理済み Record の re-fetch・re-presentation・revalidation は snapshot を refresh しない、§15.2 の precedence cases（prior-epoch `STALE` は phase 10、revocation boundary `REVOKED` は phase 9、snapshot staleness `UNVERIFIED` は phase 6）、既知 vector 下で Ed25519 と ES256 で比較される signature verification、同一 payload と異なる signature encodings が同一 digest interpretation を生成すること、transfer trail の absence・tampering・duplication、re-bootstrap を必要とする compromised-key recovery、Appendix A の canonical および signature vectors（非 BMP UTF-16 code-unit vector を含む）。Identifiers は catalog が所有し、本 draft は発明してはならない（MUST NOT）。
 
 本 draft は `RES-*`・`LIFE-*`・`MAN-*`・`INT-*`・`NET-*`・`RT-*`・L2 catalog case identifiers を発明してはならない（MUST NOT）。Frozen Catalog が 0.1 identifiers を、future L2 catalog が L2 identifiers を所有する。Local PHPUnit tests は L2 catalog の存在後にのみ L2 catalog へマップする；repository confirmation flow（`composer validate`、`composer test`、`composer analyse`、`php -l`、`git diff --check`）は implementation work に適用され、local results は relink-testbed results として報告してはならない（MUST NOT）。
 
 ## 21. Follow-up 決定を要する Open issues
 
 1. L2 profiles の `p` semantics、online freshness の nonce/challenge binding；
-2. transfer/revocation の public resources 化（paths・status codes・discovery・submission channel：administrative か L2-signed material か）；per-statement revocation の non-baseline extension 化（§13.1、§13.4）；revocation status そのものは Record chain operation である（§9.5、§13.4）；
+2. revocation の public resource 化（paths・status codes・discovery・submission channel：administrative か L2-signed material か）；transfer trails は Records に embedded で baseline-defined であり（§6.3、§12.2）、open な resource の問題ではない；per-statement revocation の non-baseline extension 化（§13.1、§13.4）；revocation status そのものは Record chain operation である（§9.5、§13.4）；
 3. Trust Anchor Binding provisioning profile（factory pairing・operator trust lists・device-bundled anchors、binding public key material §9.3、epochId と statementFloor の確立）とその conformance；
 4. §7.4 の exact byte equality を超える URI comparison normalization；
 5. `statementType` registry governance と version negotiation；
@@ -857,7 +887,7 @@ L2-VERIFIER / L2-AUTHORITY acceptance は次を含む：public key material を�
 7. administrative・export・archival 場面での SUSPENDED/RETIRED lifecycle edges の authority material；
 8. revocation propagation latency targets、§11.4 baseline 要求を超える numeric snapshot freshness upper bounds（profile parameters、0.1 では固定しない）、cache invalidation interfaces、§11.4 baseline を超える coverage horizon profiles；
 9. ES256 の MUST 化、algorithm を追加する profile mechanism；
-10. L2 conformance catalog case set（§9.6 chain-acceptance、§9.7 equivocation、§11.4 revocation snapshot、§15.2 precedence、Appendix A を超える signature test vectors を含む）；
+10. L2 conformance catalog case set（§9.6 chain-acceptance、§12.2 transfer trail matching rules、§9.5 `prevRecordDigest`、§9.7 equivocation、§11.4 revocation snapshot、§15.2 precedence、Appendix A を超える signature test vectors、Ed25519/ES256 known-vector comparison、compromised-key recovery を含む）；
 11. 安定化後の日本語規範翻訳。
 
 ## 22. Acceptance-criteria mapping（Issue #28）
@@ -869,14 +899,14 @@ L2-VERIFIER / L2-AUTHORITY acceptance は次を含む：public key material を�
 | Signed / verifiable object defined | §7（payload、JCS canonical serialization、signing bytes）、Appendix A vectors |
 | Signer identity and Entity authority rules defined | §8、§§9.1–9.8（wire `publicKey` material を持つ Authority Record format、chain acceptance、anti-rollback、state loss） |
 | Key discovery and rotation semantics defined | §§9.5–9.7、§10（validity windows、rotation Records、wire publicKey からの keyId recomputation、epochId）；§21 の OPEN items |
-| Freshness and anti-rollback defined | §11（statement anti-rollback、authority-material anti-rollback §9.7、revocation snapshot §11.4） |
-| Ownership / authority transfer semantics defined | §12 |
-| Revocation semantics defined | §13、§9.5、§13.4（revocation・retirement・compromise は Record chain operations）；revocation material resource は OPEN、§21 |
+| Freshness and anti-rollback defined | §11（statement anti-rollback、authority-material anti-rollback §9.7、revocation snapshot §11.4、signed-time freshness と re-fetch non-refresh） |
+| Ownership / authority transfer semantics defined | §12（Record G への embedded transfer trail、§12.2 matching rules、epoch switch、trail は baseline Records array に运ばれる §6.3） |
+| Revocation semantics defined | §13、§9.5、§13.4（revocation・retirement・compromise は Record chain operations；`revokedFrom` は Record position、Record `issuedAt` で発効）；revocation material resource は OPEN、§21 |
 | Verification result states deterministic and documented | §15（modes、precedence order、`ANCHOR_MISMATCH`） |
 | Relationship to Manifest 0.1 explicit | §16.2、§7.6 |
 | Relationship to administrative authentication explicit | §16.3 |
 | L1 downgrade / fallback explicit and fail-closed | §5、§6.1、§6.5、§17 |
-| Security analysis covers replay, rollback, key compromise, conflicting authority, signature stripping, Record rollback/equivocation, cross-anchor substitution, compromised-key re-signing, first-contact bootstrap, keyId/publicKey substitution, cross-epoch replay | §17 |
+| Security analysis covers replay, rollback, key compromise, conflicting authority, signature stripping, Record rollback/equivocation, cross-anchor substitution, compromised-key re-signing, first-contact bootstrap, keyId/publicKey substitution, cross-epoch replay, re-fetch freshness refresh, transfer trail integrity, compromised-key chain recovery | §17 |
 | Capability execution and authorization out of scope | §18、§16.4、§15 |
 
 すべての criteria は仕様レベルで draft にカバーされている；implementation・L2 conformance catalog・testbed scenarios は §20 の follow-up のままである。
@@ -908,13 +938,17 @@ Authority:
     bootstrap = Trust Anchor Binding via policy channel, with initial public key material,
                 epochId, statementFloor
     rotation  = signed by prior-current authority, overlapping windows
-    transfer  = explicit signed transfer, outgoing key signs Record G, newEpochId,
-                incoming key signs from Record G+1, statement floor reset
+    transfer  = embedded signed trail in Record G (outgoingKeyId, incomingKeyId,
+                epochId, newEpochId, recordGeneration, statementFloor), signed by the
+                outgoing key; all §12.2 matching rules; trail in the baseline Records
+                array; incoming key signs from Record G+1, statement floor reset
     revocation= signed by current authority, fail-closed
     one current binding per anchor; conflicts → CONFLICT
     Authority Record = signed snapshot, recordGeneration strictly increasing,
-    publicKey on the wire, prevRecordDigest chain binding, epochId, statementFloor
-    chain walk 0..G from the Trust Anchor Binding; key never signs its own introduction
+    publicKey on the wire, prevRecordDigest = lowercase hex SHA-256 of the UTF-8 octets
+    of JCS(previous Record payload), epochId, statementFloor
+    chain walk 0..G from the Trust Anchor Binding, embedded transfer trails verified
+    with §12.2 matching rules; key never signs its own introduction
     Record rollback → STALE; same generation, different payload → CONFLICT
 
 Keys:
@@ -929,8 +963,10 @@ Freshness:
     per-epoch statement generations, statement floors, epochId match,
     replay/rollback → STALE
     no trusted clock → UNVERIFIED, never VERIFIED
-    VERIFIED at T requires the revocation snapshot fresh at T within a bounded
-    freshness upper bound (§11.4); VERIFIED at T makes no claim about T' > T
+    VERIFIED at T requires the revocation snapshot fresh at T by its signed time:
+    issuedAt >= T - W and expiresAt covering T (§11.4); re-fetching, retransmission,
+    re-presentation, and revalidation of an accepted Record never refresh the
+    snapshot; VERIFIED at T makes no claim about T' > T
 
 Verifier states (deterministic, no boolean):
     VERIFIED | UNVERIFIED | INVALID | EXPIRED | REVOKED | STALE |
@@ -955,7 +991,7 @@ Boundaries:
 
 ## 付録 A. 決定性 Ed25519 + JCS テストベクトル（informative）
 
-この付録は、§ 7.3 の signing target、signature コーディング、canonical serialization 規則（object member の UTF-16 code-unit order によるソート、RFC 8785 § 3.2.3、§ 7.3）をコードに固定する。ベクトルは下記の固定 seed から、RFC 8032 Ed25519、RFC 8785 JCS、SHA-256、SHA-512、base64url（RFC 4648 § 5）のみを用いて再生できる。Conformance テストケースの case 識別子は catalog-owned の follow-up 作業（§ 20）であり、この付録は reference 値を提供するものであり、case 識別子を提供しない。
+この付録は、§7.3 の signing target、signature コーディング、canonical serialization 規則（object member の UTF-16 code-unit order によるソート、RFC 8785 §3.2.3、§7.3）をコードに固定し、完全な Record chain vector を固定する：Records `0..3`、embedded transfer trail（§12.2）、payload-only `prevRecordDigest` target（§9.5）、post-transfer statement。ベクトルは下記の固定 seed strings（A.1、A.5）から、RFC 8032 Ed25519、RFC 8785 JCS、SHA-256、SHA-512、base64url（RFC 4648 §5）のみを用いて再生できる。Conformance テストケースの case 識別子は catalog-owned の follow-up 作業（§20）であり、この付録は reference 値を提供するものであり、case 識別子を提供しない。
 
 ### A.1 固定 key material
 
@@ -1115,9 +1151,303 @@ Signature（86 chars）:
 nNEFPVF4vUZWiUU9eadPkEqQEb_pNBXR3yksE5IHTNrYASA8Fg4hubCdDr9PR4vPLxzaBRzeeYdYH-O4XArjCQ
 ```
 
-### A.5 Reproduction（再現手順）
+### A.5 Vector 4: Record chain, embedded transfer trail, payload-only prevRecordDigest
 
-1. § A.1 に従い private seed を計算し、public key `A` を導出し、`keyId` を § 10.1 に従って再計算し、§ A.1 の値をチェックする。
-2. すべての payload を JCS で serialize する: object member names は UTF-16 code-unit order（RFC 8785 § 3.2.3）で sort、minimal escaping（C0 control、`"`、`\`、DEL は `\uXXXX` に escape、printable 非 ASCII は as-is で出力）、整数は plain decimal、whitespace なし。結果は上記の canonical string と byte-for-byte で一致 MUST。
-3. canonical string の UTF-8 octets に deterministic Ed25519（RFC 8032 § 5.2）で signature を生成する。base64url signature（'=' を stripped）は上記の signature と byte-for-byte で一致 MUST。
+Seed strings, UTF-8: `relink-l2-0.1-draft-test-vector-seed-2` と `relink-l2-0.1-draft-test-vector-seed-3`。key2 と key3 は A.1 の導出法で導出する。seed 2 は key2、seed 3 は key3。
+
+```
+key2 private seed (hex) = 11a02c8e86da4620c1b75851b54cf11ed0bf920ed6a2f8bfdab8528b6661c3ea
+key2 public key A (hex) = 92446f197e98d48765c07683e51c7261bdf01ed5d8b0d271a3ad40c184572563
+key2 SHA-256(A) (hex)   = e0a29777b5d2256ffa591e993e6daa9f941fb1a45d32587e44603d5d0c7692a4
+key2 keyId              = 4KKXd7XSJW8
+key2 publicKey          = kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM
+
+key3 private seed (hex) = d0510d88aca40d3264a3e849dd5a12e6fdf4ffe96c52c1d7c7c469f33b97b146
+key3 public key A (hex) = 1b7ecbe59de3d86053280be9b424c1e674d48dba257febd06ac89207bca9bdcb
+key3 SHA-256(A) (hex)   = 1bc55b5ee99ec15bd6ab107a8eea608e67ef8bba02e8b9537f20555b81fd1752
+key3 keyId              = G8VbXumewVs
+key3 publicKey          = G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs
+```
+
+Trust Anchor Binding（policy channel、§9.3）は `keyId = "ECMERdvpV0k"`、`publicKey = A`（A.1）、`epochId = "epoch-0"`、`statementFloor = 0` を運ぶ。Records `0..3` が chain を形成し、各 Record は envelope `{ payload, signature }`（§7.1、§9.5）である。下記の payload は display order であり、wire payload は canonical serialization でなければならない（MUST）（§7.3）。
+
+Record 0（`recordGeneration = 0`、自己署名、`prevRecordDigest` null）:
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "authority",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "recordGeneration": 0,
+  "signerKeyId": "ECMERdvpV0k",
+  "algorithm": "ed25519",
+  "issuedAt": 1769996400,
+  "expiresAt": 1770000000,
+  "epochId": "epoch-0",
+  "prevRecordDigest": null,
+  "statementFloor": 0,
+  "keys": [
+    {
+      "keyId": "ECMERdvpV0k",
+      "publicKey": "s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I",
+      "algorithm": "ed25519",
+      "validFrom": 1769996400,
+      "validUntil": 1770000000,
+      "status": "current"
+    }
+  ]
+}
+```
+
+JCS canonical string（signing target、1 行）:
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-0","expiresAt":1770000000,"issuedAt":1769996400,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"current","validFrom":1769996400,"validUntil":1770000000}],"l2Version":"0.1","prevRecordDigest":null,"recordGeneration":0,"signerKeyId":"ECMERdvpV0k","statementFloor":0,"statementType":"authority"}
+```
+
+Signature（86 chars）:
+
+```
+DObC78YFVR6d-TIuJKO_WbeXw8bmlE9uhd0e8UaQQWLEoLZedRgca8CJcVD3v1K2vbJ1JESUQzV6Uo1YvSnXAQ
+```
+
+Record 1（rotation：signer key1、key1 retired、key2 が current として導入）:
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "authority",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "recordGeneration": 1,
+  "signerKeyId": "ECMERdvpV0k",
+  "algorithm": "ed25519",
+  "issuedAt": 1769997000,
+  "expiresAt": 1770000600,
+  "epochId": "epoch-0",
+  "prevRecordDigest": "36ce3c7bf819434ebc79e534649873081ee0999af85c798c6586235680809afb",
+  "statementFloor": 0,
+  "keys": [
+    {
+      "keyId": "ECMERdvpV0k",
+      "publicKey": "s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I",
+      "algorithm": "ed25519",
+      "validFrom": 1769996400,
+      "validUntil": 1769997000,
+      "status": "retired"
+    },
+    {
+      "keyId": "4KKXd7XSJW8",
+      "publicKey": "kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM",
+      "algorithm": "ed25519",
+      "validFrom": 1769997000,
+      "validUntil": 1770000600,
+      "status": "current"
+    }
+  ]
+}
+```
+
+`prevRecordDigest` は Record 0 の canonical payload string の UTF-8 octets の lowercase hex SHA-256 である — payload のみ、signature と envelope は含まない（§9.5）。
+
+JCS canonical string（signing target、1 行）:
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-0","expiresAt":1770000600,"issuedAt":1769997000,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"current","validFrom":1769997000,"validUntil":1770000600}],"l2Version":"0.1","prevRecordDigest":"36ce3c7bf819434ebc79e534649873081ee0999af85c798c6586235680809afb","recordGeneration":1,"signerKeyId":"ECMERdvpV0k","statementFloor":0,"statementType":"authority"}
+```
+
+Signature（86 chars）:
+
+```
+uSDzPwzTq4xubwXA4NbkhTRiwaT1GfMM3bzdZ5Axoz0Rw3xcwTIFpnVB3Yv8y6yDYXixDC-1HMw1fTFM05HICw
+```
+
+Record 2（`G = 2`、transfer-introducing；signer key2、Record 1 に導入される；embedded trail）:
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "authority",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "recordGeneration": 2,
+  "signerKeyId": "4KKXd7XSJW8",
+  "algorithm": "ed25519",
+  "issuedAt": 1769997600,
+  "expiresAt": 1770001200,
+  "epochId": "epoch-1",
+  "prevRecordDigest": "870b931dd8f9ad01a6a037524842549ad60fcde1066dbc9caf4f3e6140102f61",
+  "statementFloor": 0,
+  "keys": [
+    {
+      "keyId": "ECMERdvpV0k",
+      "publicKey": "s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I",
+      "algorithm": "ed25519",
+      "validFrom": 1769996400,
+      "validUntil": 1769997000,
+      "status": "retired"
+    },
+    {
+      "keyId": "4KKXd7XSJW8",
+      "publicKey": "kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM",
+      "algorithm": "ed25519",
+      "validFrom": 1769997000,
+      "validUntil": 1769997600,
+      "status": "retired"
+    },
+    {
+      "keyId": "G8VbXumewVs",
+      "publicKey": "G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs",
+      "algorithm": "ed25519",
+      "validFrom": 1769997600,
+      "validUntil": 1770001200,
+      "status": "current"
+    }
+  ],
+  "transfer": {
+    "payload": {
+      "l2Version": "0.1",
+      "statementType": "transfer",
+      "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+      "entityId": "urn:relink:entity:thermal-sensor-42",
+      "outgoingKeyId": "4KKXd7XSJW8",
+      "incomingKeyId": "G8VbXumewVs",
+      "algorithm": "ed25519",
+      "epochId": "epoch-0",
+      "newEpochId": "epoch-1",
+      "recordGeneration": 2,
+      "statementFloor": 0
+    },
+    "signature": "Ijetk5nXS-lFfjypHyQyi3QYKCXxBPSew2H6LB_qr0BYD7tw21X7MmZknNGl1K4jXpO_an7qQUoEqERJPf15BQ"
+  }
+}
+```
+
+Trail payload JCS canonical string（trail signing target、1 行）:
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-0","incomingKeyId":"G8VbXumewVs","l2Version":"0.1","newEpochId":"epoch-1","outgoingKeyId":"4KKXd7XSJW8","recordGeneration":2,"statementFloor":0,"statementType":"transfer"}
+```
+
+Trail signature、key2 による Ed25519（86 chars）:
+
+```
+Ijetk5nXS-lFfjypHyQyi3QYKCXxBPSew2H6LB_qr0BYD7tw21X7MmZknNGl1K4jXpO_an7qQUoEqERJPf15BQ
+```
+
+Record 2 canonical string — trail の canonical string は Record 2 の canonical string の `transfer.payload` member として verbatim に現れるため、Record 2 の signature は trail の bytes を包含する（1 行）:
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"issuedAt":1769997600,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","status":"current","validFrom":1769997600,"validUntil":1770001200}],"l2Version":"0.1","prevRecordDigest":"870b931dd8f9ad01a6a037524842549ad60fcde1066dbc9caf4f3e6140102f61","recordGeneration":2,"signerKeyId":"4KKXd7XSJW8","statementFloor":0,"statementType":"authority","transfer":{"payload":{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-0","incomingKeyId":"G8VbXumewVs","l2Version":"0.1","newEpochId":"epoch-1","outgoingKeyId":"4KKXd7XSJW8","recordGeneration":2,"statementFloor":0,"statementType":"transfer"},"signature":"Ijetk5nXS-lFfjypHyQyi3QYKCXxBPSew2H6LB_qr0BYD7tw21X7MmZknNGl1K4jXpO_an7qQUoEqERJPf15BQ"}}
+```
+
+Record 2 signature、key2 による Ed25519（86 chars）:
+
+```
+198jI84AoMGGcA6AQvoqgF_OVrw5SU3i88-RKX1dZ8kYcCICdmf-UKst3vShf6hkkxd6d4Jv-_CEpWoN1tsFAw
+```
+
+この trail の `§12.2` matching rules、すべて確認済み：`outgoingKeyId` `4KKXd7XSJW8` は Record 2 の `signerKeyId` と一致；key2 は Record 1 で `current` であり、window `1769997000..1770000600` は Record 2 の `issuedAt` `1769997600` を含む；`incomingKeyId` `G8VbXumewVs` は Record 2 が `current` として導入する key と一致し、その `validFrom` は Record 2 の `issuedAt` と一致；trail の `epochId` `epoch-0` は Record 1 の `epochId` と一致；`newEpochId` `epoch-1` は Record 2 の `epochId` と一致し、chain history に一度も現れない；trail の `recordGeneration` `2` と `statementFloor` `0` は Record 2 の値と一致；`l2Version`、`anchorId`、`entityId`、`algorithm` は Record 2 の値と一致；trail signature は key2 の `publicKey` の下で検証され、その `publicKey` は Record 1 に运ばれる。
+
+Record 3（signer key3、incoming key が署名する最初の Record、`G + 1 = 3`）:
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "authority",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "recordGeneration": 3,
+  "signerKeyId": "G8VbXumewVs",
+  "algorithm": "ed25519",
+  "issuedAt": 1769998200,
+  "expiresAt": 1770001800,
+  "epochId": "epoch-1",
+  "prevRecordDigest": "39808d467859fcad7589d70d54e0666038ac039d4956964ddda751f10f3e3234",
+  "statementFloor": 0,
+  "keys": [
+    {
+      "keyId": "ECMERdvpV0k",
+      "publicKey": "s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I",
+      "algorithm": "ed25519",
+      "validFrom": 1769996400,
+      "validUntil": 1769997000,
+      "status": "retired"
+    },
+    {
+      "keyId": "4KKXd7XSJW8",
+      "publicKey": "kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM",
+      "algorithm": "ed25519",
+      "validFrom": 1769997000,
+      "validUntil": 1769997600,
+      "status": "retired"
+    },
+    {
+      "keyId": "G8VbXumewVs",
+      "publicKey": "G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs",
+      "algorithm": "ed25519",
+      "validFrom": 1769997600,
+      "validUntil": 1770001200,
+      "status": "current"
+    }
+  ]
+}
+```
+
+JCS canonical string（signing target、1 行）:
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001800,"issuedAt":1769998200,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","status":"current","validFrom":1769997600,"validUntil":1770001200}],"l2Version":"0.1","prevRecordDigest":"39808d467859fcad7589d70d54e0666038ac039d4956964ddda751f10f3e3234","recordGeneration":3,"signerKeyId":"G8VbXumewVs","statementFloor":0,"statementType":"authority"}
+```
+
+Record 3 signature、key3 による Ed25519（86 chars）:
+
+```
+zvbOz9_FWQoqCq9yQ46VGFGF7JsxZr2SOf7Y9nYJbdkXhtQ90WWHBgycvnbN7VqjA7cqxNT8164yyMKk5lYvAw
+```
+
+Post-transfer resolution statement（signer key3、`epoch-1`、`generation = 1`）:
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "resolution",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "descriptionLocation": "https://sensors.example/thermal/42/ar-xml",
+  "lifecycleStatus": "active",
+  "keyId": "G8VbXumewVs",
+  "algorithm": "ed25519",
+  "issuedAt": 1769998300,
+  "expiresAt": 1770001200,
+  "generation": 1,
+  "epochId": "epoch-1"
+}
+```
+
+JCS canonical string（signing target、1 行）:
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"generation":1,"issuedAt":1769998300,"keyId":"G8VbXumewVs","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+```
+
+Signature、key3 による Ed25519（86 chars）:
+
+```
+ahcug-ygTSwa7kit4p4ZtQ-8NInObst_l_FTzZKaL4bd2dV0lCShbVrKDbg-HRgQuKf485lOVSDNrFrrv0CGDQ
+```
+
+Expected verifier result（`T = 1769998400`、`W = 600`、§11.4）：Trust Anchor Binding のみを保持する verifier は、Record 0（自己署名、generation 0、floor 0、`prevRecordDigest` null）、Record 1（signer key1、Record 0 snapshot で `current`、digest 一致）、Record 2（signer key2、Record 1 に導入される；embedded trail 検証済み；`epoch-1` への atomic epoch switch）、Record 3（signer key3、Record 2 に導入される、window `1769997600..1770001200` は `issuedAt` `1769998200` を含む）を受理する。Revocation snapshot は Record 3 である：`issuedAt 1769998200 >= 1769998400 - 600`、`expiresAt 1770001800` は `T` を含み、snapshot は key3、受理済み epoch `epoch-1`、chain を覆盖する。Statement は key3 の下で検証され（`keyId` は wire の `publicKey` から再計算）、`epochId` は受理済み epoch と一致し、`generation 1` は floor にあり、`issuedAt <= T <= expiresAt`：`VERIFIED`。
+
+Expected negative results：missing、tampered、duplicated、mismatched trail を持つ Record 2 は不受理、chain は Record 1 で停止、statement は `UNVERIFIED`（§12.2、§15.2 phase 3–6）。key3 が署名し `epoch-0` を运ぶ statement は phase 10 で `STALE`、phase 6 では絶対にない。Records 0..2 を `T` で re-fetch、retransmit、re-present、revalidate しても snapshot を refresh しない：Record 3 が唯一の freshness point（§9.7、§11.4）。
+
+### A.6 Reproduction（再現手順）
+
+1. A.1 に従い private seed を計算し、public key `A` を導出し、`keyId` を §10.1 に従って再計算し、A.1 の値をチェックする。
+2. すべての payload を JCS で serialize する：object member names は UTF-16 code-unit order（RFC 8785 §3.2.3）で sort、minimal escaping は RFC 8785 §3.2.2.2 に準拠 — `"` は `\"`、`\` は `\\` に escape；U+0008、U+0009、U+000A、U+000C、U+000D は短縮 escapes `\b`、`\t`、`\n`、`\f`、`\r`；残りの C0 control characters は lowercase `\uXXXX`；U+2028 と U+2029 は `\u2028` と `\u2029`；DEL（U+007F）は as-is で出力；printable non-ASCII は as-is で出力 — 整数は plain decimal、whitespace なし。結果は上記の canonical string と byte-for-byte で一致 MUST。
+3. canonical string の UTF-8 octets に deterministic Ed25519（RFC 8032 §5.2）で signature を生成する；base64url signature（'=' を stripped）は上記の signature と一致 MUST。
 4. `A` に対して verification する。変更された signing target に対する verification は MUST fail。Vector 3 は U+1F600 member が U+E000 member より前に serialization されるコードで MUST verify、scalar code-point sorting は canonical bytes を再生 MUST NOT。
+5. seed strings 2 と 3 から A.1 に従って key2 と key3 を導出し、その `keyId`s を `publicKey` bytes から再計算し、A.5 の key 値をチェックする。
+6. Chain vector については、各 `prevRecordDigest` を、直前 Record の canonical payload string の UTF-8 octets の lowercase hex SHA-256 として計算する — payload のみ、signature と envelope は含まない —、Record 0 の null、3 つの digest 値、直前に受理された Records が运ぶ signer keys の下での Record 1..3 signatures をチェックする。
+7. Trail signature を key2 の `publicKey` の下で検証し、Record 2 に対してすべての §12.2 matching rules を確認し、trail の canonical string が Record 2 の canonical string 内の `transfer.payload` として verbatim に現れることを確認する。Post-transfer statement を key3 の下で `T = 1769998400`、`W = 600` で検証し、A.5 の expected positive および negative results を確認する。

@@ -249,6 +249,13 @@ Record in the chain is a chain gap, and the result is `UNVERIFIED` (§9.6). A re
 whose array is not contiguous and strictly ascending MUST NOT be accepted as authority
 material.
 
+Transfer evidence travels inside the Records: a transfer-introducing Record `G` carries the
+signed transfer trail as its embedded `transfer` payload member (§9.5, §12.2). The baseline
+response MUST NOT require any additional collection to obtain transfer evidence, and a
+verifier MUST NOT request transfer evidence outside the Records array. A transfer-introducing
+Record whose embedded trail is missing MUST NOT be accepted as authority material; the chain
+stops at Record `G-1` and resolution results are `UNVERIFIED` (§9.6).
+
 ### 6.4 Non-mutation rule
 
 Public L2 endpoints are GET-only, read-only, anonymous. L2 MUST NOT introduce public
@@ -303,11 +310,15 @@ values as L2 0.1. An unsupported `l2Version` MUST fail closed (not an ignorable 
 Optional payload members (baseline): none are REQUIRED; any additional member is treated
 under §7.5.
 
-The `transfer` payload (§12.2) and the Authority Record payload (§9.5) add
-`recordGeneration`, `epochId` / `newEpochId`, and `statementFloor` as defined there.
-Statement `generation` sequences and Record `recordGeneration` sequences are separate
-sequences and MUST NOT be compared with each other. All canonicalization and signing rules
-of §7.3 apply to every statement type, including Authority Records and transfer statements.
+The `transfer` trail (§12.2) is carried as the embedded `transfer` payload member of the
+transfer-introducing Authority Record (§9.5); the Authority Record payload (§9.5) defines
+`recordGeneration`, `epochId`, and `statementFloor`. The trail adds `outgoingKeyId`,
+`incomingKeyId`, `newEpochId`, `epochId`, `recordGeneration`, and `statementFloor` as
+defined in §12.2, and forbids `keyId`, `generation`, `issuedAt`, `expiresAt`,
+`descriptionLocation`, `lifecycleStatus`, and `effectiveGeneration`. Statement `generation`
+sequences and Record `recordGeneration` sequences are separate sequences and MUST NOT be
+compared with each other. All canonicalization and signing rules of §7.3 apply to every
+payload, including Authority Records, embedded transfer trails, and key entries.
 
 ### 7.3 Canonical serialization and signing bytes
 
@@ -332,8 +343,8 @@ Wire canonicality:
    number form, and integer-valued fields MUST appear as wire integers.
 
 Integer fields (`issuedAt`, `expiresAt`, `generation`, `recordGeneration`,
-`effectiveGeneration`, `revokedFrom`) MUST be non-negative integers in JCS canonical form,
-within the IEEE-754 double safe-integer range, `0` to `2^53 - 1`. A fractional,
+`revokedFrom`, `validFrom`, `validUntil`) MUST be non-negative integers in JCS canonical
+form, within the IEEE-754 double safe-integer range, `0` to `2^53 - 1`. A fractional,
 exponent-form, non-integer, negative, or out-of-range value MUST produce `INVALID`.
 
 Nested objects inside `payload`, including unknown extension members, canonicalize under
@@ -491,11 +502,18 @@ expiresAt
 epochId            = the epoch this Record establishes. Record 0 carries the Trust Anchor
                      Binding's initial epochId (§9.3); a transfer-introduced Record G
                      carries the transfer's newEpochId (§12.2)
-prevRecordDigest   = lowercase hex SHA-256 of the canonical wire bytes of Record G-1
-                     (§7.3 target); null for Record 0
-statementFloor     = statement generation floor established by this epoch; required on
-                     epoch-establishing Records (baseline 0)
+prevRecordDigest   = lowercase hex SHA-256 of the UTF-8 octets of the JCS canonical
+                     serialization of the `payload` member of Record G-1 (§7.3 target);
+                     the Record `signature` and the outer `{ payload, signature }` envelope
+                     are NOT included; null for Record 0
+statementFloor     = statement generation floor in force at this Record; required on every
+                     Record; epoch-establishing Records set the floor (baseline 0),
+                     non-transfer Records repeat Record G-1's floor
 keys               = array of key entries
+transfer           = embedded signed transfer trail, { payload, signature } per §7.1 with
+                     the trail payload defined in §12.2; REQUIRED on transfer-introducing
+                     Records (epochId differs from Record G-1), FORBIDDEN on all other
+                     Records
 ```
 
 Each key entry:
@@ -514,10 +532,10 @@ revokedFrom        = generation (required for status "revoked" and "compromised"
 Record payloads canonicalize and sign per §7.3, including wire canonicality. Records are
 served on the authority endpoint (§6.3) and MAY be distributed via the policy channel
 (§9.2). The key set in Record G is the complete, current snapshot of accepted keys at
-`recordGeneration = G`; every key that may sign any Record `G+1..` MUST be present in
-Record `G` with its `publicKey` bytes, so a verifier holding only Record `G` can verify
-Record `G+1`'s signature from wire material alone. `prevRecordDigest` binds Record `G` to
-Record `G-1` byte-for-byte; the chain walk verifies this binding at every step. Revocation,
+`recordGeneration = G`; the signer of Record `G+1` MUST be present in Record `G` with its
+`publicKey` bytes, so a verifier holding only Record `G` can verify Record `G+1`'s signature
+from wire material alone. `prevRecordDigest` binds Record `G` to Record `G-1` byte-for-byte;
+the chain walk verifies this binding at every step. Revocation,
 retirement, compromise, and rotation status changes are expressed by successive Records.
 
 ### 9.6 Chain acceptance
@@ -529,12 +547,17 @@ Verifiers MUST accept Records only by chain walk from the Trust Anchor Binding (
    epoch start) and MUST verify under the binding's initial public key material;
 2. Record `recordGeneration = G > 0` MUST be accepted only when: Records `0..G-1` are
    accepted and Record G is the next contiguous generation; Record G's `prevRecordDigest`
-   equals the SHA-256 of Record `G-1`'s canonical wire bytes (§9.5); Record G verifies
-   under its `signerKeyId`, using that key's `publicKey` bytes present in Record `G-1`;
-   `signerKeyId` has `status = "current"` in Record `G-1` with
-   `validFrom <= issuedAt(G) <= validUntil`; and every key introduced by Record G is
-   authorized by rotation (signed by a key `current` in Record `G-1`, §10.3) or by a
-   verified transfer (§12) in force at `recordGeneration >= effectiveGeneration`;
+   equals the SHA-256 of the JCS canonical serialization of Record `G-1`'s `payload`
+   (§9.5, §7.3); Record G verifies under its `signerKeyId`, using that key's `publicKey`
+   bytes present in Record `G-1`; `signerKeyId` has `status = "current"` in Record `G-1`
+   with `validFrom <= issuedAt(G) <= validUntil`; Record G's `epochId` MUST equal Record
+   `G-1`'s `epochId` when Record G carries no `transfer` member and MUST differ when it
+   does, the new `epochId` MUST be an identifier never accepted in this Anchor's chain
+   history, and Record G's `statementFloor` MUST equal Record `G-1`'s `statementFloor` on
+   a non-transfer Record and MUST be `0` on a transfer-introducing Record; every key
+   introduced by Record G is authorized by rotation (signed by a key `current` in Record
+   `G-1`, §10.3) or by Record G's embedded trail, which MUST verify and satisfy every
+   matching rule of §12.2;
 3. a Record that self-signs the introduction of a new key (signer not `current` in
    Record `G-1`) MUST NOT be accepted: this is the key-substitution defense, applied at
    the Record boundary, not against any historical key set;
@@ -546,6 +569,14 @@ Verifiers MUST accept Records only by chain walk from the Trust Anchor Binding (
    the signed Record chain alone. A verifier that cannot do this fails L2 0.1. This
    acceptance criterion is catalog-owned follow-up work (§20, §21).
 
+The chain walk is historical evidence verification: each Record signature verifies under
+the key that was `current` in Record `G-1` at that step, and that key's validity window
+bounds the signing time of Record `G` (`validFrom <= issuedAt(G) <= validUntil`). A
+Record's `expiresAt` bounds its use as a revocation snapshot at evaluation time `T`
+(§11.4); expiry of historical Records MUST NOT invalidate the accepted chain at `T`.
+Verification of a historical signature under a key later marked `compromised` proves the
+record trail only, and MUST NOT be treated as current trust in that key (§13.4).
+
 ### 9.7 Authority-material anti-rollback and equivocation
 
 - the verifier MUST track the highest accepted `recordGeneration` per Anchor;
@@ -555,7 +586,12 @@ Verifiers MUST accept Records only by chain walk from the Trust Anchor Binding (
   §7.3 canonicalization, to the accepted Record; a different payload at the same
   `recordGeneration` MUST produce `CONFLICT` (equivocation, §17);
 - the verifier MUST NOT accept two Records with the same `recordGeneration` and different
-  payloads, and MUST NOT pick one.
+  payloads, and MUST NOT pick one;
+- a Record re-fetched, retransmitted, re-presented, or HTTP-revalidated at the accepted
+  maximum MUST NOT advance the snapshot freshness point (§11.4): freshness is bound to the
+  Record's signed `issuedAt`, never to retrieval time. Only acceptance of a higher
+  `recordGeneration` moves the chain position and, when its window is fresh, the
+  revocation snapshot.
 
 ### 9.8 State loss
 
@@ -565,6 +601,13 @@ Binding via the policy channel (§9.2). Authority material received on first con
 without chain provenance MUST NOT be trusted. A verifier without a trusted lower bound
 MUST NOT claim `VERIFIED` from first-contact material, because old data inside a validity
 window cannot be identified as old.
+
+Recovery after compromise of a key that signed Records in the accepted chain history MUST
+NOT be performed with material signed by that key: the chain walk through a compromised key
+verifies the trail, not current trust. A verifier recovering from compromise MUST
+re-bootstrap — obtain a new Trust Anchor Binding through the policy channel with new initial
+public key material (§9.3). A chain reconstructed under a compromised initial key MUST NOT
+be treated as authority state.
 
 ## 10. Key lifecycle
 
@@ -672,7 +715,10 @@ established by the Record that establishes that epoch (§9.5, §12.2); the basel
 `recordGeneration` (§7.2).
 
 A statement whose `epochId` is not the verifier's current accepted epoch MUST NOT be
-accepted as current: `STALE` (cross-epoch replay). Within the current epoch, a statement
+accepted as current: `STALE` (cross-epoch replay). The prior-epoch result is produced by
+the statement freshness phase (§15.2 phase 10); the snapshot coverage check (§11.4)
+evaluates the signing key, the current accepted epoch, and the chain, and does not
+evaluate the statement's own `epochId`. Within the current epoch, a statement
 with `generation` below the accepted maximum MUST produce `STALE`. A statement at the
 accepted maximum MUST NOT be re-accepted as freshness progress; replay of the identical
 accepted statement is permitted only within its validity window, and MUST NOT be accepted
@@ -690,21 +736,29 @@ gap, or a coverage gap MUST produce `UNVERIFIED`, not `VERIFIED`.
 
 `VERIFIED` at time `T` is a point-in-time judgment over the verifier's revocation snapshot:
 the highest accepted Record, verified by chain walk (§9.6), whose key entries carry
-`status` and `revokedFrom`. At evaluation time `T`, the snapshot MUST be the highest
-accepted Record, MUST have been accepted within the deployment's documented, bounded
-freshness upper bound, MUST cover the statement's signing key, the statement's `epochId`,
-and the accepted chain, and MUST be fresh at `T`. A snapshot older than the freshness
-upper bound, a missing snapshot, an incomplete chain, and a coverage gap MUST produce
-`UNVERIFIED`, never `VERIFIED`.
+`status` and `revokedFrom`. The snapshot's freshness is evaluated against its signed time,
+not its retrieval time: the snapshot is fresh at `T` if and only if
+`issuedAt(snapshot) >= T - W` and `T <= expiresAt(snapshot)`, where `W` is the
+deployment's documented, bounded freshness upper bound. Re-fetching, retransmission,
+re-presentation, and HTTP revalidation of a Record at the accepted maximum MUST NOT
+update the freshness point (§9.7): the freshness point is the Record's signed `issuedAt`.
+Only acceptance of a higher `recordGeneration` with a fresh window updates the snapshot.
+At evaluation time `T`, the snapshot MUST be the highest accepted Record, MUST be fresh at
+`T` by this rule, and MUST cover the statement's signing key, the current accepted epoch,
+and the accepted chain; the snapshot coverage check does not evaluate the statement's own
+`epochId` (§11.3). A snapshot whose signed time is older than `W`, a missing snapshot, an
+incomplete chain, and a coverage gap MUST produce `UNVERIFIED`, never `VERIFIED`.
 
 `VERIFIED` at `T` asserts nothing about revocation after `T`: revocation that occurs later
 is not continuously guaranteed, `VERIFIED` MUST NOT be presented as a guarantee of future
 currency, and a consumer MUST re-evaluate for currency at any `T' > T` (§13.5). Baseline
 coverage is key-status based: `revoked` and `compromised` key entries with `revokedFrom`
 (§13.4); per-statement revocation is not a baseline guarantee (§13.1, §21 OPEN). Statement
-validity windows bound statements; snapshot freshness upper bounds bound revocation
-knowledge, not statement expiry. Revocation publication latency SHOULD be comparable to
-statement validity windows and snapshot freshness upper bounds (§11.6, §21).
+validity windows bound statements; the snapshot freshness upper bound `W` bounds
+revocation knowledge, not statement expiry. Revocation updates withheld by the distributor
+within `W` are not detectable by the verifier: `W` bounds the knowledge gap, and a
+deployment that needs a bounded revocation publication latency MUST document `W` against
+its distributor's publication SLA (§11.6, §21).
 
 ### 11.5 Offline verification
 
@@ -726,52 +780,73 @@ third-party timestamp. Third-party timestamping is a non-baseline extension.
 
 ### 12.1 Transfer is an explicit authority transition
 
-Transfer MUST be represented by a signed transfer statement, not by an implicit administrative
-update of Description Location, not by a key appearing in an Authority Record, and not by
-lifecycle changes.
+Transfer MUST be represented by a signed transfer trail embedded in an Authority Record,
+not by an implicit administrative update of Description Location, not by a key appearing
+in an Authority Record, and not by lifecycle changes.
 
-### 12.2 Transfer statement (follow-up resource; model fixed here)
+### 12.2 Transfer trail (embedded in Record G; model fixed here)
 
 ```text
 statementType       = "transfer"
+l2Version           = "0.1"
 anchorId
 entityId            (MUST match the record's Canonical Entity Identity)
-outgoingKeyId
-incomingKeyId
-recordGeneration    (chain position per §9.6; strictly above the last accepted Record)
-effectiveGeneration (recordGeneration + 1: the first Record position signed by the
-                     incoming key)
-newEpochId          (stable identifier of the new epoch, carried by Record G, §9.5)
-issuedAt
-expiresAt
+outgoingKeyId       (the signing key of Record G; MUST equal Record G's signerKeyId)
+incomingKeyId       (MUST equal the keyId Record G introduces as current)
+algorithm           (the outgoing key's algorithm for the trail signature; MUST match
+                     Record G's algorithm)
+epochId             (MUST equal Record G-1's epochId: the epoch being left)
+newEpochId          (MUST equal Record G's epochId; MUST be an identifier never accepted
+                     in this Anchor's chain history, §9.6)
+recordGeneration    (MUST equal Record G's recordGeneration)
+statementFloor      (MUST equal Record G's statementFloor, baseline 0: floor reset)
+
+forbidden payload members: keyId, generation, issuedAt, expiresAt,
+descriptionLocation, lifecycleStatus, effectiveGeneration
 ```
 
-A transfer statement MUST be signed by the outgoing authority key. Bootstrap-to-first-transfer
+The trail is the embedded `transfer` payload member of Record `G`, a signed object
+`{ payload, signature }` per §7.1, signed by the outgoing key over the JCS canonical
+trail payload (§7.3), so the Record `G` signature covers the trail bytes. The trail
+carries no validity window: its freshness and chain position are inherited from Record
+`G` through chain acceptance (§9.6), so a valid historical trail remains verifiable at
+any later `T`.
+
+The trail MUST be signed by the outgoing authority key. Bootstrap-to-first-transfer
 is not applicable; the initial binding comes from the Trust Anchor Binding.
 
-A transfer statement whose `outgoingKeyId` is not the verifier's accepted current authority
-MUST produce `UNKNOWN_AUTHORITY`. A transfer statement that is not fresh MUST NOT create an
-epoch. A verifier MUST NOT accept unsigned, self-attested, `incomingKeyId`-signed,
-administratively signed, origin-signed, DNS-signed, or CDN-signed transfer claims.
+A trail whose `outgoingKeyId` is not Record `G`'s signer MUST NOT be accepted (§9.6).
+A trail presented outside an accepted Record — standalone, on the policy channel, or in
+a supplementary collection — MUST NOT create an epoch: only the embedded trail inside an
+accepted transfer-introducing Record is transfer evidence. A verifier MUST NOT accept
+unsigned, self-attested, `incomingKeyId`-signed, administratively signed, origin-signed,
+DNS-signed, or CDN-signed transfer claims.
 
 A transfer MUST bind to the authority Record chain in a fixed order:
 
-1. the transfer statement is presented at `recordGeneration = G`, strictly above the last
-   accepted Record `G-1`, signed by the outgoing key (`current` in Record `G-1`), with
-   `newEpochId` set;
-2. the verifier verifies the transfer statement under the outgoing key;
-3. Record `G` MUST be signed by the outgoing key, introduced by the verified transfer,
-   and MUST carry `newEpochId` and the new epoch's `statementFloor` (baseline `0`); it
-   introduces the incoming key as `current` with a window containing `issuedAt(G)`;
-4. the verifier MUST accept Record `G` atomically as the epoch switch: the outgoing key is
-   non-current from the acceptance of Record `G` onward, and the incoming key is current
-   for signatures from Record `G + 1` onward;
-5. the first Record signed by the incoming key MUST be at `recordGeneration = G + 1` and
-   MUST be accepted under §9.6;
-6. transfers and Records below the accepted maximum are authority rollback (§9.7).
+1. Record `G` is presented in the baseline Records array (§6.3), at the next
+   contiguous generation above the last accepted Record `G-1`, and carries the
+   embedded `transfer` trail; Record `G`'s `epochId` differs from Record `G-1`'s;
+2. chain acceptance verifies Record `G`'s Record signature under the outgoing key,
+   which is `current` in Record `G-1` with a window containing `issuedAt(G)`
+   (§9.5, §9.6);
+3. the embedded trail verifies as a signed object under the outgoing key, and every
+   matching rule of the table above holds; a missing, unverifiable, duplicated, or
+   mismatched trail MUST NOT be accepted: Record `G` is rejected, the chain stops at
+   `G-1`, and statements resolve to `UNVERIFIED` (§9.6);
+4. the verifier MUST accept Record `G` atomically as the epoch switch: Record `G`
+   carries `newEpochId` and the new epoch's `statementFloor` (baseline `0`); the
+   outgoing key is non-current from the acceptance of Record `G` onward, and the
+   incoming key, introduced by Record `G` as `current` with a window containing
+   `issuedAt(G)`, is the only key that signs Records from `G + 1` onward;
+5. the first Record signed by the incoming key MUST be at `recordGeneration = G + 1`
+   and MUST be accepted under §9.6;
+6. trails and Records below the accepted maximum are authority rollback (§9.7).
 
 Signer state is judged against the immediately preceding accepted Record (`G-1` for
-Record `G`), never against any earlier Record.
+Record `G`), never against any earlier Record. Appendix A.5 pins a complete chain vector:
+Records `0..3` with the embedded trail, the payload-only `prevRecordDigest` values, and
+the post-transfer statement, reproducible from fixed seed strings.
 
 ### 12.3 Epoch semantics
 
@@ -833,16 +908,19 @@ and verifiable under an accepted authority (§11.4).
 
 ### 13.4 Revocation effects
 
-A fresh, verified revocation of a key: the key's window ends at the revocation's effective
-generation; statements under that key with generation ≥ effective generation are `REVOKED`;
-statements below remain governed by §11.3. Per-statement revocation is not a baseline
+A fresh, verified revocation of a key: the key's window ends at the `issuedAt` of the
+Record carrying the revocation; statements under that key with `issuedAt` at or after that
+Record's `issuedAt` are `REVOKED`; statements below remain governed by §11.3. Per-statement
+revocation is not a baseline
 guarantee (§13.1): baseline coverage is key-status based (§11.4). A statement revocation
 extension, when defined, MUST invalidate verifier caches of revoked statements at the
 verifier's next accepted evaluation (§21 OPEN).
 
 Revocation, retirement, and compromise are expressed as Record chain operations (§9.5): the
 signing key is `current` under Record `G-1`, and Record `G` marks the target key
-`status = "revoked"` or `"compromised"` with `revokedFrom`.
+`status = "revoked"` or `"compromised"` with `revokedFrom`. `revokedFrom` is a Record
+position: `revokedFrom = G` means the revocation is expressed by Record `G` and takes
+effect at Record `G`'s `issuedAt`.
 
 A key marked `compromised` in the accepted chain MUST NOT be accepted as current by the
 verifier, for any signature, at any generation, at any time. A compromised key that
@@ -850,7 +928,10 @@ re-signs old `generation`/`issuedAt` values after compromise produces a signatur
 verifier MUST NOT accept as current: without independently trusted evidence, the verifier
 MUST NOT recognize a signature from a compromised key as current (§17, leak-replay). A
 signature by a compromised key, evaluated with fresh coverage, MUST be surfaced as `REVOKED`,
-never as `VERIFIED`.
+never as `VERIFIED`. Verification of a historical Record signature by a key later marked
+`compromised` proves the record trail only (§9.6); it MUST NOT make signatures by that key
+current, and recovery from compromise of the initial binding key requires re-bootstrap with
+new Trust Anchor Binding key material (§9.8).
 
 ### 13.5 Fail-closed revocation availability
 
@@ -939,8 +1020,9 @@ INVALID
 EXPIRED
     structurally valid statement with T outside [issuedAt, expiresAt]
 REVOKED
-    fresh revocation snapshot marks the signing key compromised, or revoked with
-    `revokedFrom` ≤ evaluation scope (§11.4, §13.4)
+    fresh revocation snapshot marks the signing key compromised, or revoked with the
+    statement `issuedAt` at or after the `issuedAt` of Record `revokedFrom` (§11.4, §13.4,
+    §15.2 phase 9)
 STALE
     statement generation below accepted maximum / statement floor, prior-epoch `epochId`,
     accepted rollback attempt
@@ -1017,23 +1099,28 @@ in the normative order below. All phases passing yields `VERIFIED`.
 4.  trusted clock available (§11.2)                                    UNVERIFIED
 5.  authority material present, chain walk 0..G complete, Record contiguity,
     prevRecordDigest binding, signerKeyId resolvable with publicKey in the accepted
-    chain (§9.6)                                                       UNVERIFIED (chain gap,
+    chain, embedded transfer trails verified with all §12.2 matching rules
+    (§9.6, §12.2)                                                       UNVERIFIED (chain gap,
     missing material, no trusted lower bound §9.8); UNKNOWN_AUTHORITY (signer outside the
     accepted chain; keyId/publicKey recomputation failure §9.4)
-6.  revocation snapshot fresh at T: highest accepted Record, within the freshness upper
-    bound, covering the signing key, epochId, and chain (§11.4)       UNVERIFIED on gap,
-    staleness, coverage gap
+6.  revocation snapshot fresh at T by the §11.4 signed-time rule: highest accepted Record
+    with `issuedAt >= T - W` and `expiresAt` covering `T`, covering the signing key, the
+    current accepted epoch, and the chain; snapshot coverage does not evaluate the
+    statement's own `epochId` (§11.3, §11.4)                          UNVERIFIED on gap,
+    signed-time staleness, coverage gap
 7.  Record chain position: Record below accepted maximum, same-generation byte-identity,
     epoch establishment (§9.7, §12.2, §12.3)                          STALE / CONFLICT
 8.  signature verification under the signerKeyId publicKey bytes (§9.6)
     INVALID
-9.  signer key status in the fresh snapshot, at issuedAt: compromised, revoked
-    (revokedFrom ≤ evaluation scope), retired, outside validity window, entityId
+9.  signer key status in the fresh snapshot, at issuedAt: compromised, revoked (statement
+    `issuedAt` at or after the `issuedAt` of Record `revokedFrom`), retired, outside
+    validity window, entityId
     mismatch                                                          REVOKED (compromised,
     revoked); UNVERIFIED (retired, §10.5; outside window, §10.4);
     UNKNOWN_AUTHORITY (entityId mismatch, §15)
-10. statement freshness [issuedAt, expiresAt] vs T; statement epochId match; statement
-    generation vs accepted maximum and statement floor; statement equivocation
+10. statement freshness [issuedAt, expiresAt] vs T; statement `epochId` vs current
+    accepted epoch — a prior-epoch `epochId` yields `STALE` here and nowhere earlier;
+    statement generation vs accepted maximum and statement floor; statement equivocation
     (§11.3, §12.3)                                                    EXPIRED; STALE (prior-epoch
     epochId, below floor, below accepted maximum); CONFLICT (equivocation)
 11. l1-bound mode, §7.4 (§15.1)                                        UNVERIFIED on missing
@@ -1047,7 +1134,13 @@ mismatch fails at phase 1 as `INVALID` for the Record, phase 5 for the dependent
 statement, consistent with §9.4. A retired key yields `UNVERIFIED` (§10.5), never
 `REVOKED`; `REVOKED` requires a fresh snapshot, which phase 6 guarantees before phase 9.
 A statement replayed within its validity window at the accepted maximum is not freshness
-progress (§11.3). Authority rollback (Record below the accepted maximum) is `STALE`; a
+progress (§11.3), and re-fetching, retransmission, re-presentation, and HTTP revalidation
+of an accepted Record at the accepted maximum do not refresh the revocation snapshot
+(§9.7, §11.4). Fixed expected results: a signed statement carrying a prior-epoch `epochId`
+is `STALE` at phase 10; a revocation boundary — a statement `issuedAt` at or after the
+`issuedAt` of Record `revokedFrom` — is `REVOKED` at phase 9; a missing snapshot, a
+snapshot stale by its signed time, and an incomplete chain are `UNVERIFIED` at phase 6,
+never `VERIFIED`. Authority rollback (Record below the accepted maximum) is `STALE`; a
 same-generation Record with a different payload is `CONFLICT`; a signer outside the
 accepted chain is `UNKNOWN_AUTHORITY`. A verifier MUST NOT reorder phases, MUST NOT pick
 by severity, recency, or origin preference. The result MUST record which phase failed.
@@ -1105,7 +1198,7 @@ in this draft.
 | Replay | validity window + per-epoch generation + accepted-maximum (§11.3) |
 | Rollback | monotonic Record generations, per-epoch statement floors, `STALE` (§9.7, §11.3, §12.3) |
 | Stale signed data | `expiresAt`, epoch floor, `EXPIRED`/`STALE` (§11) |
-| Key compromise | revocation, short windows, fail-closed revocation, compromised flag in Records, never-current signatures (§10.6, §13.4) |
+| Key compromise | revocation, short windows, fail-closed revocation, compromised flag in Records, never-current signatures, re-bootstrap after initial-key compromise (§9.8, §10.6, §13.4) |
 | Key substitution | Authority Record chain: signed by prior-current key, never by new key alone; key material carried on the wire as `publicKey`, `keyId` recomputed (§9.4, §9.5, §9.6, §10.3) |
 | Conflicting authorities | `CONFLICT`, fail-closed, no reconciliation heuristics (§8.3) |
 | Downgrade to L1 | frozen Core `l` rules preserved (SHOULD-level `501` guidance), never L1 (§6.1, §5) |
@@ -1122,6 +1215,9 @@ in this draft.
 | First-contact authority bootstrap | chain walk from the Trust Anchor Binding, re-establishment after state loss, no first-contact `VERIFIED` (§9.6, §9.8) |
 | keyId ↔ publicKey substitution | `keyId` recomputed from wire `publicKey` bytes; Records carry full key material; chain acceptance from binding material (§9.3, §9.4, §9.5, §10.1) |
 | cross-epoch replay / generation mixing | statement `epochId` on the signing target, per-epoch statement floors, `recordGeneration` and statement `generation` as separate sequences (`STALE`, §11.3, §12.2, §12.3) |
+| freshness refresh by re-fetching accepted old Records | freshness is evaluated against the Record's signed `issuedAt` and `expiresAt`; re-fetch, retransmission, re-presentation, and HTTP revalidation at the accepted maximum never advance the freshness point; revocation updates withheld by the distributor within `W` are undetectable, and `W` bounds the knowledge gap (§9.7, §11.4) |
+| compromised initial-key chain recovery limits | chain walk through a compromised key verifies the historical trail, never current trust; recovery requires re-bootstrap with new Trust Anchor Binding key material via the policy channel (§9.6, §9.8, §13.4) |
+| transfer trail absence, tampering, duplication | embedded trail inside Record `G` is the only transfer evidence; all §12.2 matching rules; chain stops at `G-1` with `UNVERIFIED` for statements, `CONFLICT` on same-generation Record duplication (§12.2, §9.6, §9.7, §15.2) |
 
 Explicit non-goal boundary: L2 does not provide physical Entity authentication, device
 authorization, capability authorization, AR-XML semantic validation, or general PKI
@@ -1151,9 +1247,11 @@ L2 0.1 MUST NOT define:
 Baseline mandatory guarantees: G1–G8 (§4). A verifier claiming L2 0.1 baseline conformance
 MUST implement: JCS canonical serialization with UTF-16 code-unit member order (§7.3),
 `ed25519` verification, statement parsing, Record chain acceptance from the Trust Anchor
-Binding including its public key material (§9.6), keyId recomputation from wire `publicKey`
+Binding including its public key material and the embedded transfer trails (§9.6, §12.2),
+keyId recomputation from wire `publicKey`
 bytes (§9.4, §10.1), authority-material anti-rollback and equivocation handling (§9.7),
-freshness, per-epoch statement anti-rollback, the revocation snapshot (§11.4), the full
+freshness, per-epoch statement anti-rollback, the revocation snapshot evaluated against its
+signed time (§11.4), the full
 state model in §15 with verification modes and the §15.2 precedence order, §7.4 consistency
 in `l1-bound` mode, and fail-closed behavior everywhere required.
 
@@ -1191,9 +1289,19 @@ L2-AUTHORITY     (rotation/transfer/revocation signature semantics)
 
 L2-VERIFIER / L2-AUTHORITY acceptance includes: chain acceptance from an initial Trust
 Anchor Binding carrying public key material, reaching the current key after rotation,
-transfer, and revocation over the wire (§9.3, §9.6 item 5); §9.7 equivocation handling;
-revocation snapshot freshness for `VERIFIED` (§11.4); §15.2 precedence cases; Appendix A
-canonical and signature vectors, including the non-BMP UTF-16 code-unit vector.
+transfer, and revocation over the wire (§9.3, §9.6 item 5); a Record chain vector where a
+verifier holding only the initial binding accepts Records `0..G` through embedded transfer
+trails, reaches the post-transfer key, and verifies the post-transfer resolution statement
+in the new epoch (Appendix A.5); the Record 0→1 `prevRecordDigest` vector with the
+payload-only target (§9.5); §9.7 equivocation handling; revocation snapshot freshness
+evaluated against the Record's signed time for `VERIFIED` (§11.4), where re-fetching,
+re-presentation, and revalidation of an accepted Record do not refresh the snapshot;
+§15.2 precedence cases, with prior-epoch `STALE` at phase 10, revocation boundary
+`REVOKED` at phase 9, and snapshot staleness `UNVERIFIED` at phase 6; signature
+verification compared under Ed25519 and ES256 with known vectors; identical payload with
+differing signature encodings yielding the same digest interpretation; transfer trail
+absence, tampering, and duplication; compromised-key recovery requiring re-bootstrap;
+Appendix A canonical and signature vectors, including the non-BMP UTF-16 code-unit vector.
 Identifiers remain catalog-owned; this draft MUST NOT invent them.
 
 This draft MUST NOT invent `RES-*`, `LIFE-*`, `MAN-*`, `INT-*`, `NET-*`, `RT-*`, or L2
@@ -1206,8 +1314,10 @@ reported as relink-testbed results.
 ## 21. Open issues requiring follow-up decisions
 
 1. `p` semantics for L2 profiles, nonce/challenge binding for online freshness;
-2. transfer/revocation as public resources (paths, status codes, discovery, submission
-   channel: administrative vs. L2-signed material); per-statement revocation as a
+2. revocation as a public resource (paths, status codes, discovery, submission
+   channel: administrative vs. L2-signed material); transfer trails are embedded in
+   Records and baseline-defined (§6.3, §12.2), not an open resource question;
+   per-statement revocation as a
    non-baseline extension (§13.1, §13.4); revocation status itself is a Record chain
    operation (§9.5, §13.4);
 3. Trust Anchor Binding provisioning profile (factory pairing, operator trust lists,
@@ -1222,9 +1332,10 @@ reported as relink-testbed results.
    the §11.4 baseline requirement (profile parameters, not fixed in 0.1), cache
    invalidation interfaces, and coverage horizon profiles beyond the §11.4 baseline;
 9. ES256 adoption as MUST, and a profile mechanism for adding algorithms;
-10. L2 conformance catalog case set, including §9.6 chain-acceptance, §9.7 equivocation,
-    §11.4 revocation snapshot, §15.2 precedence, and signature test vectors beyond
-    Appendix A;
+10. L2 conformance catalog case set, including §9.6 chain-acceptance, §12.2 transfer
+    trail matching rules, §9.5 `prevRecordDigest`, §9.7 equivocation,
+    §11.4 revocation snapshot, §15.2 precedence, signature test vectors beyond
+    Appendix A, Ed25519/ES256 known-vector comparison, and compromised-key recovery;
 11. Japanese normative translation after stabilization.
 
 ## 22. Acceptance-criteria mapping (Issue #28)
@@ -1236,14 +1347,14 @@ reported as relink-testbed results.
 | Signed / verifiable object defined | §7 (payload, JCS canonical serialization, signing bytes), Appendix A vectors |
 | Signer identity and Entity authority rules defined | §8, §§9.1–9.8 (Authority Record format with wire `publicKey` material, chain acceptance, anti-rollback, state loss) |
 | Key discovery and rotation semantics defined | §§9.5–9.7, §10 (validity windows, rotation Records, keyId recomputed from wire publicKey, epochId); OPEN items in §21 |
-| Freshness and anti-rollback defined | §11 (statement anti-rollback, authority-material anti-rollback §9.7, revocation snapshot §11.4) |
-| Ownership / authority transfer semantics defined | §12 |
-| Revocation semantics defined | §13, §9.5, §13.4 (revocation, retirement, compromise as Record chain operations); revocation material resource OPEN, §21 |
+| Freshness and anti-rollback defined | §11 (statement anti-rollback, authority-material anti-rollback §9.7, revocation snapshot §11.4 with signed-time freshness and re-fetch non-refresh) |
+| Ownership / authority transfer semantics defined | §12 (embedded transfer trail in Record G, §12.2 matching rules, epoch switch, trail carried in the baseline Records array §6.3) |
+| Revocation semantics defined | §13, §9.5, §13.4 (revocation, retirement, compromise as Record chain operations; `revokedFrom` as Record position, effective at Record `issuedAt`); revocation material resource OPEN, §21 |
 | Verification result states deterministic and documented | §15 (modes, precedence order, `ANCHOR_MISMATCH`) |
 | Relationship to Manifest 0.1 explicit | §16.2, §7.6 |
 | Relationship to administrative authentication explicit | §16.3 |
 | L1 downgrade / fallback explicit and fail-closed | §5, §6.1, §6.5, §17 |
-| Security analysis covers replay, rollback, key compromise, conflicting authority, signature stripping, Record rollback/equivocation, cross-anchor substitution, compromised-key re-signing, first-contact bootstrap, keyId/publicKey substitution, cross-epoch replay | §17 |
+| Security analysis covers replay, rollback, key compromise, conflicting authority, signature stripping, Record rollback/equivocation, cross-anchor substitution, compromised-key re-signing, first-contact bootstrap, keyId/publicKey substitution, cross-epoch replay, re-fetch freshness refresh, transfer trail integrity, compromised-key chain recovery | §17 |
 | Capability execution and authorization out of scope | §18, §16.4, §15 |
 
 All criteria are draft-covered at the specification level; implementation, L2 conformance
@@ -1276,13 +1387,17 @@ Authority:
     bootstrap = Trust Anchor Binding via policy channel, with initial public key material,
                 epochId, statementFloor
     rotation  = signed by prior-current authority, overlapping windows
-    transfer  = explicit signed transfer, outgoing key signs Record G, newEpochId,
-                incoming key signs from Record G+1, statement floor reset
+    transfer  = embedded signed trail in Record G (outgoingKeyId, incomingKeyId,
+                epochId, newEpochId, recordGeneration, statementFloor), signed by the
+                outgoing key; all §12.2 matching rules; trail in the baseline Records
+                array; incoming key signs from Record G+1, statement floor reset
     revocation= signed by current authority, fail-closed
     one current binding per anchor; conflicts → CONFLICT
     Authority Record = signed snapshot, recordGeneration strictly increasing,
-    publicKey on the wire, prevRecordDigest chain binding, epochId, statementFloor
-    chain walk 0..G from the Trust Anchor Binding; key never signs its own introduction
+    publicKey on the wire, prevRecordDigest = lowercase hex SHA-256 of the UTF-8 octets
+    of JCS(previous Record payload), epochId, statementFloor
+    chain walk 0..G from the Trust Anchor Binding, embedded transfer trails verified
+    with §12.2 matching rules; key never signs its own introduction
     Record rollback → STALE; same generation, different payload → CONFLICT
 
 Keys:
@@ -1297,8 +1412,10 @@ Freshness:
     per-epoch statement generations, statement floors, epochId match,
     replay/rollback → STALE
     no trusted clock → UNVERIFIED, never VERIFIED
-    VERIFIED at T requires the revocation snapshot fresh at T within a bounded
-    freshness upper bound (§11.4); VERIFIED at T makes no claim about T' > T
+    VERIFIED at T requires the revocation snapshot fresh at T by its signed time:
+    issuedAt >= T - W and expiresAt covering T (§11.4); re-fetching, retransmission,
+    re-presentation, and revalidation of an accepted Record never refresh the
+    snapshot; VERIFIED at T makes no claim about T' > T
 
 Verifier states (deterministic, no boolean):
     VERIFIED | UNVERIFIED | INVALID | EXPIRED | REVOKED | STALE |
@@ -1323,10 +1440,12 @@ Boundaries:
 
 This appendix pins the exact signing target, signature encoding, and canonical
 serialization rules of §7.3, including object member order in UTF-16 code-unit
-order (RFC 8785 §3.2.3, §7.3). The vectors are reproducible from the fixed
-seed below using only RFC 8032 Ed25519, RFC 8785 JCS, SHA-256, SHA-512, and base64url
-(RFC 4648 §5). Conformance test case identifiers are catalog-owned follow-up work
-(§20); this appendix provides reference values, not case identifiers.
+order (RFC 8785 §3.2.3, §7.3), and pins the full Record chain vector: Records `0..3`,
+the embedded transfer trail (§12.2), the payload-only `prevRecordDigest` target (§9.5),
+and the post-transfer statement. The vectors are reproducible from the fixed seed
+strings below (A.1, A.5) using only RFC 8032 Ed25519, RFC 8785 JCS, SHA-256, SHA-512,
+and base64url (RFC 4648 §5). Conformance test case identifiers are catalog-owned
+follow-up work (§20); this appendix provides reference values, not case identifiers.
 
 ### A.1 Fixed key material
 
@@ -1506,17 +1625,353 @@ Signature (86 chars):
 nNEFPVF4vUZWiUU9eadPkEqQEb_pNBXR3yksE5IHTNrYASA8Fg4hubCdDr9PR4vPLxzaBRzeeYdYH-O4XArjCQ
 ```
 
-### A.5 Reproduction steps
+### A.5 Vector 4: Record chain, embedded transfer trail, payload-only prevRecordDigest
+
+Seed strings, UTF-8: `relink-l2-0.1-draft-test-vector-seed-2` and
+`relink-l2-0.1-draft-test-vector-seed-3`. Derive key2 and key3 with the A.1 derivation,
+seed 2 for key2 and seed 3 for key3.
+
+```
+key2 private seed (hex) = 11a02c8e86da4620c1b75851b54cf11ed0bf920ed6a2f8bfdab8528b6661c3ea
+key2 public key A (hex) = 92446f197e98d48765c07683e51c7261bdf01ed5d8b0d271a3ad40c184572563
+key2 SHA-256(A) (hex)   = e0a29777b5d2256ffa591e993e6daa9f941fb1a45d32587e44603d5d0c7692a4
+key2 keyId              = 4KKXd7XSJW8
+key2 publicKey          = kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM
+
+key3 private seed (hex) = d0510d88aca40d3264a3e849dd5a12e6fdf4ffe96c52c1d7c7c469f33b97b146
+key3 public key A (hex) = 1b7ecbe59de3d86053280be9b424c1e674d48dba257febd06ac89207bca9bdcb
+key3 SHA-256(A) (hex)   = 1bc55b5ee99ec15bd6ab107a8eea608e67ef8bba02e8b9537f20555b81fd1752
+key3 keyId              = G8VbXumewVs
+key3 publicKey          = G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs
+```
+
+The Trust Anchor Binding (policy channel, §9.3) carries `keyId = "ECMERdvpV0k"`,
+`publicKey = A` (A.1), `epochId = "epoch-0"`, `statementFloor = 0`. Records `0..3` form
+the chain; each Record is an envelope `{ payload, signature }` (§7.1, §9.5). Payloads
+below are display order; the wire payload MUST be the canonical serialization (§7.3).
+
+Record 0 (`recordGeneration = 0`, self-signed, `prevRecordDigest` null):
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "authority",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "recordGeneration": 0,
+  "signerKeyId": "ECMERdvpV0k",
+  "algorithm": "ed25519",
+  "issuedAt": 1769996400,
+  "expiresAt": 1770000000,
+  "epochId": "epoch-0",
+  "prevRecordDigest": null,
+  "statementFloor": 0,
+  "keys": [
+    {
+      "keyId": "ECMERdvpV0k",
+      "publicKey": "s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I",
+      "algorithm": "ed25519",
+      "validFrom": 1769996400,
+      "validUntil": 1770000000,
+      "status": "current"
+    }
+  ]
+}
+```
+
+JCS canonical string (signing target, one line):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-0","expiresAt":1770000000,"issuedAt":1769996400,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"current","validFrom":1769996400,"validUntil":1770000000}],"l2Version":"0.1","prevRecordDigest":null,"recordGeneration":0,"signerKeyId":"ECMERdvpV0k","statementFloor":0,"statementType":"authority"}
+```
+
+Signature (86 chars):
+
+```
+DObC78YFVR6d-TIuJKO_WbeXw8bmlE9uhd0e8UaQQWLEoLZedRgca8CJcVD3v1K2vbJ1JESUQzV6Uo1YvSnXAQ
+```
+
+Record 1 (rotation: signer key1, key1 retired, key2 introduced as current):
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "authority",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "recordGeneration": 1,
+  "signerKeyId": "ECMERdvpV0k",
+  "algorithm": "ed25519",
+  "issuedAt": 1769997000,
+  "expiresAt": 1770000600,
+  "epochId": "epoch-0",
+  "prevRecordDigest": "36ce3c7bf819434ebc79e534649873081ee0999af85c798c6586235680809afb",
+  "statementFloor": 0,
+  "keys": [
+    {
+      "keyId": "ECMERdvpV0k",
+      "publicKey": "s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I",
+      "algorithm": "ed25519",
+      "validFrom": 1769996400,
+      "validUntil": 1769997000,
+      "status": "retired"
+    },
+    {
+      "keyId": "4KKXd7XSJW8",
+      "publicKey": "kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM",
+      "algorithm": "ed25519",
+      "validFrom": 1769997000,
+      "validUntil": 1770000600,
+      "status": "current"
+    }
+  ]
+}
+```
+
+`prevRecordDigest` is the lowercase hex SHA-256 of the UTF-8 octets of Record 0's
+canonical payload string — payload only, signature and envelope excluded (§9.5).
+
+JCS canonical string (signing target, one line):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-0","expiresAt":1770000600,"issuedAt":1769997000,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"current","validFrom":1769997000,"validUntil":1770000600}],"l2Version":"0.1","prevRecordDigest":"36ce3c7bf819434ebc79e534649873081ee0999af85c798c6586235680809afb","recordGeneration":1,"signerKeyId":"ECMERdvpV0k","statementFloor":0,"statementType":"authority"}
+```
+
+Signature (86 chars):
+
+```
+uSDzPwzTq4xubwXA4NbkhTRiwaT1GfMM3bzdZ5Axoz0Rw3xcwTIFpnVB3Yv8y6yDYXixDC-1HMw1fTFM05HICw
+```
+
+Record 2 (`G = 2`, transfer-introducing; signer key2, introduced by Record 1; embedded
+trail):
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "authority",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "recordGeneration": 2,
+  "signerKeyId": "4KKXd7XSJW8",
+  "algorithm": "ed25519",
+  "issuedAt": 1769997600,
+  "expiresAt": 1770001200,
+  "epochId": "epoch-1",
+  "prevRecordDigest": "870b931dd8f9ad01a6a037524842549ad60fcde1066dbc9caf4f3e6140102f61",
+  "statementFloor": 0,
+  "keys": [
+    {
+      "keyId": "ECMERdvpV0k",
+      "publicKey": "s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I",
+      "algorithm": "ed25519",
+      "validFrom": 1769996400,
+      "validUntil": 1769997000,
+      "status": "retired"
+    },
+    {
+      "keyId": "4KKXd7XSJW8",
+      "publicKey": "kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM",
+      "algorithm": "ed25519",
+      "validFrom": 1769997000,
+      "validUntil": 1769997600,
+      "status": "retired"
+    },
+    {
+      "keyId": "G8VbXumewVs",
+      "publicKey": "G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs",
+      "algorithm": "ed25519",
+      "validFrom": 1769997600,
+      "validUntil": 1770001200,
+      "status": "current"
+    }
+  ],
+  "transfer": {
+    "payload": {
+      "l2Version": "0.1",
+      "statementType": "transfer",
+      "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+      "entityId": "urn:relink:entity:thermal-sensor-42",
+      "outgoingKeyId": "4KKXd7XSJW8",
+      "incomingKeyId": "G8VbXumewVs",
+      "algorithm": "ed25519",
+      "epochId": "epoch-0",
+      "newEpochId": "epoch-1",
+      "recordGeneration": 2,
+      "statementFloor": 0
+    },
+    "signature": "Ijetk5nXS-lFfjypHyQyi3QYKCXxBPSew2H6LB_qr0BYD7tw21X7MmZknNGl1K4jXpO_an7qQUoEqERJPf15BQ"
+  }
+}
+```
+
+Trail payload JCS canonical string (trail signing target, one line):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-0","incomingKeyId":"G8VbXumewVs","l2Version":"0.1","newEpochId":"epoch-1","outgoingKeyId":"4KKXd7XSJW8","recordGeneration":2,"statementFloor":0,"statementType":"transfer"}
+```
+
+Trail signature, Ed25519 under key2 (86 chars):
+
+```
+Ijetk5nXS-lFfjypHyQyi3QYKCXxBPSew2H6LB_qr0BYD7tw21X7MmZknNGl1K4jXpO_an7qQUoEqERJPf15BQ
+```
+
+Record 2 canonical string — the trail canonical string appears verbatim as the
+`transfer.payload` member, so Record 2's signature covers the trail bytes (one line):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"issuedAt":1769997600,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","status":"current","validFrom":1769997600,"validUntil":1770001200}],"l2Version":"0.1","prevRecordDigest":"870b931dd8f9ad01a6a037524842549ad60fcde1066dbc9caf4f3e6140102f61","recordGeneration":2,"signerKeyId":"4KKXd7XSJW8","statementFloor":0,"statementType":"authority","transfer":{"payload":{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-0","incomingKeyId":"G8VbXumewVs","l2Version":"0.1","newEpochId":"epoch-1","outgoingKeyId":"4KKXd7XSJW8","recordGeneration":2,"statementFloor":0,"statementType":"transfer"},"signature":"Ijetk5nXS-lFfjypHyQyi3QYKCXxBPSew2H6LB_qr0BYD7tw21X7MmZknNGl1K4jXpO_an7qQUoEqERJPf15BQ"}}
+```
+
+Record 2 signature, Ed25519 under key2 (86 chars):
+
+```
+198jI84AoMGGcA6AQvoqgF_OVrw5SU3i88-RKX1dZ8kYcCICdmf-UKst3vShf6hkkxd6d4Jv-_CEpWoN1tsFAw
+```
+
+`§12.2` matching rules for this trail, all confirmed: `outgoingKeyId` `4KKXd7XSJW8`
+equals Record 2 `signerKeyId`; key2 is `current` in Record 1 with window
+`1769997000..1770000600` containing Record 2 `issuedAt` `1769997600`; `incomingKeyId`
+`G8VbXumewVs` equals the key Record 2 introduces as `current` with `validFrom` equal to
+Record 2 `issuedAt`; trail `epochId` `epoch-0` equals Record 1 `epochId`; `newEpochId`
+`epoch-1` equals Record 2 `epochId` and never appears in the chain history; trail
+`recordGeneration` `2` and `statementFloor` `0` equal Record 2's; `l2Version`,
+`anchorId`, `entityId`, `algorithm` equal Record 2's; the trail signature verifies under
+key2 `publicKey`, carried in Record 1.
+
+Record 3 (signer key3, the first Record signed by the incoming key, `G + 1 = 3`):
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "authority",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "recordGeneration": 3,
+  "signerKeyId": "G8VbXumewVs",
+  "algorithm": "ed25519",
+  "issuedAt": 1769998200,
+  "expiresAt": 1770001800,
+  "epochId": "epoch-1",
+  "prevRecordDigest": "39808d467859fcad7589d70d54e0666038ac039d4956964ddda751f10f3e3234",
+  "statementFloor": 0,
+  "keys": [
+    {
+      "keyId": "ECMERdvpV0k",
+      "publicKey": "s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I",
+      "algorithm": "ed25519",
+      "validFrom": 1769996400,
+      "validUntil": 1769997000,
+      "status": "retired"
+    },
+    {
+      "keyId": "4KKXd7XSJW8",
+      "publicKey": "kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM",
+      "algorithm": "ed25519",
+      "validFrom": 1769997000,
+      "validUntil": 1769997600,
+      "status": "retired"
+    },
+    {
+      "keyId": "G8VbXumewVs",
+      "publicKey": "G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs",
+      "algorithm": "ed25519",
+      "validFrom": 1769997600,
+      "validUntil": 1770001200,
+      "status": "current"
+    }
+  ]
+}
+```
+
+JCS canonical string (signing target, one line):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001800,"issuedAt":1769998200,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","status":"current","validFrom":1769997600,"validUntil":1770001200}],"l2Version":"0.1","prevRecordDigest":"39808d467859fcad7589d70d54e0666038ac039d4956964ddda751f10f3e3234","recordGeneration":3,"signerKeyId":"G8VbXumewVs","statementFloor":0,"statementType":"authority"}
+```
+
+Record 3 signature, Ed25519 under key3 (86 chars):
+
+```
+zvbOz9_FWQoqCq9yQ46VGFGF7JsxZr2SOf7Y9nYJbdkXhtQ90WWHBgycvnbN7VqjA7cqxNT8164yyMKk5lYvAw
+```
+
+Post-transfer resolution statement (signer key3, `epoch-1`, `generation = 1`):
+
+```json
+{
+  "l2Version": "0.1",
+  "statementType": "resolution",
+  "anchorId": "550e8400-e29b-41d4-a716-446655440000",
+  "entityId": "urn:relink:entity:thermal-sensor-42",
+  "descriptionLocation": "https://sensors.example/thermal/42/ar-xml",
+  "lifecycleStatus": "active",
+  "keyId": "G8VbXumewVs",
+  "algorithm": "ed25519",
+  "issuedAt": 1769998300,
+  "expiresAt": 1770001200,
+  "generation": 1,
+  "epochId": "epoch-1"
+}
+```
+
+JCS canonical string (signing target, one line):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"generation":1,"issuedAt":1769998300,"keyId":"G8VbXumewVs","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+```
+
+Signature, Ed25519 under key3 (86 chars):
+
+```
+ahcug-ygTSwa7kit4p4ZtQ-8NInObst_l_FTzZKaL4bd2dV0lCShbVrKDbg-HRgQuKf485lOVSDNrFrrv0CGDQ
+```
+
+Expected verifier result at `T = 1769998400` with `W = 600` (§11.4): a verifier holding
+only the Trust Anchor Binding accepts Record 0 (self-signed, generation 0, floor 0,
+`prevRecordDigest` null), Record 1 (signer key1, `current` in the Record 0 snapshot,
+digest matches), Record 2 (signer key2, introduced by Record 1; embedded trail verified;
+atomic epoch switch to `epoch-1`), Record 3 (signer key3, introduced by Record 2, window
+`1769997600..1770001200` containing `issuedAt` `1769998200`). The revocation snapshot is
+Record 3: `issuedAt 1769998200 >= 1769998400 - 600`, `expiresAt 1770001800` covers `T`,
+and the snapshot covers key3, the accepted epoch `epoch-1`, and the chain. The statement
+verifies under key3 (`keyId` recomputed from wire `publicKey`), `epochId` matches the
+accepted epoch, `generation 1` is at the floor, `issuedAt <= T <= expiresAt`:
+`VERIFIED`.
+
+Expected negative results: Record 2 with a missing, tampered, duplicated, or mismatched
+trail is rejected, the chain stops at Record 1, and the statement is `UNVERIFIED`
+(§12.2, §15.2 phase 3–6). A statement signed by key3 carrying `epoch-0` is `STALE` at
+phase 10, never at phase 6. Re-fetching, retransmitting, re-presenting, and revalidating
+Records 0..2 at `T` never refreshes the snapshot: Record 3 is the only freshness point
+(§9.7, §11.4).
+
+### A.6 Reproduction steps
 
 1. Compute the private seed per A.1, derive the public key `A`, recompute `keyId` per
-§10.1, and check the A.1 values.
+   §10.1, and check the A.1 values.
 2. Serialize each payload with JCS: object member names sorted in UTF-16 code-unit
-   order (RFC 8785 §3.2.3), minimal escaping (C0 control characters, `"`, `\`, and
-   DEL escaped as `\uXXXX`; printable non-ASCII emitted as-is), integers as plain
-   decimal, no whitespace. The result MUST equal the canonical string above
-   byte-for-byte.
+   order (RFC 8785 §3.2.3), minimal escaping per RFC 8785 §3.2.2.2 — `"` escaped as
+   `\"` and `\` as `\\`; U+0008, U+0009, U+000A, U+000C, U+000D as the short escapes
+   `\b`, `\t`, `\n`, `\f`, `\r`; remaining C0 control characters as lowercase
+   `\uXXXX`; U+2028 and U+2029 as `\u2028` and `\u2029`; DEL (U+007F) emitted as-is;
+   printable non-ASCII emitted as-is — integers as plain decimal, no whitespace. The
+   result MUST equal the canonical strings above byte-for-byte.
 3. Sign the canonical string's UTF-8 octets with deterministic Ed25519 (RFC 8032
    §5.2); the base64url signature ('=' stripped) MUST equal the signature above.
 4. Verify against `A`; a tampered signing target MUST fail. Vector 3 MUST verify with
    the U+1F600 member serialized before the U+E000 member; scalar code-point sorting
    MUST NOT reproduce the canonical bytes.
+5. Derive key2 and key3 from seed strings 2 and 3 per A.1, recompute their `keyId`s
+   from the `publicKey` bytes, and check the A.5 key values.
+6. For the chain vector, compute each `prevRecordDigest` as the lowercase hex SHA-256
+   of the UTF-8 octets of the previous Record's canonical payload string — payload
+   only, signature and envelope excluded — and check Record 0's null, the three digest
+   values, and Record 1..3 signatures under the signer keys carried by the preceding
+   accepted Records.
+7. Verify the trail signature under key2 `publicKey`, confirm every §12.2 matching
+   rule against Record 2, and confirm the trail canonical string appears verbatim as
+   `transfer.payload` inside Record 2's canonical string. Verify the post-transfer
+   statement under key3 at `T = 1769998400` with `W = 600`, and confirm the expected
+   positive and negative results in A.5.
