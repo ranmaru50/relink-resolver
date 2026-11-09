@@ -528,7 +528,9 @@ algorithm
 validFrom          (Unix seconds)
 validUntil         (Unix seconds; retired keys use an explicit past validUntil)
 status             = "current" | "retired" | "revoked" | "compromised"
-revokedFrom        = generation (required for status "revoked" and "compromised")
+revokedFrom        = recordGeneration (the chain position: the recordGeneration of the
+                     revoking Record, not a statement generation; required for status
+                     "revoked" and "compromised")
 ```
 
 Record payloads canonicalize and sign per §7.3, including wire canonicality. Records are
@@ -539,15 +541,35 @@ served on the authority endpoint (§6.3) and MAY be distributed via the policy c
 from wire material alone. `prevRecordDigest` binds Record `G` to Record `G-1` byte-for-byte;
 the chain walk verifies this binding at every step. Revocation,
 retirement, compromise, and rotation status changes are expressed by successive Records.
-Revocation history is permanent: Record `G` MUST carry every key entry accepted in Record
-`G-1` with `status`, `validFrom`, `validUntil`, and `revokedFrom` preserved; a key entry
-accepted as `revoked`, `compromised`, or `retired` MUST NOT be re-registered as `current`
-by a later Record, MUST NOT have its `revokedFrom` overwritten, widened, shortened, or
-removed, and MUST NOT disappear from the keys array of a later accepted Record. A Record
-that revokes the revocation, deletes a revoked entry, or returns a revoked, compromised,
-or retired key to `current` MUST NOT be accepted by chain walk (§9.6); recovery from a
-revoked or compromised key uses a new key introduced by rotation, transfer, or
-re-bootstrap (§9.8), never the revoked key.
+Keys-array mutation from Record `G-1` to Record `G` is governed by three rules, applied
+at chain acceptance (§9.6):
+
+- entry identity preservation: Record `G` MUST carry every key entry accepted in Record
+  `G-1`, with `keyId`, `publicKey`, `algorithm`, `validFrom`, and `revokedFrom`
+  unchanged; a key entry MUST NOT be deleted from the keys array of a later accepted
+  Record, and a `keyId` MUST NOT be re-registered against a different `publicKey`
+  (§9.4);
+- terminal-state irreversibility: an entry accepted as `revoked`, `compromised`, or
+  `retired` in Record `G-1` is terminal, and its `status`, `validUntil`, and
+  `revokedFrom` are established evidence: they MUST NOT be re-registered as `current`,
+  overwritten, widened, shortened, removed, or extended by a later Record; in
+  particular, the transfer retirement truncation `validUntil = issuedAt(G)` (§12.2)
+  applies only to keys `current` in Record `G-1` and MUST NOT extend the `validUntil`
+  of a key already `retired`, `revoked`, or `compromised` in Record `G-1`;
+- allowed transitions: the only permitted mutations of an entry are
+  `current -> retired` (rotation out, retirement, or transfer, with
+  `validUntil = issuedAt(G)` of the Record performing the transition),
+  `current -> revoked` (with `revokedFrom = recordGeneration` of the revoking Record,
+  §13.4), and `current -> compromised` (with `revokedFrom = recordGeneration`);
+  `validFrom` MUST NOT change, and `validUntil` of a `current` entry MAY change only
+  via one of these transitions, a rotation Record introducing a new key, or transfer
+  truncation under §12.2.
+
+A Record that revokes the revocation, deletes a revoked entry, returns a revoked,
+compromised, or retired key to `current`, extends an established terminal `validUntil`,
+or re-registers a `keyId` against a new key MUST NOT be accepted by chain walk (§9.6);
+recovery from a revoked or compromised key uses a new key introduced by rotation,
+transfer, or re-bootstrap (§9.8), never the revoked key.
 
 ### 9.6 Chain acceptance
 
@@ -559,7 +581,10 @@ Verifiers MUST accept Records only by chain walk from the Trust Anchor Binding (
 2. Record `recordGeneration = G > 0` MUST be accepted only when: Records `0..G-1` are
    accepted and Record G is the next contiguous generation; Record G's `prevRecordDigest`
    equals the SHA-256 of the JCS canonical serialization of Record `G-1`'s `payload`
-   (§9.5, §7.3); Record G verifies under its `signerKeyId`, using that key's `publicKey`
+   (§9.5, §7.3); Record G's `issuedAt` MUST be greater than or equal to Record
+   `G-1`'s `issuedAt` (non-decreasing issuance along the chain, so a child of a
+   not-yet-effective Record is never effective before its parent); Record G verifies
+   under its `signerKeyId`, using that key's `publicKey`
    bytes present in Record `G-1`; `signerKeyId` has `status = "current"` in Record `G-1`
    with `validFrom <= issuedAt(G) <= validUntil`; Record G's `epochId` MUST equal Record
    `G-1`'s `epochId` when Record G carries no `transfer` member and MUST differ when it
@@ -591,9 +616,11 @@ bounds the signing time of Record `G` (`validFrom <= issuedAt(G) <= validUntil`)
 trail signature verifies under the same window rule (§12.2): under the `publicKey`
 recorded in Record `G-1` for `outgoingKeyId` with `validFrom <= issuedAt(G) <=
 validUntil` in Record `G-1`; a trail whose outgoing key window in Record `G-1` excludes
-`issuedAt(G)` MUST NOT be accepted, even when the signature bytes verify. A key left
-`current` in Record G beyond Record `G-1`'s `current` set is a trail matching failure
-(§12.2): Record G is rejected, the chain stops at `G-1`, and a new epoch is established
+`issuedAt(G)` MUST NOT be accepted, even when the signature bytes verify. A key that was
+`current` in Record `G-1` and is left `current` in Record G — any key of Record `G-1`'s
+`current` set surviving in Record G, beyond and in addition to the trail-authorized
+incoming key, which must be the sole `current` key in Record G — is a trail matching
+failure (§12.2): Record G is rejected, the chain stops at `G-1`, and a new epoch is established
 only by an accepted transfer Record — Records signed in a new epoch by a key not accepted
 in that epoch are rejected by chain acceptance, and resolution statements signed in a new
 epoch under a key not accepted in that epoch yield `STALE` (§15.2 phase 10) or
@@ -616,13 +643,18 @@ record trail only, and MUST NOT be treated as current trust in that key (§13.4)
 - a Record re-fetched, retransmitted, re-presented, or HTTP-revalidated at the accepted
   maximum MUST NOT advance the snapshot freshness point (§11.4): freshness is bound to the
   Record's signed `issuedAt`, never to retrieval time. Only acceptance of a higher
-  `recordGeneration` moves the chain position and, when its window is fresh, the
-  revocation snapshot;
+  `recordGeneration` moves the chain tip; the revocation snapshot at `T` is chosen from
+  the effective prefix, not from the chain tip (§11.4);
+- the effective prefix at `T` is the longest contiguous accepted prefix `0..k` in which
+  every Record has `issuedAt <= T`; by the non-decreasing `issuedAt` rule (§9.6), `k` is
+  the highest accepted `recordGeneration` with `issuedAt(k) <= T`; the revocation
+  snapshot at `T` is Record `k` (§11.4);
 - a Record accepted by chain walk with `issuedAt > T` MUST NOT serve as the revocation
   snapshot at `T`, MUST NOT update the epoch, statement floor, key status, or revocation
   state used for judgments at `T` (§11.4, §15.2 phase 6), and takes effect only at
   evaluation times `T' >= issuedAt`; a `VERIFIED` judgment at `T` MUST NOT rely on a
-  Record not yet effective at `T`.
+  Record not yet effective at `T`, and MUST NOT be obtained by backing off to an older
+  Record of the effective prefix when Record `k` is not fresh at `T` (§11.4).
 
 ### 9.8 State loss
 
@@ -765,28 +797,41 @@ Authority material has its own validity window. Expired authority material MUST 
 accepted as current authority. Retrieval failure, expired authority material, a chain-walk
 gap, or a coverage gap MUST produce `UNVERIFIED`, not `VERIFIED`.
 
-`VERIFIED` at time `T` is a point-in-time judgment over the verifier's revocation snapshot:
-the highest accepted Record, verified by chain walk (§9.6), whose key entries carry
-`status` and `revokedFrom`. The snapshot's freshness is evaluated against its signed time,
-not its retrieval time: the snapshot is fresh at `T` if and only if
-`issuedAt(snapshot) <= T <= expiresAt(snapshot)` and `T - issuedAt(snapshot) <= W`, where
-`W` is the deployment's documented, bounded freshness upper bound. A Record with
-`issuedAt > T` is not effective at `T` and MUST NOT serve as the snapshot at `T`; a Record
-not yet effective at `T` MUST NOT update the revocation snapshot, the current accepted
-epoch, the accepted statement floor, or any judgment at `T`, and future revocation, epoch,
-and floor evidence MUST NOT preempt `T`. Re-fetching, retransmission, re-presentation, and
-HTTP revalidation of a Record at the accepted maximum MUST NOT update the freshness
-point (§9.7): the freshness point is the Record's signed `issuedAt`. Only acceptance of a
-higher `recordGeneration` with a fresh window updates the snapshot.
-At evaluation time `T`, the snapshot MUST be the highest accepted Record, MUST be fresh at
-`T` by this rule, and MUST cover the statement's signing key, the current accepted epoch,
-and the accepted chain; the snapshot coverage check does not evaluate the statement's own
-`epochId` (§11.3). A snapshot not fresh at `T` — `T - issuedAt(snapshot) > W`,
-`issuedAt(snapshot) > T`, or `T > expiresAt(snapshot)` —, a missing snapshot, an incomplete
-chain, and a coverage gap MUST produce `UNVERIFIED`, never `VERIFIED`. A Record accepted
-by chain walk whose `issuedAt` is later than `T` never becomes the snapshot at `T`, and a
-future Record MUST NOT preempt `T` as a revocation, epoch, or floor event: a statement
-judged at `T` over such material is `UNVERIFIED` at phase 6 (§15.2).
+`VERIFIED` at time `T` is a point-in-time judgment over the verifier's revocation
+snapshot. Two chain positions are distinct: the chain tip — the highest accepted
+`recordGeneration` verified by chain walk (§9.6), used for anti-rollback (§9.7) — and
+the effective prefix at `T` — the longest contiguous accepted prefix `0..k` in which
+every Record has `issuedAt <= T`; by the non-decreasing `issuedAt` rule (§9.6), `k` is
+the highest accepted `recordGeneration` with `issuedAt(k) <= T`. The revocation snapshot
+at `T` is Record `k`, chosen first, before any freshness check, from the effective
+prefix; its key entries carry `status` and `revokedFrom`. The snapshot's freshness is
+evaluated against its signed time, not its retrieval time: Record `k` is fresh at `T` if
+and only if `T <= expiresAt(k)` and `T - issuedAt(k) <= W`, where `W` is the
+deployment's documented, bounded freshness upper bound; `issuedAt(k) <= T` holds by
+construction of the prefix. The verifier MUST NOT back off to an older Record of the
+prefix when Record `k` is not fresh: if the effective-latest Record `k` fails the
+freshness check, the result is `UNVERIFIED` at phase 6, never `VERIFIED`, even when an
+older Record in the prefix would pass the check. A Record with `issuedAt > T` is not
+effective at `T` and MUST NOT serve as the snapshot at `T`; a Record not yet effective
+at `T` MUST NOT update the revocation snapshot, the current accepted epoch, the accepted
+statement floor, or any judgment at `T`, and future revocation, epoch, and floor
+evidence MUST NOT preempt `T`. Re-fetching, retransmission, re-presentation, and
+HTTP revalidation of a Record at the chain tip MUST NOT update the freshness point
+(§9.7): the freshness point is the Record's signed `issuedAt`. Only acceptance of a
+higher `recordGeneration` moves the chain tip; when that Record is effective at `T` and
+fresh by this rule, the snapshot moves with it.
+At evaluation time `T`, the snapshot MUST be Record `k` of the effective prefix, MUST be
+fresh at `T` by this rule, and MUST cover the statement's signing key, the current
+accepted epoch, and the accepted chain; the snapshot coverage check does not evaluate the
+statement's own `epochId` (§11.3). A snapshot not fresh at `T` — `T - issuedAt(k) > W`
+or `T > expiresAt(k)` —, a missing snapshot, an empty effective prefix, and a coverage
+gap MUST produce `UNVERIFIED`, never `VERIFIED`; backing off from a non-fresh
+effective-latest Record `k` to an older Record MUST NOT yield `VERIFIED`. Incomplete
+chains, missing Records, and unverifiable Records are chain acceptance failures recorded
+at phase 5 (§9.6 item 4), not phase 6 failures. A Record accepted by chain walk whose
+`issuedAt` is later than `T` never becomes the snapshot at `T`, and a future Record
+MUST NOT preempt `T` as a revocation, epoch, or floor event: a statement judged at `T`
+over such material is `UNVERIFIED` at phase 6 (§15.2).
 
 `VERIFIED` at `T` asserts nothing about revocation after `T`: revocation that occurs later
 is not continuously guaranteed, `VERIFIED` MUST NOT be presented as a guarantee of future
@@ -892,12 +937,14 @@ A transfer MUST bind to the authority Record chain in a fixed order:
    `current` key in Record `G`; the outgoing key is non-current from the acceptance
    of Record `G` onward, and the incoming key, introduced by Record `G` as `current`
    with a window containing `issuedAt(G)`, is the only key that signs Records from
-   `G + 1` onward. A key left `current` in Record `G` beyond Record `G-1`'s `current`
-   set is a trail matching failure rejected under item 3, and keeps no signing
-   authority in the new epoch: Records in the new epoch signed by such a key are
-   rejected by chain acceptance, and resolution statements signed in the new epoch
-   under a key not accepted in that epoch yield `STALE` (§15.2 phase 10) or
-   `UNKNOWN_AUTHORITY` (phase 5), never `VERIFIED`;
+   `G + 1` onward. A key that remains `current` in Record `G` after the retirement
+   truncation of item 4 — any key of Record `G-1`'s `current` set left `current` in
+   Record `G`, in addition to the trail-authorized incoming key, which must be the
+   sole `current` key in Record `G` — is a trail matching failure rejected under item
+   3, and keeps no signing authority in the new epoch: Records in the new epoch
+   signed by such a key are rejected by chain acceptance, and resolution statements
+   signed in the new epoch under a key not accepted in that epoch yield `STALE`
+   (§15.2 phase 10) or `UNKNOWN_AUTHORITY` (phase 5), never `VERIFIED`;
 5. the first Record signed by the incoming key MUST be at `recordGeneration = G + 1`
    and MUST be accepted under §9.6;
 6. trails and Records below the accepted maximum are authority rollback (§9.7).
@@ -906,8 +953,9 @@ Signer state is judged against the immediately preceding accepted Record (`G-1` 
 Record `G`), never against any earlier Record. Appendix A.5 pins a complete chain vector:
 Records `0..3` with the embedded trail, the payload-only `prevRecordDigest` values, the
 post-transfer statement, and the negative vectors for the trail key window, the
-retire-all rule, the not-yet-effective snapshot, and epoch acceptance (Records 4, 5, 5V,
-6, 4F, statements S5 and S6), reproducible from fixed seed strings.
+retire-all rule, the not-yet-effective snapshot, the expired effective-latest Record
+with the back-off prohibition, and epoch acceptance (Records 4, 4E, 5, 5V, 6, 4F,
+statements S5 and S6), reproducible from fixed seed strings.
 
 ### 12.3 Epoch semantics
 
@@ -979,9 +1027,10 @@ verifier's next accepted evaluation (§21 OPEN).
 
 Revocation, retirement, and compromise are expressed as Record chain operations (§9.5): the
 signing key is `current` under Record `G-1`, and Record `G` marks the target key
-`status = "revoked"` or `"compromised"` with `revokedFrom`. `revokedFrom` is a Record
-position: `revokedFrom = G` means the revocation is expressed by Record `G` and takes
-effect at Record `G`'s `issuedAt`.
+`status = "revoked"` or `"compromised"` with `revokedFrom = recordGeneration` of Record
+`G` (the Record position in the chain, not a statement generation). `revokedFrom = G`
+means the revocation is expressed by Record `G` and takes effect at Record `G`'s
+`issuedAt`; the entry is then terminal and irreversible under the §9.5 rules.
 
 A key marked `compromised` in the accepted chain MUST NOT be accepted as current by the
 verifier, for any signature, at any generation, at any time. A compromised key that
@@ -1175,13 +1224,14 @@ in the normative order below. All phases passing yields `VERIFIED`.
     (§9.6, §12.2)                                                       UNVERIFIED (chain gap,
     missing material, no trusted lower bound §9.8); UNKNOWN_AUTHORITY (signer outside the
     accepted chain; keyId/publicKey recomputation failure §9.4)
-6.  revocation snapshot fresh at T by the §11.4 signed-time rule: highest accepted Record
-    with `issuedAt <= T <= expiresAt` and `T - issuedAt <= W`, covering the signing key,
-    the current accepted epoch, and the chain; a Record not yet effective at T
-    (`issuedAt > T`) is never fresh at T and never the snapshot at T; snapshot coverage
-    does not evaluate the
+6.  revocation snapshot: the last Record k of the effective prefix at T — the longest
+    contiguous accepted prefix 0..k in which every Record has `issuedAt <= T`, with
+    `issuedAt` non-decreasing (§9.6); freshness by the §11.4 signed-time rule:
+    `T <= expiresAt(k)` and `T - issuedAt(k) <= W`, covering the signing key, the
+    current accepted epoch, and the chain; no back-off to an older Record of the
+    prefix when Record k is not fresh; snapshot coverage does not evaluate the
     statement's own `epochId` (§11.3, §11.4)                          UNVERIFIED on gap,
-    signed-time staleness, not-yet-effective snapshot, coverage gap
+    signed-time staleness, expired effective-latest snapshot, coverage gap
 7.  Record chain position: Record below accepted maximum, same-generation byte-identity,
     epoch establishment (§9.7, §12.2, §12.3)                          STALE / CONFLICT
 8.  signature verification under the signerKeyId publicKey bytes (§9.6)
@@ -1221,15 +1271,22 @@ not reach the phase 9 key-status judgment; its epoch mismatch yields `STALE` at 
 including a prior epoch, an epoch never accepted in this Anchor's chain, and an epoch
 introduced only by a rejected Record. A Record accepted by chain walk that is not yet
 effective at `T` (`issuedAt > T`) fails the snapshot freshness predicate at phase 6 as
-`UNVERIFIED` before phases 9–10 run (§11.4). Fixed expected results: a signed statement
+`UNVERIFIED` before phases 9–10 run (§11.4). When the effective-latest Record `k` of the
+effective prefix at `T` is not fresh at `T` — expired (`T > expiresAt(k)`) or stale
+(`T - issuedAt(k) > W`) — the result is `UNVERIFIED` at phase 6, even when an older
+Record of the prefix would pass the freshness check (Appendix A.5 Record 4E). Fixed
+expected results: a signed statement
 carrying an `epochId` from a prior epoch, an epoch never accepted in this Anchor's chain,
 or an epoch introduced only by a rejected Record is `STALE` at phase 10, and its key
 status is not judged at phase 9; a revocation boundary — a statement `issuedAt` at or
 after the `issuedAt` of Record `revokedFrom` — is `REVOKED` at phase 9, within the
-accepted-epoch scope; a missing snapshot, a snapshot stale by its signed time, a snapshot
-not yet effective at `T` (`issuedAt > T`), and an incomplete chain are `UNVERIFIED` at
-phase 6, never `VERIFIED`; `VERIFIED` MUST NOT rely on revocation, epoch, floor, or key
-evidence from a Record not effective at `T`. Authority rollback (Record below the accepted
+accepted-epoch scope; a missing snapshot, a snapshot stale by its signed time, an expired
+effective-latest Record `k` of the effective prefix at `T` (`T > expiresAt(k)`), and a
+snapshot not yet effective at `T` (`issuedAt > T`, excluded from the effective prefix)
+are `UNVERIFIED` at phase 6, never `VERIFIED`; backing off from a non-fresh
+effective-latest Record to an older Record of the prefix that would pass the freshness
+check MUST NOT yield `VERIFIED`; `VERIFIED` MUST NOT rely on revocation, epoch, floor,
+or key evidence from a Record not effective at `T`. Authority rollback (Record below the accepted
 maximum) is `STALE`; a same-generation Record with a different payload is `CONFLICT`; a
 signer outside the accepted chain is `UNKNOWN_AUTHORITY`. A verifier MUST NOT reorder
 phases, MUST NOT pick by severity, recency, or origin preference. The result MUST record
@@ -1311,7 +1368,9 @@ in this draft.
 | trail signed outside the outgoing key's window | Record and trail signatures are verified under the signer key's `current` window in Record `G-1`: `validFrom <= issuedAt(G) <= validUntil`; a cryptographically valid signature by a key whose `G-1` window excludes `issuedAt(G)` is rejected; all `G-1` current keys MUST be retired in `G` with the trail-approved incoming key as sole current (§9.6, §12.2) |
 | epoch introduced only by rejected Records | unaccepted epochs are never current; Records signed under such authority are rejected, chain stops; statements carrying the epoch are `STALE` at phase 10, never `VERIFIED` (§9.6, §12.2, §15.2 phase 10) |
 | revoked-key revival | revocation history is persisted in every Record; re-registration, `revokedFrom` overwriting, widening, shortening, deletion, and revokes-the-revocation Records are rejected by chain walk; a revoked key is never `current`; statements from a revived key yield `UNKNOWN_AUTHORITY`, `REVOKED` (compromised), or `UNVERIFIED` (retired), never `VERIFIED`; recovery is a new key, rotation, transfer, or re-bootstrap (§9.5, §9.6, §10.6, §13.4, §15.2 phases 5, 9) |
-| future-issuedAt Record as revocation evidence | the snapshot MUST be effective at `T`: `issuedAt <= T <= expiresAt` and `T - issuedAt <= W`; a Record with `issuedAt > T` is never the snapshot at `T`, never refreshes epochs, floors, or revocation, and future evidence is never accepted pre-emptively (§9.7, §11.4, §15.2 phase 6) |
+| key-entry mutation beyond allowed transitions | keys-array mutation is limited to entry identity preservation, terminal-state irreversibility, and the allowed transitions `current -> retired`, `current -> revoked`, `current -> compromised`; deletion of entries, re-registration of a `keyId` against a different `publicKey`, widening, shortening, extension of a terminal `validUntil`, revokes-the-revocation, and transfer truncation extending an already-retired key's window are rejected by chain walk (§9.5, §9.6, §12.2, §13.4) |
+| future-issuedAt Record as revocation evidence | the snapshot MUST be the last Record `k` of the effective prefix at `T` (`issuedAt(k) <= T`), fresh by `T <= expiresAt(k)` and `T - issuedAt(k) <= W`; a Record with `issuedAt > T` is never the snapshot at `T`, never refreshes epochs, floors, or revocation, and future evidence is never accepted pre-emptively (§9.7, §11.4, §15.2 phase 6) |
+| back-off past an expired effective-latest Record | the snapshot is the effective prefix tip at `T`, chosen before the freshness check; an expired (`T > expiresAt(k)`) or stale (`T - issuedAt(k) > W`) effective-latest Record yields `UNVERIFIED` at phase 6, never `VERIFIED` via an older in-window Record; non-decreasing `issuedAt` keeps children of not-yet-effective Records not effective at `T` (§9.6, §9.7, §11.4, §15.2 phase 6, Appendix A.5 Record 4E) |
 
 Explicit non-goal boundary: L2 does not provide physical Entity authentication, device
 authorization, capability authorization, AR-XML semantic validation, or general PKI
@@ -1390,15 +1449,22 @@ in the new epoch (Appendix A.5); the Record 0→1 `prevRecordDigest` vector with
 payload-only target (§9.5); §9.7 equivocation handling; revocation snapshot freshness
 evaluated against the Record's signed time for `VERIFIED` (§11.4), where re-fetching,
 re-presentation, and revalidation of an accepted Record do not refresh the snapshot;
-trail signature verification under the outgoing key's `current` window in Record `G-1`
+snapshot selection from the effective prefix `0..k` at `T` — the longest accepted prefix
+in which every Record has `issuedAt <= T`, `issuedAt` non-decreasing (§9.6) —, with the
+negative vector Record 4E, where the effective-latest Record `k` is expired at `T`, the
+verifier MUST NOT back off to an older in-window Record, and the result is `UNVERIFIED`
+at phase 6 (Appendix A.5); trail signature verification under the outgoing key's
+`current` window in Record `G-1`
 (`validFrom <= issuedAt(G) <= validUntil`), retirement of every `G-1` current key in
 Record `G` with the trail-approved incoming key as sole current, and rejection of a
 Record whose signature verifies cryptographically while the `G-1` window excludes
 `issuedAt(G)` (§9.6, §12.2); chain vectors where a rejected Record stops the chain at
 the accepted maximum and an epoch introduced only by a rejected Record yields `STALE` at
 phase 10 for statements (§15.2); revocation snapshots that never use a Record not yet
-effective at `T` (`issuedAt > T`) as evidence (§11.4); revocation history continuity and
-revoked-key revival rejection (§9.5, §13.4); §15.2 precedence cases, with epoch mismatch
+effective at `T` (`issuedAt > T`) as evidence (§11.4), the non-decreasing `issuedAt`
+chain constraint (§9.6), revocation history continuity, revoked-key revival rejection,
+entry identity preservation, terminal-state irreversibility, and allowed status
+transitions only in the keys array (§9.5, §9.6, §12.2, §13.4); §15.2 precedence cases, with epoch mismatch
 `STALE` at phase 10, revocation boundary `REVOKED` at phase 9 within the accepted-epoch
 scope, and snapshot staleness `UNVERIFIED` at phase 6; signature
 verification compared under Ed25519 and ES256 with known vectors; identical payload with
@@ -1450,15 +1516,15 @@ reported as relink-testbed results.
 | Integrity / authenticity / authority / freshness / ownership / authorization distinguished | §4, §8.2, §15, §16.3 |
 | Signed / verifiable object defined | §7 (payload, JCS canonical serialization, signing bytes), Appendix A vectors |
 | Signer identity and Entity authority rules defined | §8, §§9.1–9.8 (Authority Record format with wire `publicKey` material, chain acceptance, anti-rollback, state loss) |
-| Key discovery and rotation semantics defined | §§9.5–9.7, §10 (validity windows, rotation Records, keyId recomputed from wire publicKey, epochId); OPEN items in §21 |
-| Freshness and anti-rollback defined | §11 (statement anti-rollback, authority-material anti-rollback §9.7, revocation snapshot §11.4 effective at `T`: `issuedAt <= T <= expiresAt` and `T - issuedAt <= W`, with signed-time freshness, not-yet-effective Records excluded, clock skew as a separate rule, and re-fetch non-refresh) |
+| Key discovery and rotation semantics defined | §§9.5–9.7, §10 (validity windows, rotation Records, keyId recomputed from wire publicKey, epochId; keys-array mutation rules: entry identity preservation, terminal-state irreversibility, allowed status transitions only); OPEN items in §21 |
+| Freshness and anti-rollback defined | §11 (statement anti-rollback, authority-material anti-rollback §9.7, revocation snapshot §11.4 chosen as the last Record k of the effective prefix at `T` (`issuedAt <= T`, non-decreasing §9.6), fresh by `T <= expiresAt(k)` and `T - issuedAt(k) <= W`, with signed-time freshness, not-yet-effective Records excluded, no back-off past a non-fresh effective-latest Record, clock skew as a separate rule, and re-fetch non-refresh) |
 | Ownership / authority transfer semantics defined | §12 (embedded transfer trail in Record G, §12.2 matching rules including trail key verification under the outgoing key's window in Record G-1, retire-all-current-keys with the incoming key as sole current, epoch switch, trail carried in the baseline Records array §6.3) |
-| Revocation semantics defined | §13, §9.5, §13.4 (revocation, retirement, compromise as Record chain operations; `revokedFrom` as Record position, effective at Record `issuedAt`; revocation history persisted in every Record, re-registration and revokes-the-revocation rejected by chain walk); revocation material resource OPEN, §21 |
+| Revocation semantics defined | §13, §9.5, §13.4 (revocation, retirement, compromise as Record chain operations; `revokedFrom = recordGeneration` of the revoking Record, effective at Record `issuedAt`; revocation history persisted in every Record, terminal-state irreversibility, re-registration and revokes-the-revocation rejected by chain walk); revocation material resource OPEN, §21 |
 | Verification result states deterministic and documented | §15 (modes, precedence order, `ANCHOR_MISMATCH`) |
 | Relationship to Manifest 0.1 explicit | §16.2, §7.6 |
 | Relationship to administrative authentication explicit | §16.3 |
 | L1 downgrade / fallback explicit and fail-closed | §5, §6.1, §6.5, §17 |
-| Security analysis covers replay, rollback, key compromise, conflicting authority, signature stripping, Record rollback/equivocation, cross-anchor substitution, compromised-key re-signing, first-contact bootstrap, keyId/publicKey substitution, cross-epoch replay, re-fetch freshness refresh, transfer trail integrity, trail key window verification in Record G-1, epochs introduced only by rejected Records, revoked-key revival, future-issuedAt snapshot evidence, compromised-key chain recovery | §17 |
+| Security analysis covers replay, rollback, key compromise, conflicting authority, signature stripping, Record rollback/equivocation, cross-anchor substitution, compromised-key re-signing, first-contact bootstrap, keyId/publicKey substitution, cross-epoch replay, re-fetch freshness refresh, transfer trail integrity, trail key window verification in Record G-1, epochs introduced only by rejected Records, revoked-key revival, future-issuedAt snapshot evidence, key-entry mutation beyond allowed transitions, back-off past an expired effective-latest Record, compromised-key chain recovery | §17 |
 | Capability execution and authorization out of scope | §18, §16.4, §15 |
 
 All criteria are draft-covered at the specification level; implementation, L2 conformance
@@ -1517,10 +1583,13 @@ Freshness:
     replay/rollback → STALE
     no trusted clock → UNVERIFIED, never VERIFIED
     VERIFIED at T requires the revocation snapshot fresh at T by its signed time:
-    issuedAt <= T <= expiresAt and T - issuedAt <= W (§11.4); a Record not yet
-    effective at T is never the snapshot at T; re-fetching, retransmission,
-    re-presentation, and revalidation of an accepted Record never refresh the
-    snapshot; VERIFIED at T makes no claim about T' > T
+    the snapshot is the last Record k of the effective prefix at T — the longest
+    accepted prefix 0..k in which every Record has issuedAt <= T, issuedAt
+    non-decreasing (§9.6); freshness is T <= expiresAt(k) and T - issuedAt(k) <= W
+    (§11.4); no back-off to an older Record of the prefix when Record k is not
+    fresh; a Record not yet effective at T is never the snapshot at T;
+    re-fetching, retransmission, re-presentation, and revalidation of an accepted
+    Record never refresh the snapshot; VERIFIED at T makes no claim about T' > T
 
 Verifier states (deterministic, no boolean):
     VERIFIED | UNVERIFIED | INVALID | EXPIRED | REVOKED | STALE |
@@ -2174,11 +2243,12 @@ Expected: Record 5 rejected at chain walk, trail verification, phase 5 (§9.6, �
 Under §12.2, Record 5 MUST retire every key that is `current` in Record 4, the G-1
 snapshot — key3 and key4 — with `validUntil` = Record 5 `issuedAt` `1770001500`, and the
 trail-approved incoming key key5 MUST be the sole `current` key in Record 5. Record 5
-carries key3 with `status` `current`, a `current` set exceeding Record 4's G-1 `current`
-set: trail matching failure, Record rejected, chain stops at Record 4. The signature
-verifies cryptographically under key4 `publicKey`; the matching-rule failure, not the
-signature, is the rejection. Records introducing `epoch-2` signed under key4's authority
-MUST NOT be accepted.
+carries key3, an epoch-1 key that was `current` in Record 4, with `status` `current`:
+key3 remains `current` in the old epoch in Record 5, and the trail-approved incoming key
+key5 is not the sole `current` key in Record 5 — trail matching failure, Record rejected,
+chain stops at Record 4. The signature verifies cryptographically under key4 `publicKey`;
+the matching-rule failure, not the signature, is the rejection. Records introducing
+`epoch-2` signed under key4's authority MUST NOT be accepted.
 
 Record 6 (`G = 6`, `epoch-3`, signer key4, `issuedAt` 1770001800; embedded trail
 `epoch-2` → `epoch-3`). Trail canonical string and trail signature:
@@ -2265,15 +2335,46 @@ ZN-7Z-5SPb8La6n6P6n-KjHUsQpEp-q5YXBzbb-K0Iu1LhsUxEBE_CwUTLv0y1Qme2ESD4O-UnKf8PaI
 
 Expected: Record 4F is accepted by chain walk (signer key3 `current` in Record 3,
 window `1769997600..1770001200` contains `issuedAt` `1769999000`, digest matches Record
-3). At `T = 1769998400` Record 4F is not yet effective (`issuedAt > T`): it is never
-fresh at `T` and never the snapshot (§11.4). The snapshot is Record 3, fresh at `T`;
-the post-transfer statement under key3 is `VERIFIED` via snapshot Record 3. Record 4F's
-keys array, floor, and epoch data MUST NOT contribute revocation, epoch, floor, or key
-evidence at `T` (§11.4, §9.7, §15.2 phase 6). At `T' = 1770000000` Record 4F satisfies
-`issuedAt <= T' <= expiresAt` but `T' - 1769998200` and `T' - 1769999000` exceed
-`W = 600`: no fresh snapshot, `UNVERIFIED`. Shifting `T`, rewriting `issuedAt`, or
-selecting an out-of-window Record to manufacture freshness MUST NOT yield `VERIFIED`
-(§11.4).
+3, `issuedAt` non-decreasing from Record 3). At `T = 1769998400` the effective prefix is
+`0..3` — Record 4F has `issuedAt > T` and is outside the prefix: the snapshot is Record
+3, fresh at `T`, and the post-transfer statement under key3 is `VERIFIED` via snapshot
+Record 3. Record 4F's keys array, floor, and epoch data MUST NOT contribute revocation,
+epoch, floor, or key evidence at `T` (§11.4, §9.7, §15.2 phase 6). At `T' = 1770000000`
+the effective prefix is `0..4` and the effective-latest Record 4F fails the freshness
+check: `T' - 1769999000` exceeds `W = 600`; Record 3 is also not fresh at `T'`
+(`T' - 1769998200` exceeds `W`), and back-off from Record 4F is in any case prohibited
+(§11.4): no fresh snapshot, `UNVERIFIED`. Shifting `T`, rewriting `issuedAt`, backing
+off to an older Record of the prefix, or selecting an out-of-window Record to
+manufacture freshness MUST NOT yield `VERIFIED` (§11.4).
+
+Record 4E (`recordGeneration = 4`, `epoch-1`, signer key3, `issuedAt` 1769998250,
+`expiresAt` 1769998300; keys array as Record 3, `issuedAt` non-decreasing from Record
+3), scenario D, chain Records `0..3, 4E`, `T = 1769998700`, `W = 600`:
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1769998300,"issuedAt":1769998250,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","status":"current","validFrom":1769997600,"validUntil":1770001200}],"l2Version":"0.1","prevRecordDigest":"72d46a3ca11dfdd8c275c4702f23c1415ff5b24ed6cabe88eea28b40ee895d03","recordGeneration":4,"signerKeyId":"G8VbXumewVs","statementFloor":0,"statementType":"authority"}
+```
+
+Signature (86 chars):
+
+```
+iHQ8u7fdzazGOmgd7_k8C5NzOknLDjGu0sQxKggCxV3ldOYEGTnve0NjB4G8LHSNEvfx4XtDOeDk0kkGCZQgCA
+```
+
+Expected: Record 4E is accepted by chain walk (signer key3 `current` in Record 3,
+window `1769997600..1770001200` contains `issuedAt` `1769998250`, digest matches Record
+3, `issuedAt` non-decreasing from Record 3). At `T = 1769998700` the effective prefix is
+`0..4` and the effective-latest Record is Record 4E, whose `expiresAt` `1769998300` is
+below `T`: Record 4E is not fresh at `T` and the snapshot is not fresh. The
+post-transfer statement S7 — the scenario A statement, byte-identical, `issuedAt`
+`1769998300`, `expiresAt` `1770001200`, fresh at `T` (`T - issuedAt = 400 <= W`) — is
+`UNVERIFIED` at phase 6, never `VERIFIED` (§11.4, §15.2 phase 6). Record 3 would be
+fresh at `T` (`T - 1769998200 = 500 <= W`, `T <= expiresAt` `1770001800`): backing off
+to Record 3 is prohibited, an older in-window Record MUST NOT be selected when the
+effective-latest Record `k` of the effective prefix is not fresh at `T` (§11.4).
+Shifting `T` back below `1769998250` yields the effective prefix `0..3` with snapshot
+Record 3, fresh at that `T`: `VERIFIED` holds only under that shifted evaluation time,
+never at `T = 1769998700`.
 
 Record 5V (`G = 5`, `epoch-2`, signer key4, `issuedAt` 1770002700, `expiresAt`
 1770003900; embedded trail key4 → key5, byte-identical to the Record 5 trail), scenario
@@ -2322,7 +2423,7 @@ cryptographic validity is not key validity (§9.6, §12.2).
 6. For the chain vector, compute each `prevRecordDigest` as the lowercase hex SHA-256
    of the UTF-8 octets of the previous Record's canonical payload string — payload
    only, signature and envelope excluded — and check Record 0's null, the six digest
-   values, and Record 1..4, 4F, and 5V signatures under the signer keys carried by
+   values, and Record 1..4, 4E, 4F, and 5V signatures under the signer keys carried by
    the preceding accepted Records. Record 5V's signature octets verify
    cryptographically under key4 `publicKey` while its `issuedAt` lies outside key4's
    validity window in Record 4, which MUST reject the Record (§9.6, §12.2).
@@ -2333,4 +2434,7 @@ cryptographic validity is not key validity (§9.6, §12.2).
    positive and negative results in A.5, including the Record 4 acceptance, the
    Record 5 trail-matching rejection, the Record 6 epoch-contiguity rejection, the
    Record 4F snapshot outcome at `T = 1769998400`, statement S5 at `T = 1769998400`,
-   and statement S6 at `T6 = 1770001200`.
+   statement S6 at `T6 = 1770001200`, the Record 4E acceptance by chain walk, and the
+   statement S7 snapshot outcome at `T = 1769998700` with `W = 600`: `UNVERIFIED` at
+   phase 6, with Record 3 fresh at `T` (`T - issuedAt = 500 <= W`) and back-off from
+   the expired effective-latest Record 4E to Record 3 prohibited (§11.4).
