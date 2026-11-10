@@ -560,7 +560,7 @@ at chain acceptance (§9.6):
   `retired` in Record `G-1` is terminal, and its `status` and `validUntil` are
   established evidence: they MUST NOT be re-registered as `current`, overwritten,
   widened, shortened, removed, or extended by a later Record; in particular, the
-  transfer retirement truncation `validUntil = issuedAt(G)` (§12.2) applies only to
+  transfer retirement truncation `validUntil = min(previous validUntil, issuedAt(G))` (§9.6, §12.2) applies only to
   keys `current` in Record `G-1` and MUST NOT extend the `validUntil` of a key
   already `retired`, `revoked`, or `compromised` in Record `G-1`;
 - allowed transitions: the only permitted mutations of an entry are
@@ -1499,10 +1499,12 @@ entry identity preservation, the revocation-field rule — `revokedFrom` set at 
 revocation Record's `recordGeneration` and immutable, unchangeable, and non-removable
 after establishment —, terminal-state irreversibility, retirement truncation capped by
 `min(previous validUntil, issuedAt(G))`, and allowed status transitions only in the
-keys array (§9.5, §9.6, §12.2, §13.4), with the positive vector Record 4R accepted as
-the first `current -> revoked` transition, statement S8 `REVOKED` at the revocation
-boundary, and the negative vector Record 4W rejected for mutating an established
-`revokedFrom` (Appendix A.5 scenario E); §15.2 precedence cases, with epoch mismatch
+keys array (§9.5, §9.6, §12.2, §13.4), with the positive vector Record 4A, the rotation Record that introduces key4 as a
+second `current` key, then Record 4R accepted as the first `current -> revoked`
+transition, the accepted legitimate successor Record 4B signed by `current` key4, the
+statement S8 `REVOKED` at the revocation boundary, and the negative vector Record
+4C rejected as the sole post-establishment `revokedFrom` mutation (Appendix A.5
+scenario E); §15.2 precedence cases, with epoch mismatch
 `STALE` at phase 10, revocation boundary `REVOKED` at phase 9 within the accepted-epoch
 scope, and snapshot staleness `UNVERIFIED` at phase 6; signature
 verification compared under Ed25519 and ES256 with known vectors; identical payload with
@@ -2423,47 +2425,64 @@ Record 3, fresh at that `T`, but S7 itself is not effective at such `T` (`issued
 Record 4E is fresh at `T` (`T <= expiresAt` `1769998300` with equality,
 `T - issuedAt = 50 <= W`) and S7 is effective, never at `T = 1769998700`.
 
-Record 4R (`recordGeneration = 4`, `epoch-1`, signer key3, `issuedAt` 1769998400,
-`expiresAt` 1770002000; keys array as Record 3, `issuedAt` non-decreasing from Record
-3, key3 entry `status = "revoked"` with `revokedFrom` 4, `keyId`, `publicKey`,
-`algorithm`, `validFrom` 1769997600, `validUntil` 1770001200 unchanged, key1/key2
-terminal `validUntil` 1769997000, 1769997600 unchanged), scenario E, chain Records
-`0..3, 4R`, `T = 1769998400`, `W = 600`:
+Record 4A (`recordGeneration = 4`, `epoch-1`, signer key3, `issuedAt` 1769998300,
+`expiresAt` 1770001900; keys array as Record 3 plus a new key4 entry
+`status = "current"` with `validFrom` 1769998300, `validUntil` 1770001900, key1/key2
+terminal `validUntil` 1769997000, 1769997600 unchanged, key3 entry `current`
+unchanged), scenario E, chain Records `0..3, 4A, 4R, 4B, 4C`, `T = 1769998400`,
+`W = 600`:
 
 ```
-{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770002000,"issuedAt":1769998400,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","revokedFrom":4,"status":"revoked","validFrom":1769997600,"validUntil":1770001200}],"l2Version":"0.1","prevRecordDigest":"72d46a3ca11dfdd8c275c4702f23c1415ff5b24ed6cabe88eea28b40ee895d03","recordGeneration":4,"signerKeyId":"G8VbXumewVs","statementFloor":0,"statementType":"authority"}
-```
-
-Signature (86 chars):
-
-```
-IvNhKsoXDhXGwJMbwxIHpL71HZB602jRYQJjgC-r3zYydZWCCZa0M30fVpHgqWHwp6noe099UwGMOtDvUXvFAQ
-```
-
-Record 4W (`recordGeneration = 5`, `epoch-1`, signer key4, `issuedAt` 1769998700,
-`expiresAt` 1770002300; key3 entry `revokedFrom` 1, key4 entry `status = "current"`
-`validFrom` 1769998400, `validUntil` 1770001200; embedded trail key3 → key4 with
-`issuedAt` 1769998700 signed by key3, trail payload 63 bytes), chain Records
-`0..3, 4R, 4W` at `T = 1769998400`, `W = 600`:
-
-```
-{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770002300,"issuedAt":1769998700,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","revokedFrom":1,"status":"revoked","validFrom":1769997600,"validUntil":1770001200},{"algorithm":"ed25519","keyId":"ECYh7yJFAn8","publicKey":"XJbDnskeXwC1yoPfBnWmQZefKRKQkrR3KtwYkpI6edA","status":"current","validFrom":1769998400,"validUntil":1770001200}],"l2Version":"0.1","prevRecordDigest":"c138245e94a3ac1819de4dd276da91c3b3ac37126cbcc000c0f9d72b9162c6fa","recordGeneration":5,"signerKeyId":"ECYh7yJFAn8","statementFloor":0,"statementType":"authority"}
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001900,"issuedAt":1769998300,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","status":"current","validFrom":1769997600,"validUntil":1770001200},{"algorithm":"ed25519","keyId":"ECYh7yJFAn8","publicKey":"XJbDnskeXwC1yoPfBnWmQZefKRKQkrR3KtwYkpI6edA","status":"current","validFrom":1769998300,"validUntil":1770001900}],"l2Version":"0.1","prevRecordDigest":"72d46a3ca11dfdd8c275c4702f23c1415ff5b24ed6cabe88eea28b40ee895d03","recordGeneration":4,"signerKeyId":"G8VbXumewVs","statementFloor":0,"statementType":"authority"}
 ```
 
 Signature (86 chars):
 
 ```
-IQxkaYKzjOf3zadR3w7TBlYiqJCEqVcyABlLde9Z8et1w8L0dmCYGYwJ4SFQaF8xT6y-YcIUqDrSywpvVa5UDw
+DNo9qZ825MBK1OnRtE6eAsazdpEqgq09R64QouTMiKfjbL09YO3wfSC0ifobgmLEktjrrI_YtA94yttyv9aOCQ
 ```
 
-Trail payload (63 bytes, canonical, signed by key3, 86 chars):
+Record 4R (`recordGeneration = 5`, `epoch-1`, signer key3, `issuedAt` 1769998400,
+`expiresAt` 1770002000; keys array as Record 4A, `issuedAt` non-decreasing from
+Record 4A, key3 entry `status = "revoked"` with `revokedFrom` 5, `keyId`, `publicKey`,
+`algorithm`, `validFrom` 1769997600, `validUntil` 1770001200 unchanged, key4 entry
+unchanged, key1/key2 terminal `validUntil` 1769997000, 1769997600 unchanged):
 
 ```
-{"from":"G8VbXumewVs","issuedAt":1769998700,"to":"ECYh7yJFAn8"}
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770002000,"issuedAt":1769998400,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","revokedFrom":5,"status":"revoked","validFrom":1769997600,"validUntil":1770001200},{"algorithm":"ed25519","keyId":"ECYh7yJFAn8","publicKey":"XJbDnskeXwC1yoPfBnWmQZefKRKQkrR3KtwYkpI6edA","status":"current","validFrom":1769998300,"validUntil":1770001900}],"l2Version":"0.1","prevRecordDigest":"aeb2b8b0a4e58bec966bb24f3715bcba1217be7193c3d7bb98aa7db129a12c4e","recordGeneration":5,"signerKeyId":"G8VbXumewVs","statementFloor":0,"statementType":"authority"}
 ```
 
+Signature (86 chars):
+
 ```
-kU2Lx-b_X2B7RNPvDTP0Rzks5I71BYTwJWM8oYU7eufRCaLlkqL7oxO3Y3TZz5JLtqLe9dtpbVI4FTGh8kxsDg
+qoS4e0uIJorMTGFhsjk5HWhJgiaoWFUeIVu___O71i4_WLfdogMDytrOSbzc0sFubCPEuvd3KEU1o1btZ6r-BA
+```
+
+Record 4B (`recordGeneration = 6`, `epoch-1`, signer key4, `issuedAt` 1769998700,
+`expiresAt` 1770002300; keys array identical to Record 4R, no mutation):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770002300,"issuedAt":1769998700,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","revokedFrom":5,"status":"revoked","validFrom":1769997600,"validUntil":1770001200},{"algorithm":"ed25519","keyId":"ECYh7yJFAn8","publicKey":"XJbDnskeXwC1yoPfBnWmQZefKRKQkrR3KtwYkpI6edA","status":"current","validFrom":1769998300,"validUntil":1770001900}],"l2Version":"0.1","prevRecordDigest":"defd7165768ee1dd76e9a809b4a8b2e3d06a7822351a89269c6b420cc7dd4a2d","recordGeneration":6,"signerKeyId":"ECYh7yJFAn8","statementFloor":0,"statementType":"authority"}
+```
+
+Signature (86 chars):
+
+```
+zhOmjkX4nljnUvu_7_vytCscYlvsJ9xo2yZc4NB-KFPUEVhNPfdS_kUDt6geArES7Xj4qUwA8Qf9fqT7HNtVDA
+```
+
+Record 4C (`recordGeneration = 6`, `epoch-1`, signer key4, `issuedAt` 1769998700,
+`expiresAt` 1770002300; keys array identical to Record 4B except the key3 entry
+`revokedFrom` 1):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770002300,"issuedAt":1769998700,"keys":[{"algorithm":"ed25519","keyId":"ECMERdvpV0k","publicKey":"s-3uYHWJqOApUHGAeMxzdQfh9Htni5M2NfZz7UWRn-I","status":"retired","validFrom":1769996400,"validUntil":1769997000},{"algorithm":"ed25519","keyId":"4KKXd7XSJW8","publicKey":"kkRvGX6Y1IdlwHaD5RxyYb3wHtXYsNJxo61AwYRXJWM","status":"retired","validFrom":1769997000,"validUntil":1769997600},{"algorithm":"ed25519","keyId":"G8VbXumewVs","publicKey":"G37L5Z3j2GBTKAvptCTB5nTUjbolf-vQasiSB7ypvcs","revokedFrom":1,"status":"revoked","validFrom":1769997600,"validUntil":1770001200},{"algorithm":"ed25519","keyId":"ECYh7yJFAn8","publicKey":"XJbDnskeXwC1yoPfBnWmQZefKRKQkrR3KtwYkpI6edA","status":"current","validFrom":1769998300,"validUntil":1770001900}],"l2Version":"0.1","prevRecordDigest":"defd7165768ee1dd76e9a809b4a8b2e3d06a7822351a89269c6b420cc7dd4a2d","recordGeneration":6,"signerKeyId":"ECYh7yJFAn8","statementFloor":0,"statementType":"authority"}
+```
+
+Signature (86 chars):
+
+```
+s5uAe8fUrj8C2wm6v6vAqlHZsFiKPGbg8ntnCJHMifq1dHToTrnS1Lj4dBMbprSN-38aJ9KnnkB1zdNfBIIrAQ
 ```
 
 Statement S8 (`keyId` `G8VbXumewVs` (key3), `issuedAt` 1769998400, `expiresAt`
@@ -2480,29 +2499,43 @@ Signature (86 chars):
 9ODxd3n8egOSSmCUTzbsD-UHGHTfnyaEPTKr8IvFJUtut63CuMx7Qz9pu9_QOusH-MZVr48FvDGhNIl5pRB9CQ
 ```
 
-Expected: Record 4R is the first `current -> revoked` transition of key3, the
-revocation-field rule legitimately sets `revokedFrom` to `recordGeneration` 4 (§9.5,
-§13.4): `revokedFrom` is absent from the key3 entry in Record 3, key identity fields
-(`keyId`, `publicKey`, `algorithm`, `validFrom`) are unchanged, and key1/key2 terminal
-`validUntil` 1769997000, 1769997600 are unchanged — retirement does not extend terminal
-windows (§9.5). Record 4R is accepted by chain walk: digest matches canonical Record 3,
-`issuedAt` 1769998400 is non-decreasing from Record 3 `1769998200`, signer key3 is the
-sole `current` key in Record 3, window `1769997600..1770001200` contains
-`issuedAt(4R)`. At `T = 1769998400` the effective prefix is `0..4` with effective-latest
-Record 4R, fresh by `T <= expiresAt(4R)` and `T - issuedAt(4R) = 0 <= W` (§11.4);
-Record 4R is effective at `T` (`issuedAt = T`), not a pre-empting future Record.
-Statement S8, signed by key3, lies on the revocation boundary (`T = issuedAt(4R)`,
-phase 10 `T >= issuedAt(4R)` passes): it is `REVOKED` at phase 9, never `VERIFIED`
-(§13.4, §15.2 fixed expected results). Record 4W is rejected by chain walk (§9.6 item
-4): the key3 entry changes the established `revokedFrom` from 4, first set at Record 4R,
-to 1, and an established `revokedFrom` MUST NOT be re-set, overwritten, widened,
-shortened, or removed (§9.5 revocation-field rule, §13.4); key3 entry status `revoked`
-is terminal and irreversible (§13.5 baseline revocation). Trail checks pass — key4 entry
-window `1769998400..1770001200` and trail-signing key3 window `1769997600..1770001200`
-both contain trail `issuedAt` 1769998700, and the trail signature verifies under key3
-(§12.2, §12.7, §13.2) — the revocation-mutation rejection is decisive. Record 4W is not
-accepted, never becomes the snapshot at any `T`, cannot restore key3 to `current`, and
-S8 stays `REVOKED` over the effective prefix `0..4` (§9.5, §13.5).
+Expected: Record 4A is accepted by chain walk: the digest matches canonical Record 3,
+`issuedAt` 1769998300 is non-decreasing from Record 3 `1769998200`, signer key3 is
+`current` in Record 3, window `1769997600..1770001200` contains `issuedAt(4A)`, the
+key1/key2 terminal `validUntil` 1769997000, 1769997600 are unchanged — retirement
+does not extend terminal windows (§9.5) — and key4 is introduced as a new `current`
+entry by the rotation Record. Record 4R is the first `current -> revoked` transition
+of key3, and the revocation-field rule legitimately sets `revokedFrom` to
+`recordGeneration` 5 (§9.5, §13.4): `revokedFrom` is absent from the key3 entry in
+Record 4A, the key identity fields (`keyId`, `publicKey`, `algorithm`, `validFrom`)
+are unchanged, and the key4 entry and key1/key2 terminal windows are unchanged.
+Record 4R is accepted by chain walk: prevDigest matches canonical Record 4A, signer
+key3 is `current` in Record 4A, the window contains `issuedAt(4R)`, and `issuedAt`
+1769998400 is non-decreasing from Record 4A. At `T = 1769998400` the effective prefix
+is `0..5` with effective-latest Record 4R, fresh by `T <= expiresAt(4R)` and
+`T - issuedAt(4R) = 0 <= W` (§11.4); Record 4R is effective at `T`
+(`issuedAt = T`), not a pre-empting future Record. Statement S8, signed by key3, lies
+on the revocation boundary (`T = issuedAt(4R)`, phase 10 `T >= issuedAt(4R)` passes):
+it is `REVOKED` at phase 9, never `VERIFIED` (§13.4, §15.2 fixed expected results).
+Record 4B is accepted by chain walk: prevDigest matches canonical Record 4R, signer
+key4 is `current` in Record 4R, window `1769998300..1770001900` contains
+`issuedAt(4B)`, the keys array is identical to Record 4R, and no entry is mutated.
+Record 4C is rejected by chain walk (§9.6 item 4): its sole deviation from the
+accepted Record 4B is the key3 entry changing the established `revokedFrom` from 5,
+first set at Record 4R, to 1, and an established `revokedFrom` MUST NOT be re-set,
+overwritten, widened, shortened, or removed (§9.5 revocation-field rule, §13.4);
+the key3 entry carrying `revokedFrom` MUST NOT be re-transitioned, and the status
+`revoked` is terminal and irreversible (§13.5 baseline revocation). Every other
+chain walk check for Record 4C passes — signer key4 is `current` in the accepted
+Record 4R, its window contains `issuedAt(4C)` 1769998700, prevDigest matches
+canonical Record 4R, `epoch-1`, `issuedAt` non-decreasing from Record 4R — so the
+revocation mutation is the single reason Record 4C is not accepted, and chain walk
+also rejects a Record whose payload differs from the accepted Record of the same
+`recordGeneration` 6 (Record 4B), so Record 4C is never accepted, never becomes the
+snapshot at any `T`, cannot restore key3 to `current`, and S8 stays `REVOKED` over
+the effective prefix `0..5` (§9.5, §13.5). Records 4B and 4C have `issuedAt`
+1769998700 > `T` and are not part of the effective prefix at `T`; their existence is
+not by itself a phase 6 failure (§11.4, §13.5).
 
 Record 5V (`G = 5`, `epoch-2`, signer key4, `issuedAt` 1770002700, `expiresAt`
 1770003900; embedded trail key4 → key5, byte-identical to the Record 5 trail), scenario
@@ -2551,9 +2584,9 @@ cryptographic validity is not key validity (§9.6, §12.2).
 6. For the chain vector, compute each `prevRecordDigest` as the lowercase hex SHA-256
    of the UTF-8 octets of the previous Record's canonical payload string — payload
    only, signature and envelope excluded — and check Record 0's null, the six digest
-   values, and Record 1..4, 4E, 4F, 4R, 4W, and 5V signatures under the signer keys
-   carried by the preceding accepted Records, and the scenario E trail signature under
-   key3 `publicKey` over the 63-byte trail7 payload. Record 5V's signature octets verify
+   values, the scenario E `prevRecordDigest` values for Records 4A, 4R, 4B, and 4C, and
+   the Record 1..4, 4E, 4F, 4A, 4R, 4B, 4C, and 5V signatures under the signer keys
+   carried by the preceding accepted Records. Record 5V's signature octets verify
    cryptographically under key4 `publicKey` while its `issuedAt` lies outside key4's
    validity window in Record 4, which MUST reject the Record (§9.6, §12.2).
 7. Verify the trail signature under key2 `publicKey`, confirm every §12.2 matching
@@ -2566,10 +2599,12 @@ cryptographic validity is not key validity (§9.6, §12.2).
    statement S6 at `T6 = 1770001200`, the Record 4E acceptance by chain walk, and the
    statement S7 snapshot outcome at `T = 1769998700` with `W = 600`: `UNVERIFIED` at
    phase 6, with Record 3 fresh at `T` (`T - issuedAt = 500 <= W`) and back-off from
-   the expired effective-latest Record 4E to Record 3 prohibited (§11.4); the Record 4R
-   acceptance as the first `current -> revoked` transition, setting `revokedFrom` to its
-   `recordGeneration` 4 under the §9.5 revocation-field rule, the statement S8 outcome
-   `REVOKED` at `T = 1769998400` with `W = 600` — S8 lies on the revocation boundary
-   (`T = issuedAt(4R)`) over the fresh snapshot Record 4R, never `VERIFIED` (§13.4,
-   §15.2) — and the Record 4W rejection as a post-establishment `revokedFrom` mutation
-   from 4 to 1 (§9.5, §13.4, §13.5).
+   the expired effective-latest Record 4E to Record 3 prohibited (§11.4); the Record 4A
+   acceptance, the Record 4R acceptance as the first `current -> revoked` transition,
+   setting `revokedFrom` to its `recordGeneration` 5 under the §9.5 revocation-field
+   rule, the statement S8 outcome `REVOKED` at `T = 1769998400` with `W = 600` — S8
+   lies on the revocation boundary (`T = issuedAt(4R)`) over the fresh snapshot Record
+   4R, never `VERIFIED` (§13.4, §15.2) —, the Record 4B acceptance as the legitimate
+   successor signed by `current` key4 introduced in Record 4A, and the Record 4C
+   rejection as the sole post-establishment `revokedFrom` mutation from 5 to 1, the only
+   deviation from the accepted Record 4B (§9.5, §13.4, §13.5).
