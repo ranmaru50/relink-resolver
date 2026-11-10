@@ -2532,7 +2532,7 @@ established at Record 4R is the key3 entry changing the established `revokedFrom
 from 5, first set at Record 4R, to 1, and an established `revokedFrom` MUST NOT be
 re-set, overwritten, widened, shortened, or removed (§9.5 revocation-field rule,
 §13.4); the key3 entry carrying `revokedFrom` MUST NOT be re-transitioned, and the
-status `revoked` is terminal and irreversible (§13.5 baseline revocation). Every
+status `revoked` is terminal and irreversible (§9.5, §13.4). Every
 other chain walk check for Record 4C passes — signer key4 is `current` in the
 accepted Record 4R, its window contains `issuedAt(4C)` 1769998700, prevDigest matches
 canonical Record 4R, `epoch-1`, `issuedAt` non-decreasing from Record 4R — so the
@@ -2584,7 +2584,7 @@ cryptographic validity is not key validity (§9.6, §12.2).
 4. Verify against `A`; a tampered signing target MUST fail. Vector 3 MUST verify with
    the U+1F600 member serialized before the U+E000 member; scalar code-point sorting
    MUST NOT reproduce the canonical bytes. Vector 3b MUST verify with the U+2028,
-   U+2029, and U+007F octets emitted as-is inside the `note` string; an serializer
+   U+2029, and U+007F octets emitted as-is inside the `note` string; a serializer
    that escapes U+2028, U+2029, or U+007F MUST NOT reproduce the canonical bytes.
 5. Derive key2, key3, key4, and key5 from seed strings 2, 3, 4, and 5 per A.1,
    recompute their `keyId`s from the `publicKey` bytes, and check the A.5 key values.
