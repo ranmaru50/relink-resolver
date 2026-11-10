@@ -1157,8 +1157,9 @@ VERIFIED
     satisfied in `l1-bound` mode (§15.1)
 UNVERIFIED
     verification incomplete: missing trust material, unavailable authority, missing
-    trusted clock, revocation snapshot missing, stale, incomplete, or not the highest
-    accepted Record, offline limitation
+    trusted clock, no revocation snapshot effective at `T` in the accepted prefix,
+    the selected effective-latest Record `k` expired, stale, missing, coverage
+    insufficient, offline limitation
 INVALID
     structural failure: strict-JSON violation, duplicate members, l2Version violation,
     non-canonical payload, signature failure, payload/signature separation violation,
@@ -1501,10 +1502,11 @@ after establishment —, terminal-state irreversibility, retirement truncation c
 `min(previous validUntil, issuedAt(G))`, and allowed status transitions only in the
 keys array (§9.5, §9.6, §12.2, §13.4), with the positive vector Record 4A, the rotation Record that introduces key4 as a
 second `current` key, then Record 4R accepted as the first `current -> revoked`
-transition, the accepted legitimate successor Record 4B signed by `current` key4, the
-statement S8 `REVOKED` at the revocation boundary, and the negative vector Record
-4C rejected as the sole post-establishment `revokedFrom` mutation (Appendix A.5
-scenario E); §15.2 precedence cases, with epoch mismatch
+transition, the accepted legitimate successor Record 4B signed by `current` key4, added
+alone in the positive branch, the statement S8 `REVOKED` at the revocation boundary, and
+the negative vector Record 4C added alone to the accepted prefix `0..3, 4A, 4R` and
+rejected at phase 5 as the sole post-establishment `revokedFrom` mutation, the accepted
+tip staying at `recordGeneration` 5 (Appendix A.5 scenario E); §15.2 precedence cases, with epoch mismatch
 `STALE` at phase 10, revocation boundary `REVOKED` at phase 9 within the accepted-epoch
 scope, and snapshot staleness `UNVERIFIED` at phase 6; signature
 verification compared under Ed25519 and ES256 with known vectors; identical payload with
@@ -2429,7 +2431,8 @@ Record 4A (`recordGeneration = 4`, `epoch-1`, signer key3, `issuedAt` 1769998300
 `expiresAt` 1770001900; keys array as Record 3 plus a new key4 entry
 `status = "current"` with `validFrom` 1769998300, `validUntil` 1770001900, key1/key2
 terminal `validUntil` 1769997000, 1769997600 unchanged, key3 entry `current`
-unchanged), scenario E, chain Records `0..3, 4A, 4R, 4B, 4C`, `T = 1769998400`,
+unchanged), scenario E, common accepted prefix `0..3, 4A, 4R`, positive branch adds
+Record 4B alone, negative branch adds Record 4C alone, `T = 1769998400`,
 `W = 600`:
 
 ```
@@ -2499,43 +2502,47 @@ Signature (86 chars):
 9ODxd3n8egOSSmCUTzbsD-UHGHTfnyaEPTKr8IvFJUtut63CuMx7Qz9pu9_QOusH-MZVr48FvDGhNIl5pRB9CQ
 ```
 
-Expected: Record 4A is accepted by chain walk: the digest matches canonical Record 3,
+Expected: the common accepted prefix `0..3, 4A, 4R` is established for both branches:
+Record 4A is accepted by chain walk (the digest matches canonical Record 3,
 `issuedAt` 1769998300 is non-decreasing from Record 3 `1769998200`, signer key3 is
 `current` in Record 3, window `1769997600..1770001200` contains `issuedAt(4A)`, the
-key1/key2 terminal `validUntil` 1769997000, 1769997600 are unchanged — retirement
-does not extend terminal windows (§9.5) — and key4 is introduced as a new `current`
-entry by the rotation Record. Record 4R is the first `current -> revoked` transition
-of key3, and the revocation-field rule legitimately sets `revokedFrom` to
+key1/key2 terminal `validUntil` 1769997000, 1769997600 are unchanged — retirement does
+not extend terminal windows (§9.5) — and key4 is introduced as a new `current` entry
+by the rotation Record). Record 4R is the first `current -> revoked` transition of
+key3, and the revocation-field rule legitimately sets `revokedFrom` to
 `recordGeneration` 5 (§9.5, §13.4): `revokedFrom` is absent from the key3 entry in
 Record 4A, the key identity fields (`keyId`, `publicKey`, `algorithm`, `validFrom`)
-are unchanged, and the key4 entry and key1/key2 terminal windows are unchanged.
-Record 4R is accepted by chain walk: prevDigest matches canonical Record 4A, signer
-key3 is `current` in Record 4A, the window contains `issuedAt(4R)`, and `issuedAt`
-1769998400 is non-decreasing from Record 4A. At `T = 1769998400` the effective prefix
-is `0..5` with effective-latest Record 4R, fresh by `T <= expiresAt(4R)` and
-`T - issuedAt(4R) = 0 <= W` (§11.4); Record 4R is effective at `T`
-(`issuedAt = T`), not a pre-empting future Record. Statement S8, signed by key3, lies
-on the revocation boundary (`T = issuedAt(4R)`, phase 10 `T >= issuedAt(4R)` passes):
-it is `REVOKED` at phase 9, never `VERIFIED` (§13.4, §15.2 fixed expected results).
-Record 4B is accepted by chain walk: prevDigest matches canonical Record 4R, signer
-key4 is `current` in Record 4R, window `1769998300..1770001900` contains
-`issuedAt(4B)`, the keys array is identical to Record 4R, and no entry is mutated.
-Record 4C is rejected by chain walk (§9.6 item 4): its sole deviation from the
-accepted Record 4B is the key3 entry changing the established `revokedFrom` from 5,
-first set at Record 4R, to 1, and an established `revokedFrom` MUST NOT be re-set,
-overwritten, widened, shortened, or removed (§9.5 revocation-field rule, §13.4);
-the key3 entry carrying `revokedFrom` MUST NOT be re-transitioned, and the status
-`revoked` is terminal and irreversible (§13.5 baseline revocation). Every other
-chain walk check for Record 4C passes — signer key4 is `current` in the accepted
-Record 4R, its window contains `issuedAt(4C)` 1769998700, prevDigest matches
+are unchanged, the key4 entry and key1/key2 terminal windows are unchanged, the
+prevDigest matches canonical Record 4A, signer key3 is `current` in Record 4A, the
+window contains `issuedAt(4R)`, and `issuedAt` 1769998400 is non-decreasing from
+Record 4A. At `T = 1769998400` the effective prefix is `0..5` with effective-latest
+Record 4R, fresh by `T <= expiresAt(4R)` and `T - issuedAt(4R) = 0 <= W` (§11.4);
+Record 4R is effective at `T` (`issuedAt = T`), not a pre-empting future Record.
+Statement S8, signed by key3, lies on the revocation boundary (`T = issuedAt(4R)`,
+phase 10 `T >= issuedAt(4R)` passes): it is `REVOKED` at phase 9, never `VERIFIED`
+(§13.4, §15.2 fixed expected results). Positive branch: Record 4B added alone to the
+accepted prefix `0..3, 4A, 4R` is accepted by chain walk (prevDigest matches
+canonical Record 4R, signer key4 is `current` in Record 4R, window
+`1769998300..1770001900` contains `issuedAt(4B)`, keys array identical to Record 4R,
+no entry is mutated). Negative branch: Record 4C added alone to the same accepted
+prefix `0..3, 4A, 4R` — no Record of generation 6 is accepted, so no same-generation
+conflict, no re-presentation rule, and Record 4B is not involved — is rejected at
+chain acceptance, phase 5 (§9.6): its sole deviation from the accepted key state
+established at Record 4R is the key3 entry changing the established `revokedFrom`
+from 5, first set at Record 4R, to 1, and an established `revokedFrom` MUST NOT be
+re-set, overwritten, widened, shortened, or removed (§9.5 revocation-field rule,
+§13.4); the key3 entry carrying `revokedFrom` MUST NOT be re-transitioned, and the
+status `revoked` is terminal and irreversible (§13.5 baseline revocation). Every
+other chain walk check for Record 4C passes — signer key4 is `current` in the
+accepted Record 4R, its window contains `issuedAt(4C)` 1769998700, prevDigest matches
 canonical Record 4R, `epoch-1`, `issuedAt` non-decreasing from Record 4R — so the
-revocation mutation is the single reason Record 4C is not accepted, and chain walk
-also rejects a Record whose payload differs from the accepted Record of the same
-`recordGeneration` 6 (Record 4B), so Record 4C is never accepted, never becomes the
-snapshot at any `T`, cannot restore key3 to `current`, and S8 stays `REVOKED` over
-the effective prefix `0..5` (§9.5, §13.5). Records 4B and 4C have `issuedAt`
-1769998700 > `T` and are not part of the effective prefix at `T`; their existence is
-not by itself a phase 6 failure (§11.4, §13.5).
+revocation mutation is the single reason Record 4C is not accepted; in the negative
+branch the accepted chain tip stays at `recordGeneration` 5, Record 4C never becomes
+the snapshot at any `T`, cannot restore key3 to `current`, and S8 stays `REVOKED`
+over the effective prefix `0..5` (§9.5, §13.5). The same-generation conflict between
+Records 4B and 4C is a separate fixture, not tested here. Records 4B and 4C have
+`issuedAt` 1769998700 > `T` and are not part of the effective prefix at `T`; their
+existence is not by itself a phase 6 failure (§11.4, §13.5).
 
 Record 5V (`G = 5`, `epoch-2`, signer key4, `issuedAt` 1770002700, `expiresAt`
 1770003900; embedded trail key4 → key5, byte-identical to the Record 5 trail), scenario
@@ -2604,7 +2611,8 @@ cryptographic validity is not key validity (§9.6, §12.2).
    setting `revokedFrom` to its `recordGeneration` 5 under the §9.5 revocation-field
    rule, the statement S8 outcome `REVOKED` at `T = 1769998400` with `W = 600` — S8
    lies on the revocation boundary (`T = issuedAt(4R)`) over the fresh snapshot Record
-   4R, never `VERIFIED` (§13.4, §15.2) —, the Record 4B acceptance as the legitimate
-   successor signed by `current` key4 introduced in Record 4A, and the Record 4C
-   rejection as the sole post-establishment `revokedFrom` mutation from 5 to 1, the only
-   deviation from the accepted Record 4B (§9.5, §13.4, §13.5).
+   4R, never `VERIFIED` (§13.4, §15.2) —, the positive-branch Record 4B acceptance as
+   the legitimate successor signed by `current` key4 introduced in Record 4A, and the
+   negative-branch Record 4C rejection, added alone to the accepted prefix
+   `0..3, 4A, 4R` with the accepted tip staying at `recordGeneration` 5, as the sole
+   post-establishment `revokedFrom` mutation from 5 to 1 (§9.5, §13.4, §13.5).
