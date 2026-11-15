@@ -242,7 +242,7 @@ L2-VER-014/chain-accepted-snapshot-gap: chain walk succeeds for 0..3, effective 
 **Strength:** MUST  
 **Precondition:** Records 0..4 accepted；Record 5（`G = 5`、`epoch-2`、signer key4、`issuedAt` 1770001500）はtrail `epoch-1` → `epoch-2`、key4 → key5 `cIbUqaV2qxI`を組み込み、Record 5はkey3を`current`のまま保ちkey5を2つの`current` keyの1つとして持つ。  
 **Action:** verifierはRecord 5をwalkする。  
-**Expected:** Record 5はtrail matching、phase 5でrejected：§12.2はRecord 4で`current`の全key（key3とkey4）を`min(previous validUntil, issuedAt(5))`にcapされた`validUntil`でretireし、trail-approved incoming key key5を唯一の`current` keyとすることを要求する — key3 `min(1770001200, 1770001500) = 1770001200`、key4 `min(1770002400, 1770001500) = 1770001500`。signatureはkey4 `publicKey`下でcryptographicallyに検証成功する；rejectionはsignatureではなくmatching-rule failureであり、chainはRecord 4で停止し、key4下で`epoch-2`を導入するRecordsは受け入れてはならない（MUST NOT）。  
+**Expected:** Record 5はtrail matching、phase 5でrejected：§12.2はRecord 4で`current`の全key（key3とkey4）を`min(previous validUntil, issuedAt(5))`にcapされた`validUntil`でretireし、trail-approved incoming key key5を唯一の`current` keyとすることを要求する — key3 `min(1770002400, 1770001500) = 1770001500`、key4 `min(1770002400, 1770001500) = 1770001500`。signatureはkey4 `publicKey`下でcryptographicallyに検証成功する；rejectionはsignatureではなくmatching-rule failureであり、chainはRecord 4で停止し、key4下で`epoch-2`を導入するRecordsは受け入れてはならない（MUST NOT）。  
 **Reference:** L2 0.1 draft §12.2、§9.6；Appendix A.5（Record 5）。
 
 ### L2-VER-017 — Record 6はcontiguityでrejected；epoch 2と3はnever accepted
@@ -490,25 +490,26 @@ Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを�
 L2-VER-046/payload-jcs-canonical: canonical payload with JCS sorted keys, extension bytes reproducible -> signature verifies over canonical payload bytes
 L2-VER-046/outer-whitespace-only: canonical payload, outer envelope differs only in outer whitespace, no duplicate members -> not INVALID; canonical payload bytes unchanged
 L2-VER-046/raw-wire-duplicate: duplicate member names in raw wire text -> INVALID at phase 1, detected before parsing
-L2-VER-046/payload-inner-noncanonical: payload interior non-canonical (unsorted keys, 1.0 form, unescaped control characters) -> signing-target bytes differ from the pinned canonical fixture, signature verification fails, INVALID
+L2-VER-046/payload-inner-noncanonical: payload interior non-canonical (unsorted keys, 1.0 form, unescaped control characters) -> signing-target bytes differ from the pinned canonical fixture, signature verification fails, INVALID at phase 8, distinct from the phase 1 raw wire duplicate case
 ```
 **Reference:** L2 0.1 draft §7.3, §7.5, §15.2 phase 1, phase 8.
 
 ### L2-VER-047 — Statement replay／equivocation／accepted maximum: 独立verifier stateによるverdict split
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** scenario E chain `0..3, 4A, 4R, 4B` accepted、`T = 1769998400`、`W = 600`。Catalog fixture S9はkey4 `ECYh7yJFAn8`（Record 4Aで`current`として導入、window `1769998300..1770001900`）で署名された完全wire statement（canonical payload + signature）として定義、`epoch-1`、`generation = 2`、`issuedAt` 1769998300、`expiresAt` 1770001200、payloadはS8と相違；generation 1のrestatementはkey4で再署名。新規catalog fixtureのみ、規範Appendixのpinned vectorは改変してはならない（MUST NOT）。  
-**Action:** verifierは各subcaseを、記述された初期accepted statement stateを持つ独立verifier stateから実行する。  
-**Expected:** subcaseはverdict splitをもたらし、単一の一律結果ではない:  
+**Precondition:** S9 fixturesのaccepted prefixは`0..3, 4A` — `epoch-1`はcurrent accepted epoch、key4 `ECYh7yJFAn8`はRecord 4Aで`current`、window `1769998300..1770001900`、`T = 1769998300`、`W = 600`；S8 subcaseはaccepted prefix `0..3, 4A, 4R`、`T = 1769998400`。Catalog fixtures S9, S9v1, S9v2はCatalog Appendix 10にpinned：seed string `relink-l2-0.1-draft-test-vector-seed-4`からspec Appendix A.1により再現可能、spec Appendix A.6の手順でkey4により署名；3つとも`keyId` `ECYh7yJFAn8`、`epochId` `epoch-1`、`issuedAt` 1769998300、`expiresAt` 1770001200を共有；S9は`generation = 2`、S9v1とS9v2は`generation = 1`でpayloadはS9と相違し互いに相違、各signatureはkey4の下で有効。新規catalog fixturesのみ；pinnedされたspec Appendix Aのvectorを変更してはならない（MUST NOT）。  
+**Action:** 検証器は各subcaseを、記述された初期受理済みstatement状態を持つ独立のverifier stateから実行する。  
+**Expected:** subcaseは分割された判定を生じ、単一の一律の結果になってはならない：  
 Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
 
 ```text
-L2-VER-047/s9-generation-2-base: fresh verifier state, no accepted statement maximum; S9 at generation 2, under key4 current in Records 4A/4R/4B, fresh at T, signature verifies under key4 -> VERIFIED
-L2-VER-047/s9-generation-1-stale-representation: after S9 generation 2 is accepted, byte-identical presentation at generation 1 below the accepted maximum -> STALE at phase 10 (replay below the accepted maximum, §11.3), never VERIFIED
-L2-VER-047/s9-generation-1-equivocation: independent fresh state with a valid generation 1 statement signed by key4 accepted first; present the same generation with a different payload, re-signed under key4 -> CONFLICT at phase 10 (same epoch, same generation, different payload), never VERIFIED
+L2-VER-047/s9-generation-2-base: fresh verifier state, no accepted statement maximum; S9 at generation 2 (Appendix 10.1), under key4 current in Record 4A, fresh at T, signature verifies under key4 -> VERIFIED
+L2-VER-047/s9-generation-1-stale-variant: after S9 generation 2 is accepted, present S9v1 (Appendix 10.2, generation 1, valid signature under key4, fresh at T), below the accepted maximum -> STALE at phase 10, never VERIFIED
+L2-VER-047/s9-generation-1-equivocation: fresh state with S9v1, generation 1, accepted first; present S9v2 (Appendix 10.3), same generation, payload differs from S9v1, re-signed under key4, fresh at T -> CONFLICT at phase 10 (same epoch, same generation, different payload), never VERIFIED
+L2-VER-047/s9-generation-2-byte-identical-replay: after S9 generation 2 is accepted, replay S9 byte-identically; replay at the accepted maximum is not freshness progress, key4 current, within window -> VERIFIED, no replay penalty (L2-VER-027, §15.1)
 L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1 within its validity window is a replay, not freshness progress; signer key3 is revoked from Record 4R onward -> REVOKED at phase 9, never VERIFIED
 ```
-**Reference:** L2 0.1 draft §15.2 phase 10、phase 9、phase 8；§9.7、§11.3、§13.2；Appendix A.5（S8）、catalog fixture S9。
+**Reference:** L2 0.1 draft §15.2 phase 10, phase 9, phase 8; §9.7, §11.3, §13.2, §15.1; Appendix A.5 (S8), catalog Appendix 10.
 
 ## 6. Authority cases
 
@@ -795,13 +796,13 @@ L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1
 **Expected:** 全pinned signatureはcanonical payload bytesに対してpinned `publicKey`下で検証成功（raw 32-byte public key encoding、64-byte signature）；canonical bytesに対して検証成功しないsignatureはnever authority evidenceではない。  
 **Reference:** L2 0.1 draft §10.2、§10.8；Appendix A.2–A.5。
 
-### L2-PRO-012 — ES256提供時: pinned JWS encoding、再現可能なTestbed vector
+### L2-PRO-012 — ES256提供時: pinned再現契約、JWS固定r||sエンコーディング
 **Target:** L2-PRODUCER  
 **Strength:** MUST when offered、optional to baseline  
-**Precondition:** ES256はalgorithmとして提供；Testbedはdocumentedなprocedureでvalidなtest ES256 keyを生成し、pinned canonical payloadを生成keyで署名、同一payloadをnon-pinned encoding（DER、reordered r/s）で提示。  
-**Action:** documented Testbed key生成procedureで生成されたES256 signatureをpinned canonical payload上で検証、同一payloadをnon-pinned encodingsで提示。  
-**Expected:** ES256はJOSE JWS "ES256" signature encoding、fixed 64-byte r||sを利用しなければならず（MUST）、signature bytesは同一canonical payload octets上で検証、digest interpretationは同一payload bytes上でpinned encoding下で同一、non-pinned encodings（DER、reordered r/s）は受け入れてはならない（MUST NOT）、vectorはdocumented Testbed key生成procedure（pinned test key）で再現可能であり、unpinned ad-hoc signatureではない、ES256欠如は`UNSUPPORTED-OPTIONAL`でbaseline failureではなく、unknownまたはunsupported `algorithm`は`UNSUPPORTED_ALGORITHM` fail-closed、`VERIFIED`でも`UNVERIFIED`でもない。  
-**Reference:** L2 0.1 draft §10.8、§15.2 phase 3、§19。
+**Precondition:** ES256がalgorithmとして提供される；test ES256 keysとvectorはCatalog Appendix 11の再現契約により生成され、同一payloadがnon-pinnedエンコーディング（DER、reordered r/s）で提示される。  
+**Action:** 契約により導出されたtest keyにより生成されたES256署名をpinned canonical payload上で検証し、同一payloadをnon-pinnedエンコーディングで提示する。  
+**Expected:** ES256はJOSE JWS "ES256"署名エンコーディング、固定64-byte r||sを使用しなければならず（MUST）、signature bytesは同一canonical payload octets上で検証され、digest解釈は同一payload bytes上でpinnedエンコーディングと同一でなければならず、non-pinnedエンコーディング（DER、reordered r/s、unpadded base64url、variable-length integers）は受理してはならず（MUST NOT）、vectorはCatalog Appendix 11の契約により再現可能（seed-pinned keys、署名は決定論的に生成、canonical payload＋signatureペアとしてTestbed data setに保存）、ad-hocのpinnedでない署名によって生成されてはならず、ES256の欠如は`UNSUPPORTED-OPTIONAL`、baseline失敗ではなく、unknown／unsupported `algorithm`はfail-closedで`UNSUPPORTED_ALGORITHM`、`VERIFIED`でも`UNVERIFIED`でもない。  
+**Reference:** L2 0.1 draft §10.8, §19; Catalog Appendix 11.
 
 ## 8. Server cases
 
@@ -906,3 +907,74 @@ Reference Lab integration
 - Reference Resolver implementationは`composer validate`、`composer test`、`composer analyse`、`php -l`、`git diff --check`を通らなければならず（MUST）、これらはimplementation workに適用し本書には適用しない。
 - Reportは実行したconformance set(s)をtarget別に明示することを推奨し、targetsを1つのoverall PASS lineへcollapseしてはならない（MUST NOT）。
 - Case subdivision、result classes、strength handling、reportingは§§2-4に従い、Testbedは§5-§8の全caseを、親IDを保持しつつ必要に応じてsubdivideして実装する。
+
+## 10. Catalog fixtures (S9 family)
+
+Status: catalog-owned、pinned、再現可能。pinnedされたL2 0.1 spec Appendix Aのvectorを変更してはならない（MUST NOT）；これらのfixtureは本Catalogのみに存在する。
+
+生成契約：署名keyはspec Appendix A.5のkey4 `ECYh7yJFAn8`、seed string `relink-l2-0.1-draft-test-vector-seed-4`からspec Appendix A.1の公開派生により導出。署名はspec Appendix A.6の手順で生成する：canonical payloadのUTF-8 octetsに対する決定論的Ed25519（RFC 8032）、base64urlの'='除去、86文字。private seedは公開test-vector材料であり、test vectors以外に使用しない。全S9 fixturesは`keyId` `ECYh7yJFAn8`、`epochId` `epoch-1`、`issuedAt` 1769998300、`expiresAt` 1770001200、`l2Version` `0.1`、`statementType` `resolution`、`lifecycleStatus` `active`、`anchorId` `550e8400-e29b-41d4-a716-446655440000`、`entityId` `urn:relink:entity:thermal-sensor-42`を共有する。
+
+### 10.1 S9 (generation 2, base fixture)
+
+Canonical payload (364 bytes):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"generation":2,"issuedAt":1769998300,"keyId":"ECYh7yJFAn8","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+```
+
+Signature (86 chars):
+
+```
+04Z-__f7h35mshYil-sF67cVE07SE4czanw-0nQ7oC76UiZ15IJmERM8DID5a5Mlc_6FeMO0hAHWfqCy-mD0DQ
+```
+
+### 10.2 S9v1 (generation 1, payload differs from S9 only in generation)
+
+Canonical payload (364 bytes):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"generation":1,"issuedAt":1769998300,"keyId":"ECYh7yJFAn8","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+```
+
+Signature (86 chars):
+
+```
+tDFzpWAzdJKqiBdAGodXDXVi6gXHGODq3uBsoPz96wtFW8H-eiXNo7uZGQv8YhQS61uI_zPbcciCq9kbI0__Aw
+```
+
+### 10.3 S9v2 (generation 1, `descriptionLocation` differs from S9v1)
+
+Canonical payload (366 bytes):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml-2","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"generation":1,"issuedAt":1769998300,"keyId":"ECYh7yJFAn8","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+```
+
+Signature (86 chars):
+
+```
+EFXwBIToOlZVoWvyfkAuYhOgNaYrsIiH3V7d_1h_AbMUmZB8SuZEvRpbqVmlwEnt_iNF2_jqByHT1abwDhNfDA
+```
+
+L2-VER-047が使用するverifier state、pinnedかつ決定的：
+
+```text
+state-base: accepted chain prefix 0..3, 4A; current accepted epoch epoch-1; key4 ECYh7yJFAn8 current in Record 4A, window 1769998300..1770001900; no accepted statement; T = 1769998300; W = 600
+state-after-s9: as state-base, plus accepted statement S9, generation 2
+state-after-s9v1: as state-base, plus accepted statement S9v1, generation 1
+state-s8: accepted chain prefix 0..3, 4A, 4R; T = 1769998400; key3 revoked from Record 4R, revokedFrom 5
+```
+
+保存：各fixtureはcanonical payload string＋signature stringのペアとしてpinnedどおりに保存；wire提示はspec Appendix A.4の外側envelope形式でcanonical payloadを囲み、外側空白はL2-VER-046に従い許容；signing targetはcanonical payload bytesのみ。
+
+## 11. ES256 test-vector reproduction contract
+
+Status: catalog-owned。ES256はbaselineに対してoptionalのまま（§19）；この契約は提供時にTestbedがES256 vectorを生成・保存・検証する方法を固定する。
+
+- Curve P-256；JWS algorithm name `ES256`（RFC 7515 §6.2.1.1解釈）。
+- Test signing keysはcatalog所有のseed strings `relink-l2-0.1-catalog-es256-seed-1`と`relink-l2-0.1-catalog-es256-seed-2`から導出：private scalar `d`はseed stringのUTF-8 octetsに対するSHA-256をbig-endian integerとして解釈し、P-256 group orderで約減し、`1..n-1`でなければならない（MUST）。
+- `publicKey`：uncompressed P-256 point、`x`と`y`をfixed-width 32-byte big-endianで連結、base64urlの'='除去（86文字）；`keyId`は`publicKey` bytesから§9.4で再計算。
+- Signature：canonical payloadのUTF-8 octetsに対するSHA-256；JOSE JWS "ES256"署名エンコーディング、fixed 64-byte big-endian `r || s`、base64urlの'='除去（86文字）。
+- Signing targetは本Catalogとspec Appendixにpinnedされたcanonical payload、L2-PRO-* caseで検証される同一bytes。
+- 保存：vectorはこの契約により一度生成され、canonical payload string＋signature stringのペアとしてTestbed data setに保存；検証は契約導出keyにより署名を再計算しbyte-for-byteで比較する。
+- Non-pinnedエンコーディングは受理してはならない（MUST NOT）：DER SEQUENCE、reordered `r`／`s`、unpadded base64url、variable-length integers。

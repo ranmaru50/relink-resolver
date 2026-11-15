@@ -242,7 +242,7 @@ L2-VER-014/chain-accepted-snapshot-gap: chain walk succeeds for 0..3, effective 
 **Strength:** MUST  
 **Precondition:** Records 0..4 accepted; Record 5 (`G = 5`, `epoch-2`, signer key4, `issuedAt` 1770001500) embeds trail `epoch-1` → `epoch-2`, key4 → key5 `cIbUqaV2qxI`; Record 5 keeps key3 `current` and carries key5 as one `current` key among two.  
 **Action:** verifier walks Record 5.  
-**Expected:** Record 5 rejected at trail matching, phase 5: §12.2 requires every key `current` in Record 4 (key3 and key4) to be retired with `validUntil` capped at `min(previous validUntil, issuedAt(5))` — key3 `min(1770001200, 1770001500) = 1770001200`, key4 `min(1770002400, 1770001500) = 1770001500` — and the trail-approved incoming key key5 to be the sole `current` key. The signature verifies cryptographically under key4 `publicKey`; the matching-rule failure, not the signature, is the rejection; chain stops at Record 4; Records introducing `epoch-2` signed under key4 MUST NOT be accepted.  
+**Expected:** Record 5 rejected at trail matching, phase 5: §12.2 requires every key `current` in Record 4 (key3 and key4) to be retired with `validUntil` capped at `min(previous validUntil, issuedAt(5))` — key3 `min(1770002400, 1770001500) = 1770001500`, key4 `min(1770002400, 1770001500) = 1770001500` — and the trail-approved incoming key key5 to be the sole `current` key. The signature verifies cryptographically under key4 `publicKey`; the matching-rule failure, not the signature, is the rejection; chain stops at Record 4; Records introducing `epoch-2` signed under key4 MUST NOT be accepted.  
 **Reference:** L2 0.1 draft §12.2, §9.6; Appendix A.5 (Record 5).
 
 ### L2-VER-017 — Record 6 rejected by contiguity; epochs 2 and 3 never accepted
@@ -490,25 +490,26 @@ The Testbed SHOULD implement at least these subcases while retaining the parent 
 L2-VER-046/payload-jcs-canonical: canonical payload with JCS sorted keys, extension bytes reproducible -> signature verifies over canonical payload bytes
 L2-VER-046/outer-whitespace-only: canonical payload, outer envelope differs only in outer whitespace, no duplicate members -> not INVALID; canonical payload bytes unchanged
 L2-VER-046/raw-wire-duplicate: duplicate member names in raw wire text -> INVALID at phase 1, detected before parsing
-L2-VER-046/payload-inner-noncanonical: payload interior non-canonical (unsorted keys, 1.0 form, unescaped control characters) -> signing-target bytes differ from the pinned canonical fixture, signature verification fails, INVALID
+L2-VER-046/payload-inner-noncanonical: payload interior non-canonical (unsorted keys, 1.0 form, unescaped control characters) -> signing-target bytes differ from the pinned canonical fixture, signature verification fails, INVALID at phase 8, distinct from the phase 1 raw wire duplicate case
 ```
 **Reference:** L2 0.1 draft §7.3, §7.5, §15.2 phase 1, phase 8.
 
 ### L2-VER-047 — Statement replay, equivocation, accepted maximum: split verdicts from independent verifier states
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** scenario E chain `0..3, 4A, 4R, 4B` accepted, `T = 1769998400`, `W = 600`. Catalog fixture S9 is defined as a complete wire statement (canonical payload + signature) signed by key4 `ECYh7yJFAn8` (introduced `current` in Record 4A, window `1769998300..1770001900`), `epoch-1`, `generation = 2`, `issuedAt` 1769998300, `expiresAt` 1770001200, payload different from S8; the generation 1 restatement is re-signed under key4. New catalog fixtures only; the pinned spec Appendix vectors MUST NOT be modified.  
+**Precondition:** accepted prefix `0..3, 4A` for the S9 fixtures — `epoch-1` is the current accepted epoch, key4 `ECYh7yJFAn8` is `current` in Record 4A, window `1769998300..1770001900` — `T = 1769998300`, `W = 600`; for the S8 subcase, accepted prefix `0..3, 4A, 4R`, `T = 1769998400`. Catalog fixtures S9, S9v1, S9v2 are pinned in Catalog Appendix 10: reproducible from seed string `relink-l2-0.1-draft-test-vector-seed-4` via spec Appendix A.1, signed under key4 with the spec Appendix A.6 procedure; all three share `keyId` `ECYh7yJFAn8`, `epochId` `epoch-1`, `issuedAt` 1769998300, `expiresAt` 1770001200; S9 has `generation = 2`, S9v1 and S9v2 have `generation = 1` with payloads differing from S9 and from each other, each signature valid under key4. New catalog fixtures only; the pinned spec Appendix A vectors MUST NOT be modified.  
 **Action:** the verifier runs each subcase from an independent verifier state with the stated initial accepted statement state.  
 **Expected:** the subcases yield split verdicts, never one blanket result:  
 The Testbed SHOULD implement at least these subcases while retaining the parent catalog ID:
 
 ```text
-L2-VER-047/s9-generation-2-base: fresh verifier state, no accepted statement maximum; S9 at generation 2, under key4 current in Records 4A/4R/4B, fresh at T, signature verifies under key4 -> VERIFIED
-L2-VER-047/s9-generation-1-stale-representation: after S9 generation 2 is accepted, byte-identical presentation at generation 1 below the accepted maximum -> STALE at phase 10 (replay below the accepted maximum, §11.3), never VERIFIED
-L2-VER-047/s9-generation-1-equivocation: independent fresh state with a valid generation 1 statement signed by key4 accepted first; present the same generation with a different payload, re-signed under key4 -> CONFLICT at phase 10 (same epoch, same generation, different payload), never VERIFIED
+L2-VER-047/s9-generation-2-base: fresh verifier state, no accepted statement maximum; S9 at generation 2 (Appendix 10.1), under key4 current in Record 4A, fresh at T, signature verifies under key4 -> VERIFIED
+L2-VER-047/s9-generation-1-stale-variant: after S9 generation 2 is accepted, present S9v1 (Appendix 10.2, generation 1, valid signature under key4, fresh at T), below the accepted maximum -> STALE at phase 10, never VERIFIED
+L2-VER-047/s9-generation-1-equivocation: fresh state with S9v1, generation 1, accepted first; present S9v2 (Appendix 10.3), same generation, payload differs from S9v1, re-signed under key4, fresh at T -> CONFLICT at phase 10 (same epoch, same generation, different payload), never VERIFIED
+L2-VER-047/s9-generation-2-byte-identical-replay: after S9 generation 2 is accepted, replay S9 byte-identically; replay at the accepted maximum is not freshness progress, key4 current, within window -> VERIFIED, no replay penalty (L2-VER-027, §15.1)
 L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1 within its validity window is a replay, not freshness progress; signer key3 is revoked from Record 4R onward -> REVOKED at phase 9, never VERIFIED
 ```
-**Reference:** L2 0.1 draft §15.2 phase 10, phase 9, phase 8; §9.7, §11.3, §13.2; Appendix A.5 (S8), catalog fixture S9.
+**Reference:** L2 0.1 draft §15.2 phase 10, phase 9, phase 8; §9.7, §11.3, §13.2, §15.1; Appendix A.5 (S8), catalog Appendix 10.
 
 ## 6. Authority cases
 
@@ -795,13 +796,13 @@ L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1
 **Expected:** every pinned signature verifies against the canonical payload bytes under the pinned `publicKey` (raw 32-byte public key encoding, 64-byte signature); a signature that does not verify against the canonical bytes is never authority evidence.  
 **Reference:** L2 0.1 draft §10.2, §10.8; Appendix A.2–A.5.
 
-### L2-PRO-012 — ES256 when offered: pinned JWS encoding, reproducible Testbed vectors
+### L2-PRO-012 — ES256 when offered: pinned reproduction contract, JWS fixed r||s encoding
 **Target:** L2-PRODUCER  
 **Strength:** MUST when offered, optional to baseline  
-**Precondition:** ES256 offered as an algorithm; the Testbed generates valid test ES256 keys by a documented procedure, signs the pinned canonical payloads with the generated key, and presents the same payload in a non-pinned encoding (DER, reordered r/s).  
-**Action:** verify ES256 signatures produced by the documented Testbed key-generation procedure over the pinned canonical payloads, and present the same payload with non-pinned encodings.  
-**Expected:** ES256 MUST use the JOSE JWS "ES256" signature encoding, fixed 64-byte r||s, the signature bytes verify over the same canonical payload octets, digest interpretation over the same payload bytes is identical under the pinned encoding, non-pinned encodings (DER, reordered r/s) MUST NOT be accepted, vectors are reproducible through the documented Testbed key-generation procedure with pinned test keys, never through unpinned ad-hoc signatures, absence of ES256 is `UNSUPPORTED-OPTIONAL`, not a baseline failure, and an unknown or unsupported `algorithm` yields `UNSUPPORTED_ALGORITHM` fail-closed, never `VERIFIED`, never `UNVERIFIED`.  
-**Reference:** L2 0.1 draft §10.8, §15.2 phase 3, §19.
+**Precondition:** ES256 offered as an algorithm; test ES256 keys and vectors are produced by the reproduction contract in Catalog Appendix 11, and the same payload is presented in non-pinned encodings (DER, reordered r/s).  
+**Action:** verify ES256 signatures produced by the contract-derived test key over the pinned canonical payloads, and present the same payload with non-pinned encodings.  
+**Expected:** ES256 MUST use the JOSE JWS "ES256" signature encoding, fixed 64-byte r||s, the signature bytes verify over the same canonical payload octets, digest interpretation over the same payload bytes is identical under the pinned encoding, non-pinned encodings (DER, reordered r/s, unpadded base64url, variable-length integers) MUST NOT be accepted, vectors are reproducible through the contract in Catalog Appendix 11 (seed-pinned keys, signatures generated deterministically, stored as canonical payload + signature pairs in the Testbed data set), never through unpinned ad-hoc signatures, absence of ES256 is `UNSUPPORTED-OPTIONAL`, not a baseline failure, and an unknown or unsupported `algorithm` yields `UNSUPPORTED_ALGORITHM` fail-closed, never `VERIFIED`, never `UNVERIFIED`.  
+**Reference:** L2 0.1 draft §10.8, §19; Catalog Appendix 11.
 
 ## 8. Server cases
 
@@ -906,3 +907,74 @@ Reference Lab integration
 - The Reference Resolver implementation MUST pass `composer validate`, `composer test`, `composer analyse`, `php -l`, and `git diff --check`; these apply to implementation work, not to this catalog.
 - A report SHOULD state exactly which conformance set(s) were executed, per target, and MUST NOT collapse targets into one overall PASS line.
 - Case subdivision, result classes, strength handling, and reporting follow §§2-4; the Testbed implements every §5-§8 case, subdividing as needed while retaining parent IDs.
+
+## 10. Catalog fixtures (S9 family)
+
+Status: catalog-owned, pinned, reproducible. The pinned vectors in the L2 0.1 spec Appendix A MUST NOT be modified; these fixtures live in this Catalog only.
+
+Generation contract: the signing key is key4 `ECYh7yJFAn8` from spec Appendix A.5, derived from the seed string `relink-l2-0.1-draft-test-vector-seed-4` by the published derivation in spec Appendix A.1. Signatures are produced by the spec Appendix A.6 procedure: deterministic Ed25519 (RFC 8032) over the canonical payload's UTF-8 octets, base64url with '=' stripped, 86 characters. The private seed is published test-vector material, used only for test vectors. All S9 fixtures share `keyId` `ECYh7yJFAn8`, `epochId` `epoch-1`, `issuedAt` 1769998300, `expiresAt` 1770001200, `l2Version` `0.1`, `statementType` `resolution`, `lifecycleStatus` `active`, `anchorId` `550e8400-e29b-41d4-a716-446655440000`, `entityId` `urn:relink:entity:thermal-sensor-42`.
+
+### 10.1 S9 (generation 2, base fixture)
+
+Canonical payload (364 bytes):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"generation":2,"issuedAt":1769998300,"keyId":"ECYh7yJFAn8","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+```
+
+Signature (86 chars):
+
+```
+04Z-__f7h35mshYil-sF67cVE07SE4czanw-0nQ7oC76UiZ15IJmERM8DID5a5Mlc_6FeMO0hAHWfqCy-mD0DQ
+```
+
+### 10.2 S9v1 (generation 1, payload differs from S9 only in generation)
+
+Canonical payload (364 bytes):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"generation":1,"issuedAt":1769998300,"keyId":"ECYh7yJFAn8","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+```
+
+Signature (86 chars):
+
+```
+tDFzpWAzdJKqiBdAGodXDXVi6gXHGODq3uBsoPz96wtFW8H-eiXNo7uZGQv8YhQS61uI_zPbcciCq9kbI0__Aw
+```
+
+### 10.3 S9v2 (generation 1, `descriptionLocation` differs from S9v1)
+
+Canonical payload (366 bytes):
+
+```
+{"algorithm":"ed25519","anchorId":"550e8400-e29b-41d4-a716-446655440000","descriptionLocation":"https://sensors.example/thermal/42/ar-xml-2","entityId":"urn:relink:entity:thermal-sensor-42","epochId":"epoch-1","expiresAt":1770001200,"generation":1,"issuedAt":1769998300,"keyId":"ECYh7yJFAn8","l2Version":"0.1","lifecycleStatus":"active","statementType":"resolution"}
+```
+
+Signature (86 chars):
+
+```
+EFXwBIToOlZVoWvyfkAuYhOgNaYrsIiH3V7d_1h_AbMUmZB8SuZEvRpbqVmlwEnt_iNF2_jqByHT1abwDhNfDA
+```
+
+Verifier states used by L2-VER-047, pinned and deterministic:
+
+```text
+state-base: accepted chain prefix 0..3, 4A; current accepted epoch epoch-1; key4 ECYh7yJFAn8 current in Record 4A, window 1769998300..1770001900; no accepted statement; T = 1769998300; W = 600
+state-after-s9: as state-base, plus accepted statement S9, generation 2
+state-after-s9v1: as state-base, plus accepted statement S9v1, generation 1
+state-s8: accepted chain prefix 0..3, 4A, 4R; T = 1769998400; key3 revoked from Record 4R, revokedFrom 5
+```
+
+Storage: each fixture is stored as a canonical payload string + signature string pair, exactly as pinned; wire presentation wraps the canonical payload in the outer envelope form of spec Appendix A.4, outer whitespace tolerated per L2-VER-046; the signing target is the canonical payload bytes only.
+
+## 11. ES256 test-vector reproduction contract
+
+Status: catalog-owned. ES256 stays optional to baseline (§19); this contract pins how the Testbed generates, stores, and verifies ES256 vectors when offered.
+
+- Curve P-256; JWS algorithm name `ES256` (RFC 7515 §6.2.1.1 interpretation).
+- Test signing keys are derived from the catalog-owned seed strings `relink-l2-0.1-catalog-es256-seed-1` and `relink-l2-0.1-catalog-es256-seed-2`: the private scalar `d` is SHA-256 over the seed string's UTF-8 octets, interpreted as a big-endian integer, reduced modulo the P-256 group order, and MUST be in `1..n-1`.
+- `publicKey`: uncompressed P-256 point, `x` and `y` fixed-width 32-byte big-endian, concatenated, base64url with '=' stripped (86 characters); `keyId` is recomputed from the `publicKey` bytes per §9.4.
+- Signature: SHA-256 over the canonical payload's UTF-8 octets; JOSE JWS "ES256" signature encoding, fixed 64-byte big-endian `r || s`, base64url with '=' stripped (86 characters).
+- Signing targets are the canonical payloads pinned in this Catalog and the spec Appendix, the same bytes verified in L2-PRO-* cases.
+- Storage: vectors are generated once per this contract and stored as canonical payload string + signature string pairs in the Testbed data set; verification recomputes the signature from the contract-derived key and compares byte-for-byte.
+- Non-pinned encodings MUST NOT be accepted: DER SEQUENCE, reordered `r`/`s`, unpadded base64url, variable-length integers.
