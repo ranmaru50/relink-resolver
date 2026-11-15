@@ -224,7 +224,8 @@ The Testbed SHOULD implement at least these subcases while retaining the parent 
 L2-VER-014/record-wire-duplicate: raw wire text with duplicate member names -> INVALID at wire canonicality, the Record rejected, chain stops at Record 1
 L2-VER-014/trail-verification-failure: structurally valid Record 2 whose trail fails field-set matching (missing, tampered, duplicated, mismatched) -> chain acceptance fails at phase 5, chain stops at Record 1
 L2-VER-014/statement-a-signer-absent: statement A signed by key3, key3 absent from the accepted chain 0..1 -> UNKNOWN_AUTHORITY at phase 5, never reaches phases 8-9, never VERIFIED (signer resolvability is part of the chain walk)
-L2-VER-014/statement-a-material-missing: chain walk stops for missing material with no trusted lower bound -> UNVERIFIED at phase 6, never VERIFIED
+L2-VER-014/statement-a-material-missing: chain gap, missing material, no trusted lower bound -> UNVERIFIED at phase 5, chain walk stops, statement not evaluated
+L2-VER-014/chain-accepted-snapshot-gap: chain walk succeeds for 0..3, effective snapshot Record 3 is not fresh at T or fails coverage -> UNVERIFIED at phase 6, never VERIFIED
 ```
 **Reference:** L2 0.1 draft §15.2 phase 1, phase 5, phase 6, §15.1; §9.4, §9.6, §9.8, §12.2; Appendix A.5.
 
@@ -477,28 +478,38 @@ L2-VER-014/statement-a-material-missing: chain walk stops for missing material w
 **Reference:** L2 0.1 draft §13.1, §19, §21; Catalog §3.
 
 
-### L2-VER-046 — Unknown extension members keep reproducible canonical bytes
+### L2-VER-046 — JCS required for the signing target payload, duplicate-member detection on raw wire text
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** canonical wire object with one unknown extension member inside `payload`.  
-**Action:** verifier applies wire canonicality rules and signature verification over the canonical payload bytes.  
-**Expected:** nested objects inside `payload`, including unknown extension members, canonicalize under JCS with sorted keys, extension bytes are reproducible, wire canonicality (member order, whitespace, number form, escaping) applies to the whole wire, duplicate-member detection in raw wire text applies, the verifier MUST NOT strip, rewrite, drop, re-sort, or renumber members to compute the signing target, `keyId`, `algorithm`, UUID, `l2Version`, `statementType`, and string values are exact strings, `keyId` case is preserved.  
+**Precondition:** canonical wire object with one unknown extension member inside `payload`; a canonical payload example from Appendix A whose outer envelope differs from the canonical wire example only in outer whitespace.  
+**Action:** the verifier detects duplicate members in the raw wire text, computes the canonical payload bytes, and verifies the signature over them.  
+**Expected:** JCS is required for the signing target, `payload`: nested objects inside `payload`, including unknown extension members, canonicalize under JCS with sorted keys and the extension bytes are reproducible; duplicate member names are detected in the raw wire text before parsing and rejected as INVALID for wire-text non-canonicality (outer-envelope wire-text non-canonicality, e.g. duplicate members, is INVALID at phase 1); outer whitespace around a canonical payload with no duplicate members does not make the statement INVALID, the canonical payload bytes stay identical to the pinned fixture; the verifier MUST NOT strip, rewrite, drop, re-sort, or renumber members of the signing target; `keyId`, `algorithm`, UUID, `l2Version`, `statementType`, and string values are exact strings, `keyId` case is preserved.  
+The Testbed SHOULD implement at least these subcases while retaining the parent catalog ID:
+
+```text
+L2-VER-046/payload-jcs-canonical: canonical payload with JCS sorted keys, extension bytes reproducible -> signature verifies over canonical payload bytes
+L2-VER-046/outer-whitespace-only: canonical payload, outer envelope differs only in outer whitespace, no duplicate members -> not INVALID; canonical payload bytes unchanged
+L2-VER-046/raw-wire-duplicate: duplicate member names in raw wire text -> INVALID at phase 1, detected before parsing
+L2-VER-046/payload-inner-noncanonical: payload interior non-canonical (unsorted keys, 1.0 form, unescaped control characters) -> signing-target bytes differ from the pinned canonical fixture, signature verification fails, INVALID
+```
 **Reference:** L2 0.1 draft §7.3, §7.5, §15.2 phase 1, phase 8.
 
-### L2-VER-047 — Statement replay, equivocation, accepted maximum: split verdicts on one base statement
+### L2-VER-047 — Statement replay, equivocation, accepted maximum: split verdicts from independent verifier states
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** scenario E chain `0..3, 4A, 4R, 4B` accepted, `T = 1769998400`, `W = 600`. Base statement S9 under key4 `ECYh7yJFAn8` (introduced `current` in Record 4A, window `1769998300..1770001900`), `epoch-1`, `generation = 2`, `issuedAt` 1769998300, `expiresAt` 1770001200, payload different from S8.  
-**Action:** verifier evaluates S9, S9 restated at `generation = 1` with the same payload, and the byte-identical replay of S8.  
+**Precondition:** scenario E chain `0..3, 4A, 4R, 4B` accepted, `T = 1769998400`, `W = 600`. Catalog fixture S9 is defined as a complete wire statement (canonical payload + signature) signed by key4 `ECYh7yJFAn8` (introduced `current` in Record 4A, window `1769998300..1770001900`), `epoch-1`, `generation = 2`, `issuedAt` 1769998300, `expiresAt` 1770001200, payload different from S8; the generation 1 restatement is re-signed under key4. New catalog fixtures only; the pinned spec Appendix vectors MUST NOT be modified.  
+**Action:** the verifier runs each subcase from an independent verifier state with the stated initial accepted statement state.  
 **Expected:** the subcases yield split verdicts, never one blanket result:  
 The Testbed SHOULD implement at least these subcases while retaining the parent catalog ID:
 
 ```text
-L2-VER-047/s9-generation-2-base: S9 at generation 2, above the accepted statement maximum, under key4 current in Records 4A/4R/4B, fresh at T -> VERIFIED
-L2-VER-047/s9-generation-1-equivocation: the same payload restated at generation 1, payload differs from S8 at the accepted maximum, same epoch -> CONFLICT at phase 10, never VERIFIED (phase 9 key-status is for statements in the accepted epoch; key4 is current, so phase 9 passes and phase 10 resolves equivocation)
+L2-VER-047/s9-generation-2-base: fresh verifier state, no accepted statement maximum; S9 at generation 2, under key4 current in Records 4A/4R/4B, fresh at T, signature verifies under key4 -> VERIFIED
+L2-VER-047/s9-generation-1-stale-representation: after S9 generation 2 is accepted, byte-identical presentation at generation 1 below the accepted maximum -> STALE at phase 10 (replay below the accepted maximum, §11.3), never VERIFIED
+L2-VER-047/s9-generation-1-equivocation: independent fresh state with a valid generation 1 statement signed by key4 accepted first; present the same generation with a different payload, re-signed under key4 -> CONFLICT at phase 10 (same epoch, same generation, different payload), never VERIFIED
 L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1 within its validity window is a replay, not freshness progress; signer key3 is revoked from Record 4R onward -> REVOKED at phase 9, never VERIFIED
 ```
-**Reference:** L2 0.1 draft §15.2 phase 10, phase 9; §9.7, §11.3, §13.2; Appendix A.5.
+**Reference:** L2 0.1 draft §15.2 phase 10, phase 9, phase 8; §9.7, §11.3, §13.2; Appendix A.5 (S8), catalog fixture S9.
+
 ## 6. Authority cases
 
 ### L2-AUT-001 — Bootstrap: first-contact material without chain provenance is not trusted
@@ -576,9 +587,9 @@ L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1
 ### L2-AUT-010 — Trail field set matches Record G exactly
 **Target:** L2-AUTHORITY  
 **Strength:** MUST  
-**Precondition:** Record 2 fixture trail: `outgoingKeyId` `4KKXd7XSJW8`, `incomingKeyId` `G8VbXumewVs`, trail `epochId` `epoch-0`, `newEpochId` `epoch-1`, `recordGeneration` 2, `statementFloor` 0, `algorithm` `ed25519`, `anchorId`, `entityId`, `l2Version` matching Record 2.  
+**Precondition:** Record 2 fixture trail: `outgoingKeyId` `4KKXd7XSJW8`, `incomingKeyId` `G8VbXumewVs`, trail `epochId` `epoch-0`, `newEpochId` `epoch-1`, `recordGeneration` 2, `statementFloor` 0, `algorithm` `ed25519`, `anchorId`, `entityId`, `l2Version` matching Record 2; key3 window introduced in Record 2, `validFrom` 1769997600, `validUntil` 1770001200, Record 2 `issuedAt` 1769997600 (fixture equality `validFrom` == `issuedAt`).  
 **Action:** verifier checks every §12.2 matching rule against Record 1 and Record 2.  
-**Expected:** `outgoingKeyId` equals Record 2 `signerKeyId`; `incomingKeyId` equals the keyId Record 2 introduces as `current` with `validFrom` equal to Record 2 `issuedAt`; trail `epochId` equals Record 1 `epochId`; `newEpochId` equals Record 2 `epochId` and never appears in the chain history; trail `recordGeneration` and `statementFloor` equal Record 2's; any mismatch rejects Record 2.  
+**Expected:** `outgoingKeyId` equals Record 2 `signerKeyId`; `incomingKeyId` equals the keyId Record 2 introduces as `current` whose validity window MUST include Record 2 `issuedAt` (§12.2 inclusion condition; the fixture equality `validFrom` 1769997600 == `issuedAt` 1769997600 is fixture-specific, not the requirement); trail `epochId` equals Record 1 `epochId`; `newEpochId` equals Record 2 `epochId` and never appears in the chain history; trail `recordGeneration` and `statementFloor` equal Record 2's; any mismatch rejects Record 2.  
 **Reference:** L2 0.1 draft §12.2; Appendix A.5 (Record 2 trail).
 
 ### L2-AUT-011 — Trail forbidden members
@@ -784,13 +795,14 @@ L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1
 **Expected:** every pinned signature verifies against the canonical payload bytes under the pinned `publicKey` (raw 32-byte public key encoding, 64-byte signature); a signature that does not verify against the canonical bytes is never authority evidence.  
 **Reference:** L2 0.1 draft §10.2, §10.8; Appendix A.2–A.5.
 
-### L2-PRO-012 — ES256 when offered: pinned JWS encoding, identical digest interpretation
+### L2-PRO-012 — ES256 when offered: pinned JWS encoding, reproducible Testbed vectors
 **Target:** L2-PRODUCER  
 **Strength:** MUST when offered, optional to baseline  
-**Precondition:** ES256 offered as an algorithm; the same canonical payload signed and presented in a non-pinned encoding (reordered r/s, DER).  
-**Action:** verify ES256 signatures against known vectors, and present the same payload with non-pinned encodings.  
-**Expected:** ES256 MUST use the JOSE JWS "ES256" signature encoding, fixed 64-byte r||s, the signature bytes verify over the same canonical payload octets, digest interpretation over the same payload bytes is identical under the pinned encoding, non-pinned encodings MUST NOT be accepted, absence of ES256 is `UNSUPPORTED-OPTIONAL`, not a baseline failure, and an unknown or unsupported `algorithm` yields `UNSUPPORTED_ALGORITHM` fail-closed, never `VERIFIED`, never `UNVERIFIED`.  
+**Precondition:** ES256 offered as an algorithm; the Testbed generates valid test ES256 keys by a documented procedure, signs the pinned canonical payloads with the generated key, and presents the same payload in a non-pinned encoding (DER, reordered r/s).  
+**Action:** verify ES256 signatures produced by the documented Testbed key-generation procedure over the pinned canonical payloads, and present the same payload with non-pinned encodings.  
+**Expected:** ES256 MUST use the JOSE JWS "ES256" signature encoding, fixed 64-byte r||s, the signature bytes verify over the same canonical payload octets, digest interpretation over the same payload bytes is identical under the pinned encoding, non-pinned encodings (DER, reordered r/s) MUST NOT be accepted, vectors are reproducible through the documented Testbed key-generation procedure with pinned test keys, never through unpinned ad-hoc signatures, absence of ES256 is `UNSUPPORTED-OPTIONAL`, not a baseline failure, and an unknown or unsupported `algorithm` yields `UNSUPPORTED_ALGORITHM` fail-closed, never `VERIFIED`, never `UNVERIFIED`.  
 **Reference:** L2 0.1 draft §10.8, §15.2 phase 3, §19.
+
 ## 8. Server cases
 
 ### L2-SRV-001 — Statement surface is additive to Core with the fixed L2 status contract

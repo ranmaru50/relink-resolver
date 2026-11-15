@@ -224,7 +224,8 @@ Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを�
 L2-VER-014/record-wire-duplicate: raw wire text with duplicate member names -> INVALID at wire canonicality, the Record rejected, chain stops at Record 1
 L2-VER-014/trail-verification-failure: structurally valid Record 2 whose trail fails field-set matching (missing, tampered, duplicated, mismatched) -> chain acceptance fails at phase 5, chain stops at Record 1
 L2-VER-014/statement-a-signer-absent: statement A signed by key3, key3 absent from the accepted chain 0..1 -> UNKNOWN_AUTHORITY at phase 5, never reaches phases 8-9, never VERIFIED (signer resolvability is part of the chain walk)
-L2-VER-014/statement-a-material-missing: chain walk stops for missing material with no trusted lower bound -> UNVERIFIED at phase 6, never VERIFIED
+L2-VER-014/statement-a-material-missing: chain gap, missing material, no trusted lower bound -> UNVERIFIED at phase 5, chain walk stops, statement not evaluated
+L2-VER-014/chain-accepted-snapshot-gap: chain walk succeeds for 0..3, effective snapshot Record 3 is not fresh at T or fails coverage -> UNVERIFIED at phase 6, never VERIFIED
 ```
 **Reference:** L2 0.1 draft §15.2 phase 1、phase 5、phase 6、§15.1；§9.4、§9.6、§9.8、§12.2；Appendix A.5。
 
@@ -477,28 +478,38 @@ L2-VER-014/statement-a-material-missing: chain walk stops for missing material w
 **Reference:** L2 0.1 draft §13.1、§19、§21；Catalog §3。
 
 
-### L2-VER-046 — Unknown extension memberはcanonical bytesを再現可能に保持
+### L2-VER-046 — JCS要件はsigning targetのpayload、duplicate member detectionはraw wire text
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** `payload`内に1つのunknown extension memberを含むcanonical wire object。  
-**Action:** verifierはwire canonicality rulesを適用し、canonical payload bytes上でsignature verificationを行う。  
-**Expected:** `payload`内のnested objects、unknown extension membersを含め、はJCSによりsorted keysでcanonicalize、extension bytesは再現可能、wire canonicality（member order、whitespace、number form、escaping）はwire全体に適用、raw wire text内のduplicate member検出が適用、verifierはsigning target計算のためにmembersをstrip、rewrite、drop、re-sort、renumberしてはならない（MUST NOT）、`keyId`、`algorithm`、UUID、`l2Version`、`statementType`、string valuesはexact strings、`keyId`のcaseは保持。  
-**Reference:** L2 0.1 draft §7.3、§7.5、§15.2 phase 1、phase 8。
+**Precondition:** `payload`内に1つのunknown extension memberを含むcanonical wire object；outer envelopeがcanonical wire exampleとouter whitespaceのみで異なるAppendix Aのcanonical payload example。  
+**Action:** verifierはraw wire text内のduplicate membersを検出し、canonical payload bytesを計算し、その上でsignature verificationを行う。  
+**Expected:** JCSはsigning targetである`payload`に要求：`payload`内のnested objects、unknown extension membersを含め、はJCSによりsorted keysでcanonicalizeし、extension bytesは再現可能；duplicate member namesはraw wire textでparse前に検出し、wire-text non-canonicalityとしてINVALIDとしてreject（outer envelopeのwire-text non-canonicality、duplicate member等はphase 1でINVALID）；canonical payloadのouter whitespaceのみ、duplicate membersなしではstatementはINVALIDにならず、canonical payload bytesはpinned fixtureと同一；verifierはsigning target計算のためにmembersをstrip、rewrite、drop、re-sort、renumberしてはならない（MUST NOT）；`keyId`、`algorithm`、UUID、`l2Version`、`statementType`、string valuesはexact strings、`keyId`のcaseは保持。  
+Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
 
-### L2-VER-047 — Statement replay／equivocation／accepted maximum: 1つのbase statementに対するverdict split
+```text
+L2-VER-046/payload-jcs-canonical: canonical payload with JCS sorted keys, extension bytes reproducible -> signature verifies over canonical payload bytes
+L2-VER-046/outer-whitespace-only: canonical payload, outer envelope differs only in outer whitespace, no duplicate members -> not INVALID; canonical payload bytes unchanged
+L2-VER-046/raw-wire-duplicate: duplicate member names in raw wire text -> INVALID at phase 1, detected before parsing
+L2-VER-046/payload-inner-noncanonical: payload interior non-canonical (unsorted keys, 1.0 form, unescaped control characters) -> signing-target bytes differ from the pinned canonical fixture, signature verification fails, INVALID
+```
+**Reference:** L2 0.1 draft §7.3, §7.5, §15.2 phase 1, phase 8.
+
+### L2-VER-047 — Statement replay／equivocation／accepted maximum: 独立verifier stateによるverdict split
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** scenario E chain `0..3, 4A, 4R, 4B` accepted、`T = 1769998400`、`W = 600`。Base statement S9はkey4 `ECYh7yJFAn8`（Record 4Aで`current`として導入、window `1769998300..1770001900`）下、`epoch-1`、`generation = 2`、`issuedAt` 1769998300、`expiresAt` 1770001200、payloadはS8と相違。  
-**Action:** verifierはS9、`generation = 1`で同一payloadでrestated S9、S8のbyte-identical replayを評価する。  
+**Precondition:** scenario E chain `0..3, 4A, 4R, 4B` accepted、`T = 1769998400`、`W = 600`。Catalog fixture S9はkey4 `ECYh7yJFAn8`（Record 4Aで`current`として導入、window `1769998300..1770001900`）で署名された完全wire statement（canonical payload + signature）として定義、`epoch-1`、`generation = 2`、`issuedAt` 1769998300、`expiresAt` 1770001200、payloadはS8と相違；generation 1のrestatementはkey4で再署名。新規catalog fixtureのみ、規範Appendixのpinned vectorは改変してはならない（MUST NOT）。  
+**Action:** verifierは各subcaseを、記述された初期accepted statement stateを持つ独立verifier stateから実行する。  
 **Expected:** subcaseはverdict splitをもたらし、単一の一律結果ではない:  
 Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
 
 ```text
-L2-VER-047/s9-generation-2-base: S9 at generation 2, above the accepted statement maximum, under key4 current in Records 4A/4R/4B, fresh at T -> VERIFIED
-L2-VER-047/s9-generation-1-equivocation: the same payload restated at generation 1, payload differs from S8 at the accepted maximum, same epoch -> CONFLICT at phase 10, never VERIFIED (phase 9 key-status is for statements in the accepted epoch; key4 is current, so phase 9 passes and phase 10 resolves equivocation)
+L2-VER-047/s9-generation-2-base: fresh verifier state, no accepted statement maximum; S9 at generation 2, under key4 current in Records 4A/4R/4B, fresh at T, signature verifies under key4 -> VERIFIED
+L2-VER-047/s9-generation-1-stale-representation: after S9 generation 2 is accepted, byte-identical presentation at generation 1 below the accepted maximum -> STALE at phase 10 (replay below the accepted maximum, §11.3), never VERIFIED
+L2-VER-047/s9-generation-1-equivocation: independent fresh state with a valid generation 1 statement signed by key4 accepted first; present the same generation with a different payload, re-signed under key4 -> CONFLICT at phase 10 (same epoch, same generation, different payload), never VERIFIED
 L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1 within its validity window is a replay, not freshness progress; signer key3 is revoked from Record 4R onward -> REVOKED at phase 9, never VERIFIED
 ```
-**Reference:** L2 0.1 draft §15.2 phase 10、phase 9；§9.7、§11.3、§13.2；Appendix A.5。
+**Reference:** L2 0.1 draft §15.2 phase 10、phase 9、phase 8；§9.7、§11.3、§13.2；Appendix A.5（S8）、catalog fixture S9。
+
 ## 6. Authority cases
 
 ### L2-AUT-001 — Bootstrap：chain provenanceのないfirst-contact materialはtrustしない
@@ -576,9 +587,9 @@ L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1
 ### L2-AUT-010 — Trail field setはRecord Gと完全一致
 **Target:** L2-AUTHORITY  
 **Strength:** MUST  
-**Precondition:** Record 2 fixture trail：`outgoingKeyId` `4KKXd7XSJW8`、`incomingKeyId` `G8VbXumewVs`、trail `epochId` `epoch-0`、`newEpochId` `epoch-1`、`recordGeneration` 2、`statementFloor` 0、`algorithm` `ed25519`、`anchorId`、`entityId`、`l2Version`はRecord 2と一致。  
+**Precondition:** Record 2 fixture trail：`outgoingKeyId` `4KKXd7XSJW8`、`incomingKeyId` `G8VbXumewVs`、trail `epochId` `epoch-0`、`newEpochId` `epoch-1`、`recordGeneration` 2、`statementFloor` 0、`algorithm` `ed25519`、`anchorId`、`entityId`、`l2Version`はRecord 2と一致；Record 2で導入されるkey3 window `validFrom` 1769997600、`validUntil` 1770001200、Record 2 `issuedAt` 1769997600（fixture等値 `validFrom` == `issuedAt`）。  
 **Action:** verifierはRecord 1とRecord 2に対して§12.2の全matching ruleを検査する。  
-**Expected:** `outgoingKeyId`はRecord 2 `signerKeyId`と一致；`incomingKeyId`はRecord 2が`current`として導入するkeyIdと一致し`validFrom`はRecord 2 `issuedAt`と一致；trail `epochId`はRecord 1 `epochId`と一致；`newEpochId`はRecord 2 `epochId`と一致しchain historyにnever出現；trail `recordGeneration`と`statementFloor`はRecord 2の値と一致；いずれのmismatchもRecord 2をrejectする。  
+**Expected:** `outgoingKeyId`はRecord 2 `signerKeyId`と一致；`incomingKeyId`はRecord 2が`current`として導入するkeyIdと一致し、導入keyの有効期間windowはRecord 2 `issuedAt`を含まなければならず（MUST、§12.2の包含条件；fixture等値 `validFrom` 1769997600 == `issuedAt` 1769997600 はfixture固有、要求ではない）；trail `epochId`はRecord 1 `epochId`と一致；`newEpochId`はRecord 2 `epochId`と一致しchain historyにnever出現；trail `recordGeneration`と`statementFloor`はRecord 2の値と一致；いずれのmismatchもRecord 2をrejectする。  
 **Reference:** L2 0.1 draft §12.2；Appendix A.5（Record 2 trail）。
 
 ### L2-AUT-011 — Trail forbidden members
@@ -784,13 +795,14 @@ L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1
 **Expected:** 全pinned signatureはcanonical payload bytesに対してpinned `publicKey`下で検証成功（raw 32-byte public key encoding、64-byte signature）；canonical bytesに対して検証成功しないsignatureはnever authority evidenceではない。  
 **Reference:** L2 0.1 draft §10.2、§10.8；Appendix A.2–A.5。
 
-### L2-PRO-012 — ES256提供時: pinned JWS encoding、digest interpretation同一
+### L2-PRO-012 — ES256提供時: pinned JWS encoding、再現可能なTestbed vector
 **Target:** L2-PRODUCER  
 **Strength:** MUST when offered、optional to baseline  
-**Precondition:** ES256はalgorithmとして提供；同一canonical payloadをnon-pinned encoding（reordered r/s、DER）で署名し提示。  
-**Action:** ES256 signatureをknown vectorsに対して検証、同一payloadをnon-pinned encodingsで提示。  
-**Expected:** ES256はJOSE JWS "ES256" signature encoding、fixed 64-byte r||sを利用しなければならず（MUST）、signature bytesは同一canonical payload octets上で検証、同一payload bytes上のdigest interpretationはpinned encoding下で同一、non-pinned encodingsは受け入れてはならず（MUST NOT）、ES256欠如は`UNSUPPORTED-OPTIONAL`でbaseline failureではなく、unknownまたはunsupported `algorithm`は`UNSUPPORTED_ALGORITHM` fail-closed、`VERIFIED`でも`UNVERIFIED`でもない。  
+**Precondition:** ES256はalgorithmとして提供；Testbedはdocumentedなprocedureでvalidなtest ES256 keyを生成し、pinned canonical payloadを生成keyで署名、同一payloadをnon-pinned encoding（DER、reordered r/s）で提示。  
+**Action:** documented Testbed key生成procedureで生成されたES256 signatureをpinned canonical payload上で検証、同一payloadをnon-pinned encodingsで提示。  
+**Expected:** ES256はJOSE JWS "ES256" signature encoding、fixed 64-byte r||sを利用しなければならず（MUST）、signature bytesは同一canonical payload octets上で検証、digest interpretationは同一payload bytes上でpinned encoding下で同一、non-pinned encodings（DER、reordered r/s）は受け入れてはならない（MUST NOT）、vectorはdocumented Testbed key生成procedure（pinned test key）で再現可能であり、unpinned ad-hoc signatureではない、ES256欠如は`UNSUPPORTED-OPTIONAL`でbaseline failureではなく、unknownまたはunsupported `algorithm`は`UNSUPPORTED_ALGORITHM` fail-closed、`VERIFIED`でも`UNVERIFIED`でもない。  
 **Reference:** L2 0.1 draft §10.8、§15.2 phase 3、§19。
+
 ## 8. Server cases
 
 ### L2-SRV-001 — Statement surfaceはCoreに対するadditive、fixed L2 status contract
