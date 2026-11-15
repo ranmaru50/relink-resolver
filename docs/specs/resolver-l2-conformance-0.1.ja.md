@@ -481,16 +481,17 @@ L2-VER-014/chain-accepted-snapshot-gap: chain walk succeeds for 0..3, effective 
 ### L2-VER-046 — JCS要件はsigning targetのpayload、duplicate member detectionはraw wire text
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** `payload`内に1つのunknown extension memberを含むcanonical wire object；outer envelopeがcanonical wire exampleとouter whitespaceのみで異なるAppendix Aのcanonical payload example。  
+**Precondition:** `payload`内に1つのunknown extension memberを含むcanonical wire object；outer envelopeがcanonical wire exampleとouter whitespaceのみで異なるAppendix Aのcanonical payload example；phase 8 subcase用にpinned canonical fixture S9（Catalog Appendix 10.1）が利用可能。  
 **Action:** verifierはraw wire text内のduplicate membersを検出し、canonical payload bytesを計算し、その上でsignature verificationを行う。  
-**Expected:** JCSはsigning targetである`payload`に要求：`payload`内のnested objects、unknown extension membersを含め、はJCSによりsorted keysでcanonicalizeし、extension bytesは再現可能；duplicate member namesはraw wire textでparse前に検出し、wire-text non-canonicalityとしてINVALIDとしてreject（outer envelopeのwire-text non-canonicality、duplicate member等はphase 1でINVALID）；canonical payloadのouter whitespaceのみ、duplicate membersなしではstatementはINVALIDにならず、canonical payload bytesはpinned fixtureと同一；verifierはsigning target計算のためにmembersをstrip、rewrite、drop、re-sort、renumberしてはならない（MUST NOT）；`keyId`、`algorithm`、UUID、`l2Version`、`statementType`、string valuesはexact strings、`keyId`のcaseは保持。  
+**Expected:** JCSはsigning targetである`payload`に要求：`payload`内のnested objects、unknown extension membersを含め、はJCSによりsorted keysでcanonicalizeし、extension bytesは再現可能；duplicate member namesはraw wire textでparse前に検出し、wire-text non-canonicalityとしてINVALIDとしてreject（outer envelopeのwire-text non-canonicality、duplicate member等はphase 1でINVALID、payload-interior non-canonicality、unsorted keys、`1.0` form、unescaped control characters等は同様にphase 1でparse前にreject、§15.2 phase precedenceはnon-canonical wire textでsignature verification到達を禁じる、canonical wire payloadでsignature bytes alteredはphase 8でINVALID、§7.3はwire上のpayloadがすでにJCS serializationであることを要求；canonical payloadのouter whitespaceのみ、duplicate membersなしではstatementはINVALIDにならず、canonical payload bytesはpinned fixtureと同一；verifierはsigning target計算のためにmembersをstrip、rewrite、drop、re-sort、renumberしてはならない（MUST NOT）；`keyId`、`algorithm`、UUID、`l2Version`、`statementType`、string valuesはexact strings、`keyId`のcaseは保持。  
 Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
 
 ```text
 L2-VER-046/payload-jcs-canonical: canonical payload with JCS sorted keys, extension bytes reproducible -> signature verifies over canonical payload bytes
 L2-VER-046/outer-whitespace-only: canonical payload, outer envelope differs only in outer whitespace, no duplicate members -> not INVALID; canonical payload bytes unchanged
 L2-VER-046/raw-wire-duplicate: duplicate member names in raw wire text -> INVALID at phase 1, detected before parsing
-L2-VER-046/payload-inner-noncanonical: payload interior non-canonical (unsorted keys, 1.0 form, unescaped control characters) -> signing-target bytes differ from the pinned canonical fixture, signature verification fails, INVALID at phase 8, distinct from the phase 1 raw wire duplicate case
+L2-VER-046/payload-inner-noncanonical: payload interior non-canonical (unsorted keys, 1.0 form, unescaped control characters) -> rejected at phase 1, INVALID, before parsing and before signature verification, §7.3 requires the payload on the wire to already be JCS, §15.2 phase precedence
+L2-VER-046/signature-only-alteration: canonical wire payload (pinned fixture S9, Catalog Appendix 10.1), valid structure, signature bytes altered -> INVALID at phase 8, signature verification fails over the canonical payload bytes, distinct from the phase 1 wire canonicality failure
 ```
 **Reference:** L2 0.1 draft §7.3, §7.5, §15.2 phase 1, phase 8.
 
@@ -801,7 +802,7 @@ L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1
 **Strength:** MUST when offered、optional to baseline  
 **Precondition:** ES256がalgorithmとして提供される；test ES256 keysとvectorはCatalog Appendix 11の再現契約により生成され、同一payloadがnon-pinnedエンコーディング（DER、reordered r/s）で提示される。  
 **Action:** 契約により導出されたtest keyにより生成されたES256署名をpinned canonical payload上で検証し、同一payloadをnon-pinnedエンコーディングで提示する。  
-**Expected:** ES256はJOSE JWS "ES256"署名エンコーディング、固定64-byte r||sを使用しなければならず（MUST）、signature bytesは同一canonical payload octets上で検証され、digest解釈は同一payload bytes上でpinnedエンコーディングと同一でなければならず、non-pinnedエンコーディング（DER、reordered r/s、unpadded base64url、variable-length integers）は受理してはならず（MUST NOT）、vectorはCatalog Appendix 11の契約により再現可能（seed-pinned keys、署名は決定論的に生成、canonical payload＋signatureペアとしてTestbed data setに保存）、ad-hocのpinnedでない署名によって生成されてはならず、ES256の欠如は`UNSUPPORTED-OPTIONAL`、baseline失敗ではなく、unknown／unsupported `algorithm`はfail-closedで`UNSUPPORTED_ALGORITHM`、`VERIFIED`でも`UNVERIFIED`でもない。  
+**Expected:** ES256はJOSE JWS "ES256"署名エンコーディング、固定64-byte r||sを使用しなければならず（MUST）、signature bytesは同一canonical payload octets上で検証され、digest解釈は同一payload bytes上でpinnedエンコーディングと同一でなければならず、non-pinnedエンコーディング（DER、reordered r/s、padded base64url（'='付き）、variable-length integers）は受理してはならず（MUST NOT）、pinnedエンコーディングそのものは'='除去のunpadded base64url、vectorはCatalog Appendix 11の契約により再現可能（seed-pinned keys、署名はTestbed fixtureとしてRFC 6979決定論的nonceにより一度生成、canonical payload＋signatureペアとしてTestbed data setに保存、conformanceはcontract-derived public keyの下でpinned signatureを認証的に検証しfixed 64-byte JWS representationを確認、byte-for-byte再計算は要求しない、nonce決定性はimplementationの要求事項ではなく、implementationsは非決定論的nonceを用いてもよい（MAY）、有効なpinned signatureはnonceに関係なく検証される）、ad-hocのpinnedでない署名によって生成されてはならず、ES256の欠如は`UNSUPPORTED-OPTIONAL`、baseline失敗ではなく、unknown／unsupported `algorithm`はfail-closedで`UNSUPPORTED_ALGORITHM`、`VERIFIED`でも`UNVERIFIED`でもない。  
 **Reference:** L2 0.1 draft §10.8, §19; Catalog Appendix 11.
 
 ## 8. Server cases
@@ -976,5 +977,5 @@ Status: catalog-owned。ES256はbaselineに対してoptionalのまま（§19）�
 - `publicKey`：uncompressed P-256 point、`x`と`y`をfixed-width 32-byte big-endianで連結、base64urlの'='除去（86文字）；`keyId`は`publicKey` bytesから§9.4で再計算。
 - Signature：canonical payloadのUTF-8 octetsに対するSHA-256；JOSE JWS "ES256"署名エンコーディング、fixed 64-byte big-endian `r || s`、base64urlの'='除去（86文字）。
 - Signing targetは本Catalogとspec Appendixにpinnedされたcanonical payload、L2-PRO-* caseで検証される同一bytes。
-- 保存：vectorはこの契約により一度生成され、canonical payload string＋signature stringのペアとしてTestbed data setに保存；検証は契約導出keyにより署名を再計算しbyte-for-byteで比較する。
-- Non-pinnedエンコーディングは受理してはならない（MUST NOT）：DER SEQUENCE、reordered `r`／`s`、unpadded base64url、variable-length integers。
+- 保存：vectorはこの契約によりRFC 6979決定論的nonceをTestbed fixture生成手順として一度生成され、canonical payload string＋signature stringのペアとしてTestbed data setに保存。Conformance checkはcontract-derived public keyの下でpinned signatureを認証的に検証し、64-byte JWS representationを確認する。Nonce selectionはimplementationの規範要求事項ではなく、implementationsは非決定論的nonceを用いてもよい（MAY）、有効なpinned signatureはnonceに関係なくcontract-derived public keyの下で検証され、conformanceにbyte-for-byte再計算は要求されない。
+- Non-pinnedエンコーディングは受理してはならない（MUST NOT）：DER SEQUENCE、reordered `r`／`s`、padded base64url（'='付き）、variable-length integers。
