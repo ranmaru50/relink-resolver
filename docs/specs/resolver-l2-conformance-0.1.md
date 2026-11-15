@@ -93,7 +93,7 @@ L2 Server Conformance
 
 A report SHOULD state exactly which conformance set(s) were executed.
 
-The L2 0.1 baseline is: ed25519 as the single baseline algorithm, the Record chain, transfer with trail, key revocation, the §15 state model, and the `statement-only` verification mode. Statement revocation, ES256, and Manifest integrity pinning are outside the L2 0.1 baseline; Manifest integrity pinning is not merged into L2 conformance at all.
+The L2 0.1 baseline is: ed25519 as the single baseline algorithm, the Record chain, transfer with trail, key revocation, the §15 state model, the `statement-only` verification mode, and the §7.4 `l1-bound` consistency checks (L2-VER-038–040, §15.1, §19). Statement revocation, ES256, and Manifest integrity pinning are outside the L2 0.1 baseline; Manifest integrity pinning is not merged into L2 conformance at all.
 
 ## 5. Verifier cases
 
@@ -102,7 +102,7 @@ The L2 0.1 baseline is: ed25519 as the single baseline algorithm, the Record cha
 **Strength:** MUST  
 **Precondition:** Trust Anchor Binding (anchor `550e8400-e29b-41d4-a716-446655440000`, entity `urn:relink:entity:thermal-sensor-42`, key1 `ECMERdvpV0k`, `epoch-0`, floor 0); Records 0, 1, 2, 3 accepted by chain walk; `T = 1769998400`, `W = 600`; statement A under key3 `G8VbXumewVs` (`epoch-1`, `generation = 1`, `issuedAt` 1769998300, `expiresAt` 1770001200) on canonical wire.  
 **Action:** verifier evaluates statement A at `T` in `statement-only` mode.  
-**Expected:** `VERIFIED`: snapshot Record 3 is fresh (`1769998200 <= T <= 1770001800`, `T - issuedAt = 200 <= W`), key3 `current` in snapshot with window `1769997600..1770001200` containing the statement `issuedAt`, signature verifies over canonical payload bytes, `epochId` equals the accepted epoch, `generation` is at the floor.  
+**Expected:** `VERIFIED`: snapshot Record 3 is fresh (`1769998200 <= T <= 1770001800`, `T - issuedAt = 200 <= W`), key3 `current` in snapshot with window `1769997600..1770001200` containing the statement `issuedAt`, signature verifies over canonical payload bytes, `epochId` equals the accepted epoch, `generation = 1` strictly exceeds the floor 0 (floor equality is not a valid statement position, §12.3), and `generation` exceeds the accepted statement maximum.  
 **Reference:** L2 0.1 draft §15.2, §11.4, §9.6; Appendix A.5.
 
 ### L2-VER-002 — keyId recomputed from wire publicKey
@@ -118,7 +118,7 @@ The L2 0.1 baseline is: ed25519 as the single baseline algorithm, the Record cha
 **Strength:** MUST  
 **Precondition:** raw wire text presented to the verifier.  
 **Action:** verifier applies strict parse, duplicate-member detection in raw wire text, integer range, `l2Version`, payload/signature separation, and `keyId` recomputation before any trust evaluation.  
-**Expected:** `INVALID` at phase 1, never `UNVERIFIED`; a statement dependent on a Record rejected at phase 1 fails at phase 5 (`UNKNOWN_AUTHORITY`), never phase 6.  
+**Expected:** `INVALID` at phase 1, never `UNVERIFIED`; where the subcase precondition is the `keyId` recomputation mismatch, the dependent statement fails at phase 5 (`UNKNOWN_AUTHORITY`, §9.4); the other subcases are judged by their own fixtures.  
 **Reference:** L2 0.1 draft §7.2, §7.3, §15.2 phase 1.
 
 The Testbed SHOULD implement at least these subcases while retaining the parent catalog ID:
@@ -212,13 +212,21 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** snapshot Record 3 is selected and checked for freshness independently of the statement; the statement is judged fresh at `T = 1769998400` (`1769998300 <= T <= 1770001200`); snapshot freshness is evaluated on Record 3's `[issuedAt, expiresAt]` and `W`, not on statement fields.  
 **Reference:** L2 0.1 draft §11.4, §15.2 phase 6, phase 10.
 
-### L2-VER-014 — Tampered trail stops the chain at Record 1
+### L2-VER-014 — Chain failures split by input class: wire duplicates, trail failures, signer absent, missing material
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** Record 2 carries a missing, tampered, duplicated, or mismatched trail.  
-**Action:** verifier walks the chain from the Trust Anchor Binding.  
-**Expected:** Record 2 rejected at trail verification, part of key-authority acceptance, phase 5; chain stops at Record 1; statement A is `UNVERIFIED` at phase 6 (no fresh snapshot covers key3, `epoch-1`, and the chain).  
-**Reference:** L2 0.1 draft §9.6, §12.2, §15.2 phase 5, phase 6; Appendix A.5.
+**Precondition:** Record 2 fixtures: raw wire object with duplicate member names; structurally valid Record 2 with a missing, tampered, duplicated, or mismatched trail; statement A signed under key3 `G8VbXumewVs` evaluated against the chain `0..1`.  
+**Action:** verifier evaluates each input class separately at the chain walk.  
+**Expected:** the subcases yield split verdicts, never one blanket result:  
+The Testbed SHOULD implement at least these subcases while retaining the parent catalog ID:
+
+```text
+L2-VER-014/record-wire-duplicate: raw wire text with duplicate member names -> INVALID at wire canonicality, the Record rejected, chain stops at Record 1
+L2-VER-014/trail-verification-failure: structurally valid Record 2 whose trail fails field-set matching (missing, tampered, duplicated, mismatched) -> chain acceptance fails at phase 5, chain stops at Record 1
+L2-VER-014/statement-a-signer-absent: statement A signed by key3, key3 absent from the accepted chain 0..1 -> UNKNOWN_AUTHORITY at phase 5, never reaches phases 8-9, never VERIFIED (signer resolvability is part of the chain walk)
+L2-VER-014/statement-a-material-missing: chain walk stops for missing material with no trusted lower bound -> UNVERIFIED at phase 6, never VERIFIED
+```
+**Reference:** L2 0.1 draft §15.2 phase 1, phase 5, phase 6, §15.1; §9.4, §9.6, §9.8, §12.2; Appendix A.5.
 
 ### L2-VER-015 — Record 4 accepted; S6 is STALE at phase 10
 **Target:** L2-VERIFIER  
@@ -233,7 +241,7 @@ L2-VER-003/keyid-recompute-mismatch
 **Strength:** MUST  
 **Precondition:** Records 0..4 accepted; Record 5 (`G = 5`, `epoch-2`, signer key4, `issuedAt` 1770001500) embeds trail `epoch-1` → `epoch-2`, key4 → key5 `cIbUqaV2qxI`; Record 5 keeps key3 `current` and carries key5 as one `current` key among two.  
 **Action:** verifier walks Record 5.  
-**Expected:** Record 5 rejected at trail matching, phase 5: §12.2 requires every key `current` in Record 4 (key3 and key4) to be retired with `validUntil = issuedAt(5)` and the trail-approved incoming key key5 to be the sole `current` key. The signature verifies cryptographically under key4 `publicKey`; the matching-rule failure, not the signature, is the rejection; chain stops at Record 4; Records introducing `epoch-2` signed under key4 MUST NOT be accepted.  
+**Expected:** Record 5 rejected at trail matching, phase 5: §12.2 requires every key `current` in Record 4 (key3 and key4) to be retired with `validUntil` capped at `min(previous validUntil, issuedAt(5))` — key3 `min(1770001200, 1770001500) = 1770001200`, key4 `min(1770002400, 1770001500) = 1770001500` — and the trail-approved incoming key key5 to be the sole `current` key. The signature verifies cryptographically under key4 `publicKey`; the matching-rule failure, not the signature, is the rejection; chain stops at Record 4; Records introducing `epoch-2` signed under key4 MUST NOT be accepted.  
 **Reference:** L2 0.1 draft §12.2, §9.6; Appendix A.5 (Record 5).
 
 ### L2-VER-017 — Record 6 rejected by contiguity; epochs 2 and 3 never accepted
@@ -273,7 +281,7 @@ L2-VER-003/keyid-recompute-mismatch
 **Strength:** MUST  
 **Precondition:** scenario D chain `0..3, 4E`; `T = 1769998300`, `W = 600`; statement S7.  
 **Action:** verifier evaluates S7 at `T = 1769998300`.  
-**Expected:** Record 4E is fresh at `T` (`T <= expiresAt` `1769998300` with equality, `T - issuedAt = 50 <= W`) and S7 is effective at `T`; `VERIFIED` holds at this `T` only, never at `T = 1769998700` where S7 itself is not effective (`issuedAt 1769998300 > T` fails at phase 10, not phase 6).  
+**Expected:** Record 4E is fresh at `T` (`T <= expiresAt` `1769998300` with equality, `T - issuedAt = 50 <= W`) and S7 is effective at `T`; `VERIFIED` holds at this `T` only. At `T = 1769998700`, S7 is window-valid (`1769998300 <= T <= 1770001200`), but the effective latest Record 4E is not fresh (`expiresAt` 1769998300 `< T`), so the result is `UNVERIFIED` at phase 6, never `VERIFIED`. At `T < 1769998250`, the effective prefix is `0..3` with the fresh snapshot Record 3, S7 is not effective (`issuedAt` 1769998300 `> T`), it fails at phase 10, not phase 6, and is never `VERIFIED`; shifting `T`, rewriting `issuedAt`, backing off, and selecting out-of-window Records never yield `VERIFIED`.  
 **Reference:** L2 0.1 draft §11.4, §15.2 phase 6, phase 10; Appendix A.5 (scenario D).
 
 ### L2-VER-022 — Effective prefix and k by non-decreasing rule
@@ -295,9 +303,9 @@ L2-VER-003/keyid-recompute-mismatch
 ### L2-VER-024 — Clock skew tolerance never manufactures freshness
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** documented skew allowance `S`; snapshot outside `[issuedAt + W, expiresAt]` relative to `T`.  
+**Precondition:** documented skew allowance `S`; the freshness condition is `issuedAt <= T <= expiresAt` and `T - issuedAt <= W`; the snapshot fails that condition at `T`.  
 **Action:** verifier evaluates any statement under skew conditions.  
-**Expected:** the verifier MUST NOT shift `T`, rewrite `issuedAt`, or select an out-of-window Record to manufacture `VERIFIED`; `S` only absorbs clock tolerance within documented bounds.  
+**Expected:** the verifier MUST NOT shift `T`, rewrite `issuedAt`, or select an out-of-window Record to manufacture `VERIFIED`; `S` only absorbs clock tolerance within documented bounds, inside the freshness condition above.  
 **Reference:** L2 0.1 draft §11.2, §11.6, §11.4.
 
 ### L2-VER-025 — Prior-epoch statement is STALE with phase 9 skipped
@@ -332,13 +340,13 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `CONFLICT` at phase 10 (equivocation); fail-closed with no heuristic choice between the two payloads.  
 **Reference:** L2 0.1 draft §9.7, §15.2 phase 10, phase 7.
 
-### L2-VER-029 — Byte-identical Record position below accepted maximum is STALE
+### L2-VER-029 — Record chain position: below accepted maximum is STALE, same generation with different payload is CONFLICT
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** accepted chain maximum `G`; statement position byte-identical at a position below the accepted maximum.  
-**Action:** verifier evaluates the statement position.  
-**Expected:** `STALE` at phase 7: a byte-identical position below the accepted maximum is `STALE`; same-generation byte-identical presentation is a replay; same-epoch, same-generation, different payload is `CONFLICT`.  
-**Reference:** L2 0.1 draft §15.2 phase 7, §9.7.
+**Precondition:** accepted chain with accepted maximum `recordGeneration = G`; a byte-identical Record presented at a lower position, a byte-identical Record presented at position `G`, and a Record presented at position `G` with a different payload.  
+**Action:** verifier evaluates Record positions at §15.2 phase 7.  
+**Expected:** a Record presented at a position below the accepted maximum is `STALE`; a same-generation byte-identical presentation is a replay, not freshness progress (§11.3); a same-generation Record with a different payload is `CONFLICT` and MUST NOT be accepted, the chain never accepts it; statement `generation` positions are judged only at phase 10 (L2-VER-030), never at phase 7, and Record generations and statement generations are never compared to each other (§7.2).  
+**Reference:** L2 0.1 draft §15.2 phase 7, phase 10; §9.7, §11.3, §12.3; §7.2.
 
 ### L2-VER-030 — Statement generation below floor is STALE
 **Target:** L2-VERIFIER  
@@ -364,13 +372,13 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `VERIFIED` asserts nothing after `T`; the verifier re-evaluates at `T′` with the snapshot effective at `T′`; a cached `VERIFIED` at `T′` MUST NOT be asserted.  
 **Reference:** L2 0.1 draft §13.5, §11.4, §15.2.
 
-### L2-VER-033 — Snapshot must cover the statement epoch
+### L2-VER-033 — Snapshot coverage failure yields UNVERIFIED; the statement epoch is not checked at phase 6
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** statement epoch not covered by the revocation snapshot effective at `T`; accepted epoch recorded in snapshot Record k.  
-**Action:** verifier evaluates the statement.  
-**Expected:** VERIFIED MUST NOT rely on evidence from Records outside the effective prefix; a statement in an epoch not recorded by the fresh snapshot fails at phase 6 with `UNVERIFIED`; phase 10 epoch comparison is against the snapshot-recorded accepted epoch.  
-**Reference:** L2 0.1 draft §11.4, §15.2 phase 6, phase 10.
+**Precondition:** chain `0..3` accepted; snapshot Record 3 fresh at `T = 1769998400`, covering the current accepted epoch `epoch-1`, the signer key material, the chain, and the statement floor as recorded in the effective prefix; statement S5 (`epoch-0`).  
+**Action:** verifier evaluates snapshot coverage at phase 6, then the statement through the fixed phase order.  
+**Expected:** the snapshot must cover the current accepted epoch, the signer key material, the chain, and the floor recorded in the effective prefix; a coverage failure is `UNVERIFIED` at phase 6; the phase-6 coverage check does NOT evaluate the statement's own `epochId`; a statement whose `epochId` differs from the current accepted epoch skips the phase-9 key-status judgment and is `STALE` at phase 10 (L2-VER-015, L2-VER-025), never `UNVERIFIED` at phase 6; `VERIFIED` MUST NOT rely on evidence from Records outside the effective prefix.  
+**Reference:** L2 0.1 draft §11.4, §15.2 phase 6, phase 9, phase 10; Appendix A.5 (S5, S6).
 
 ### L2-VER-034 — Statement under a retired key is UNVERIFIED
 **Target:** L2-VERIFIER  
@@ -425,7 +433,7 @@ L2-VER-003/keyid-recompute-mismatch
 **Strength:** MUST  
 **Precondition:** `l1-bound` mode; no L1 observation recorded for the expected Anchor.  
 **Action:** verifier evaluates the statement.  
-**Expected:** `UNVERIFIED` at phase 11; `l1-standalone` usage performs no L1 request and runs `statement-only` semantics; absence of an L1 observation is not a `MISMATCH`.  
+**Expected:** `UNVERIFIED` at phase 11; `l1-bound` mode with no L1 observation for the expected Anchor performs no §7.4 consistency check, an implementation running `statement-only` semantics performs no L1 request at all, and absence of an L1 observation is not a `MISMATCH`.  
 **Reference:** L2 0.1 draft §15.1, §15.2 phase 11.
 
 ### L2-VER-041 — States are exposed as states, never as booleans
@@ -449,7 +457,7 @@ L2-VER-003/keyid-recompute-mismatch
 **Strength:** MUST  
 **Precondition:** snapshot unavailable, stale, incomplete, or empty; chain-walk failure; statement revocation cached.  
 **Action:** verifier evaluates the statement.  
-**Expected:** `UNVERIFIED` on any snapshot failure or chain-walk failure; revoked-but-cached evidence MUST NOT be surfaced as current; HTTP cache reusability (RFC 9111) is separate from L2 currency, and an HTTP-reusable cached statement MUST NOT be reported as L2-current.  
+**Expected:** snapshot unavailable, stale, incomplete, or empty, and chain gaps from missing material, yield `UNVERIFIED`; a signer absent from the accepted chain yields `UNKNOWN_AUTHORITY` at phase 5 (L2-VER-008), not `UNVERIFIED`; revoked-but-cached evidence MUST NOT be surfaced as current; HTTP cache reusability (RFC 9111) is separate from L2 currency, and an HTTP-reusable cached statement MUST NOT be reported as L2-current.  
 **Reference:** L2 0.1 draft §13.5, §14.2.
 
 ### L2-VER-044 — Offline never manufactures REVOKED
@@ -460,14 +468,37 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `REVOKED` is reported only with locally retained fresh evidence; without it the result is `UNVERIFIED`; offline operation is not revocation-safe.  
 **Reference:** L2 0.1 draft §11.5, §13.6.
 
-### L2-VER-045 — Statement revocation is an extension, not baseline
+### L2-VER-045 — Statement revocation is an optional extension: absence is classified, never pinned
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** statement revocation implemented as an extension; Record revoking a specific statement with fresh coverage.  
-**Action:** verifier evaluates the revoked statement.  
-**Expected:** when statement revocation is implemented, the statement reports `REVOKED` with fresh evidence under the same phase discipline; absence of statement revocation support MUST NOT be reported as a baseline failure and is reported as `UNSUPPORTED-OPTIONAL`.  
-**Reference:** L2 0.1 draft §13.1, §21, §19.
+**Precondition:** baseline conformance report; verifier without statement revocation support.  
+**Action:** report the statement-revocation coverage classification.  
+**Expected:** absence of statement revocation support is reported as `UNSUPPORTED-OPTIONAL`, never `FAIL`, never a baseline failure; the baseline catalog MUST NOT pin the wire form, the revocation trail, the result, or the phase of the not-yet-specified extension (§13.1, §21 OPEN); results and phases of a future statement-revocation extension belong to that extension's own specification and test profile.  
+**Reference:** L2 0.1 draft §13.1, §19, §21; Catalog §3.
 
+
+### L2-VER-046 — Unknown extension members keep reproducible canonical bytes
+**Target:** L2-VERIFIER  
+**Strength:** MUST  
+**Precondition:** canonical wire object with one unknown extension member inside `payload`.  
+**Action:** verifier applies wire canonicality rules and signature verification over the canonical payload bytes.  
+**Expected:** nested objects inside `payload`, including unknown extension members, canonicalize under JCS with sorted keys, extension bytes are reproducible, wire canonicality (member order, whitespace, number form, escaping) applies to the whole wire, duplicate-member detection in raw wire text applies, the verifier MUST NOT strip, rewrite, drop, re-sort, or renumber members to compute the signing target, `keyId`, `algorithm`, UUID, `l2Version`, `statementType`, and string values are exact strings, `keyId` case is preserved.  
+**Reference:** L2 0.1 draft §7.3, §7.5, §15.2 phase 1, phase 8.
+
+### L2-VER-047 — Statement replay, equivocation, accepted maximum: split verdicts on one base statement
+**Target:** L2-VERIFIER  
+**Strength:** MUST  
+**Precondition:** scenario E chain `0..3, 4A, 4R, 4B` accepted, `T = 1769998400`, `W = 600`. Base statement S9 under key4 `ECYh7yJFAn8` (introduced `current` in Record 4A, window `1769998300..1770001900`), `epoch-1`, `generation = 2`, `issuedAt` 1769998300, `expiresAt` 1770001200, payload different from S8.  
+**Action:** verifier evaluates S9, S9 restated at `generation = 1` with the same payload, and the byte-identical replay of S8.  
+**Expected:** the subcases yield split verdicts, never one blanket result:  
+The Testbed SHOULD implement at least these subcases while retaining the parent catalog ID:
+
+```text
+L2-VER-047/s9-generation-2-base: S9 at generation 2, above the accepted statement maximum, under key4 current in Records 4A/4R/4B, fresh at T -> VERIFIED
+L2-VER-047/s9-generation-1-equivocation: the same payload restated at generation 1, payload differs from S8 at the accepted maximum, same epoch -> CONFLICT at phase 10, never VERIFIED (phase 9 key-status is for statements in the accepted epoch; key4 is current, so phase 9 passes and phase 10 resolves equivocation)
+L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1 within its validity window is a replay, not freshness progress; signer key3 is revoked from Record 4R onward -> REVOKED at phase 9, never VERIFIED
+```
+**Reference:** L2 0.1 draft §15.2 phase 10, phase 9; §9.7, §11.3, §13.2; Appendix A.5.
 ## 6. Authority cases
 
 ### L2-AUT-001 — Bootstrap: first-contact material without chain provenance is not trusted
@@ -518,13 +549,13 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** the Record is rejected by chain walk; a revoked, compromised, or retired key never returns to `current`; re-registration is rejected.  
 **Reference:** L2 0.1 draft §9.5, §13.4.
 
-### L2-AUT-007 — Retirement truncation cap
+### L2-AUT-007 — Retirement truncation cap on explicit current → retired transitions
 **Target:** L2-AUTHORITY  
 **Strength:** MUST  
-**Precondition:** Record `G` introduces a successor key and retires the outgoing key, whose prior `validUntil` exceeds `issuedAt(G)`.  
+**Precondition:** Record `G` retires a `current` key, whose prior `validUntil` exceeds `issuedAt(G)`.  
 **Action:** verifier walks Record `G`.  
-**Expected:** the retired entry's `validUntil` MUST be capped at `min(previous validUntil, issuedAt(G))` (Record 1: key1 `validUntil` 1769997000 = `issuedAt(1)`; Record 2: key2 `validUntil` 1769997600 = `issuedAt(2)`); a Record leaving the outgoing key `current` with an untruncated window, or a retired entry with `validUntil > issuedAt(G)`, MUST be rejected.  
-**Reference:** L2 0.1 draft §9.5, §10.5, §12.2; Appendix A.5 (Records 1, 2).
+**Expected:** the retired entry's `validUntil` MUST be capped at `min(previous validUntil, issuedAt(G))` (Record 1: key1 `min(1770000000, 1769997000) = 1769997000`; Record 2: key2 `min(1770000600, 1769997600) = 1769997600`); a retired entry with `validUntil` above the cap MUST NOT be accepted; rotation validity windows SHOULD overlap, a rotation Record MAY keep prior `current` keys with their windows, normal rotation with lawful overlap is accepted (L2-AUT-024), and retiring all prior `current` keys with the incoming key as sole `current` is a MUST only for transfer-introducing Records (§9.6, §12.2, L2-AUT-008).  
+**Reference:** L2 0.1 draft §9.5, §10.4, §10.5, §12.2; Appendix A.5 (Records 1, 2).
 
 ### L2-AUT-008 — statementFloor required on every Record
 **Target:** L2-AUTHORITY  
@@ -654,6 +685,14 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `newEpochId` MUST be an epoch never accepted in chain history; `epoch-2` and `epoch-3` from rejected Records 5 and 6 remain unaccepted, and re-entering `epoch-0` or `epoch-1` is rejected at chain acceptance.  
 **Reference:** L2 0.1 draft §9.6, §12.2; Appendix A.5 (Records 5, 6).
 
+
+### L2-AUT-024 — Rotation positive case: Record 4A introduces key4, key3 stays current, accepted
+**Target:** L2-AUTHORITY  
+**Strength:** MUST  
+**Precondition:** chain `0..3` accepted; Record 4A (`recordGeneration = 4`, `epoch-1`, signer key3, `issuedAt` 1769998300, `expiresAt` 1770001900; key4 `ECYh7yJFAn8` introduced `current` `1769998300..1770001900`, key3 remains `current`); Record 4R (`recordGeneration = 5`, signer key3, `issuedAt` 1769998400, key3 revoked with `revokedFrom = 5`, keys as Record 4A); Record 4B (`recordGeneration = 6`, signer key4 `ECYh7yJFAn8`, `issuedAt` 1769998700, keys identical to Record 4R).  
+**Action:** verifier walks Records 4A, 4R, 4B by chain walk from the Trust Anchor Binding.  
+**Expected:** Record 4A accepted (signer key3 window `1769997600..1770001200` contains `issuedAt(4A) = 1769998300`; the overlapping `current` windows of key3 and key4 are the SHOULD-permitted rotation overlap, key3 is not retired by the introduction of key4, a rotation Record keeping prior `current` keys is never rejected for that overlap); Record 4R accepted (signer key3 `current` in Record 4A, window contains `issuedAt(4R) = 1769998400`); Record 4B accepted (signer key4 `current` in Record 4R with window `1769998300..1770001900` containing `issuedAt(4B) = 1769998700`); chain tip `recordGeneration = 6`.  
+**Reference:** L2 0.1 draft §9.5, §9.6, §10.3, §10.4; Appendix A.5 (Records 4A, 4R, 4B).
 ## 7. Producer cases
 
 ### L2-PRO-001 — Single JCS canonical serialization as signing target
@@ -720,55 +759,98 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `keyId` is base64url (RFC 4648 §5) of the first 8 bytes of SHA-256 of the canonical `publicKey` encoding, `=` stripped, exactly 11 characters, case-sensitive exact comparison, opaque lookup key; ed25519 `publicKey` is raw 32 bytes, signature 64 bytes, per §10.8.  
 **Reference:** L2 0.1 draft §10.1, §10.8; Appendix A.5 key derivation blocks.
 
-### L2-PRO-009 — Producer key lifecycle practices
+### L2-PRO-009 — Key lifecycle: one permanent key alone never satisfies baseline
 **Target:** L2-PRODUCER  
-**Strength:** MUST baseline, SHOULD windows  
-**Precondition:** producer issues Records across rotation, revocation, and retirement.  
-**Action:** producer issues Records and key windows.  
-**Expected:** revoked, compromised, and retired material never signs new authority acts (revoked material is never rotation authority, retired keys never sign, compromised keys are never `current` for any signature, generation, or time); rotation is issued only by the key `current` at signing time; short-lived key windows with an offline root are a SHOULD (`PASS-WITH-DEVIATION` when documented); a single permanent key is a SHOULD NOT.  
-**Reference:** L2 0.1 draft §13.4, §10.6, §10.7, §10.3.
+**Strength:** MUST baseline, SHOULD practice  
+**Precondition:** producer key configuration and Record issuance across rotation, revocation, and retirement.  
+**Action:** evaluate a single permanent key configuration; evaluate rotation, revocation, and retirement issuance.  
+**Expected:** the baseline MUST NOT be satisfied by hard-coding one permanent key per deployment, a single permanent key alone never satisfies baseline conformance; short-lived signing keys with rotation, an offline root for bootstrap, and documented rotation practice are the recommended practice, a documented deviation is `PASS-WITH-DEVIATION`; revoked, compromised, and retired material never signs new authority acts, revoked material is never rotation authority, and rotation is issued only by the key `current` at signing time.  
+**Reference:** L2 0.1 draft §10.6, §10.7, §13.4, §10.3.
 
+
+### L2-PRO-010 — Vector 3b escape fixture serializes byte-identically
+**Target:** L2-PRODUCER  
+**Strength:** MUST  
+**Precondition:** the canonical JSON objects pinned in Appendix A.4, Vector 3b (escape fixtures, including the non-BMP key-order vector).  
+**Action:** producer serializes each object per JCS.  
+**Expected:** each output is byte-identical to the pinned Vector 3b fixture, escaping forms, UTF-16 code-unit key order, and number forms included; a digest computed over these bytes is consistent with the digest over the pinned serialization.  
+**Reference:** L2 0.1 draft §7.3; Appendix A.4.
+
+### L2-PRO-011 — Pinned ed25519 signatures verify against canonical payload bytes
+**Target:** L2-PRODUCER  
+**Strength:** MUST  
+**Precondition:** canonical payload bytes, pinned `publicKey` encodings, and pinned signature strings for statements A, S5, S6, S7, S8, Records 2, 3, 4, 4E, 4F, 4R, 4B, 4C, 5V, and the trail payloads, all in Appendix A.  
+**Action:** run `ed25519` verification of each pinned signature over its canonical payload bytes under the pinned `publicKey`.  
+**Expected:** every pinned signature verifies against the canonical payload bytes under the pinned `publicKey` (raw 32-byte public key encoding, 64-byte signature); a signature that does not verify against the canonical bytes is never authority evidence.  
+**Reference:** L2 0.1 draft §10.2, §10.8; Appendix A.2–A.5.
+
+### L2-PRO-012 — ES256 when offered: pinned JWS encoding, identical digest interpretation
+**Target:** L2-PRODUCER  
+**Strength:** MUST when offered, optional to baseline  
+**Precondition:** ES256 offered as an algorithm; the same canonical payload signed and presented in a non-pinned encoding (reordered r/s, DER).  
+**Action:** verify ES256 signatures against known vectors, and present the same payload with non-pinned encodings.  
+**Expected:** ES256 MUST use the JOSE JWS "ES256" signature encoding, fixed 64-byte r||s, the signature bytes verify over the same canonical payload octets, digest interpretation over the same payload bytes is identical under the pinned encoding, non-pinned encodings MUST NOT be accepted, absence of ES256 is `UNSUPPORTED-OPTIONAL`, not a baseline failure, and an unknown or unsupported `algorithm` yields `UNSUPPORTED_ALGORITHM` fail-closed, never `VERIFIED`, never `UNVERIFIED`.  
+**Reference:** L2 0.1 draft §10.8, §15.2 phase 3, §19.
 ## 8. Server cases
 
-### L2-SRV-001 — Statement surface is additive to Core
+### L2-SRV-001 — Statement surface is additive to Core with the fixed L2 status contract
 **Target:** L2-SERVER  
 **Strength:** MUST  
 **Precondition:** Resolver serving L2 statements for an Anchor registered in Core.  
-**Action:** consumer requests the L2 statement per §6.1.  
-**Expected:** the statement endpoint answers without altering the Core 303 resolution path; a Core-only consumer on the unchanged path remains fully conforming; L2 MUST NOT force Manifest, AR-XML, or trust into the Core path.  
-**Reference:** L2 0.1 draft §6.1, §16.1, §16.4.
+**Action:** consumer requests the L2 statement via `GET /{resolver-service}/{uuid}?l=2`.  
+**Expected:** the statement endpoint answers without altering the Core 303 resolution path; a Core-only consumer on the unchanged path remains fully conforming; L2 MUST NOT force Manifest, AR-XML, or trust into the Core path; the status table in §6.1 binds L2-supporting implementations and inherits the normative strength of the governing Resolver Core 0.1 / Lifecycle 0.1 rules; L2 0.1 adds no MUST-level status requirements for Core-only deployments. The subcases:  
+The Testbed SHOULD implement at least these subcases while retaining the parent catalog ID:
 
-### L2-SRV-002 — Authority material served on its own surface
+```text
+L2-SRV-001/active-200: ACTIVE record -> 200 + conforming L2 Trust Statement, Content-Type application/json, Cache-Control bounded by remaining validity (L2-SRV-005)
+L2-SRV-001/suspended-404: SUSPENDED -> 404 Not Found, preserving the unknown/SUSPENDED non-distinction
+L2-SRV-001/retired-410: RETIRED -> 410 Gone
+L2-SRV-001/unknown-404: unknown UUID -> 404 Not Found
+L2-SRV-001/malformed-400: malformed UUID -> 400 Bad Request
+L2-SRV-001/method-405: unsupported method -> 405 Method Not Allowed before registration lookup
+L2-SRV-001/no-suspended-retired-served: SUSPENDED and RETIRED L2 statements MUST NOT be served on the public path
+```
+**Reference:** L2 0.1 draft §6.1, §14.2, §16.1, §16.4.
+
+### L2-SRV-002 — Authority material surface: contiguous ascending Records, unsigned transport
 **Target:** L2-SERVER  
 **Strength:** MUST  
-**Precondition:** Record chain 0..N for an Anchor.  
-**Action:** consumer requests authority material per §6.3.  
-**Expected:** the endpoint serves the Record chain in wire canonical form, contiguous from Record 0, each Record verifiable against the Trust Anchor Binding; material requests are answered on the same public surface rules as statements.  
-**Reference:** L2 0.1 draft §6.3, §9.5.
+**Precondition:** Record chain `0..G` for an Anchor.  
+**Action:** consumer requests authority material via `GET /{resolver-service}/{uuid}/authority`.  
+**Expected:** for an ACTIVE record, `200` + authority material with the same status mapping as §6.1; the baseline response body is the strict JSON object `{ "records": [ Record_0, Record_1, ..., Record_G ] }` in strictly ascending `recordGeneration`, each element a signed `{ payload, signature }` Record per §9.5; the array framing is unsigned transport, Records remain self-contained signed objects so any transport preserves the signing target; a verifier MUST have every Record `0..G` before accepting Record `G`; a missing Record in the chain is a chain gap, result `UNVERIFIED`; a response whose array is not contiguous and strictly ascending MUST NOT be accepted as authority material; transfer evidence travels inside the Records, the baseline response MUST NOT require any additional collection, a verifier MUST NOT request transfer evidence outside the Records array, and a transfer-introducing Record whose embedded trail is missing MUST NOT be accepted, the chain stops at Record `G-1` and results are `UNVERIFIED`.  
+**Reference:** L2 0.1 draft §6.3, §9.5, §9.6, §12.2.
 
-### L2-SRV-003 — Statement and material endpoints never mutate
+### L2-SRV-003 — Public L2 endpoints are GET-only, read-only, anonymous
 **Target:** L2-SERVER  
 **Strength:** MUST  
-**Precondition:** any statement or material request, including unsafe methods.  
-**Action:** request a statement, material, or mutation attempt.  
-**Expected:** the public surface is read-only; requests MUST NOT change bindings, Records, keys, epochs, floors, or revocation state; mutation is not reachable on the public surface.  
-**Reference:** L2 0.1 draft §6.4, §14.1.
+**Precondition:** any statement, material, or mutation attempt on the public surface.  
+**Action:** request statements, material, and mutation attempts.  
+**Expected:** public L2 endpoints are GET-only, read-only, anonymous; L2 MUST NOT introduce public `PUT`/`PATCH` mutation, authenticated public mutation, or Resolver-side trust enforcement; requests MUST NOT change bindings, Records, keys, epochs, floors, or revocation state; mutation is not reachable on the public surface, unsupported methods get `405` before registration lookup (§6.1); authenticated statement submission remains an administrative surface (§16).  
+**Reference:** L2 0.1 draft §6.4, §6.1, §14.1, §16.
 
-### L2-SRV-004 — Forward compatibility with extensions
+### L2-SRV-004 — `p` parameter and forward compatibility fail closed; no client-submitted signing targets
 **Target:** L2-SERVER  
 **Strength:** MUST  
-**Precondition:** wire object containing an extension member unknown to the server.  
-**Action:** server processes the request.  
-**Expected:** the server MUST NOT reject wire on unknown extension members in the request path, MUST preserve registered extension members byte-identically in the payload signing target, and MUST NOT define L2 case identifiers; extensions are additive, never required, never prohibitive.  
-**Reference:** L2 0.1 draft §6.5, §7.5, §19.
+**Precondition:** L2-supporting resolver; requests carrying `p` with `l=2` lacking L2-defined semantics, requests carrying `l` values other than `2`.  
+**Action:** request `l=2` with `p` without L2-defined semantics, and requests with unsupported `l`.  
+**Expected:** an `l=2` request containing `p` without L2-defined semantics MUST return `400 Bad Request` before record lookup, binding L2-supporting implementations only; a deployment MUST NOT accept an unsupported `l` as L2, L1, or L3; a consumer MUST NOT claim L2 achievement from a request merely containing `l=2`; the public surface has no contract by which a client submits JSON for the server to sign, the server MUST NOT define L2 case identifiers, and wire objects with unknown members are checked on the VERIFIER and PRODUCER sides (L2-VER-046, L2-PRO-004).  
+**Reference:** L2 0.1 draft §6.2, §6.5, §16, §19.
 
-### L2-SRV-005 — Cache policy for statements
+### L2-SRV-005 — Cache policy: bounded explicit policy, error responses, immediate-freshness choice recorded
 **Target:** L2-SERVER  
 **Strength:** MUST  
-**Precondition:** server serves statements.  
-**Action:** server sets cache policy and records its choice.  
-**Expected:** statements use short `max-age`, no-store, and revalidation as appropriate; the server MUST record its cache-policy choice; HTTP cache reusability is separate from L2 currency, and `VERIFIED` is defined by §11, not by HTTP freshness.  
-**Reference:** L2 0.1 draft §14.2, §13.5, §11.4.
+**Precondition:** server serves L2 statements; baseline issuer profile, and an issuer profile requiring immediate L2 freshness.  
+**Action:** server sets cache policy on `200` statements, on error responses, and on immediate-freshness responses.  
+**Expected:** the subcases, judged without mixing MUST, SHOULD, and HTTP reusability:  
+The Testbed SHOULD implement at least these subcases while retaining the parent catalog ID:
+
+```text
+L2-SRV-005/200-bounded-policy: a 200 L2 statement response MUST send an explicit cache policy that NEVER exceeds the statement's remaining validity: Cache-Control: public, max-age = min(deployment bound, expiresAt - now)
+L2-SRV-005/error-no-store: 400/404/405/500/501/503 SHOULD use Cache-Control: no-store, a documented deviation is PASS-WITH-DEVIATION; 410 Gone MAY be cached, as in Core 0.1, because retirement is terminal
+L2-SRV-005/immediate-freshness: issuers that require immediate L2 freshness MUST choose short max-age, no-store, or revalidation directives, and MUST record that choice; issuers not requiring immediate freshness are not uniformly required to make that choice
+L2-SRV-005/http-separate-from-currency: cache rules govern HTTP reusability under RFC 9111, HTTP caches MUST NOT be required to detect revocation, revocation and epoch-transition events MUST NOT be modeled as HTTP cache behavior, invalidation on known revocation, transfer, or epoch transition is defined on the verifier side (§13.4, §13.5), an HTTP-reusable response is not L2-current by reuse
+```
+**Reference:** L2 0.1 draft §14.2, §13.4, §13.5, §11.4.
 
 ### L2-SRV-006 — Referrer-Policy: no-referrer is a SHOULD
 **Target:** L2-SERVER  

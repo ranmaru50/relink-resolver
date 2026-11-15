@@ -93,7 +93,7 @@ L2 Server Conformance
 
 Conformance reportでは、実行したsetを明示することを推奨します。
 
-L2 0.1 baselineは、単一baseline algorithmとしてのed25519、Record chain、trail付きtransfer、key revocation、§15 state model、`statement-only` verification modeです。Statement revocation、ES256、Manifest integrity pinningはL2 0.1 baselineの範囲外です。Manifest integrity pinningはL2 conformanceに一切統合されません。
+L2 0.1 baselineは、単一baseline algorithmとしてのed25519、Record chain、trail付きtransfer、key revocation、§15 state model、`statement-only` verification mode、および`l1-bound`の§7.4 consistency checks（L2-VER-038–040、§15.1、§19）です。Statement revocation、ES256、Manifest integrity pinningはL2 0.1 baselineの範囲外です。Manifest integrity pinningはL2 conformanceに一切統合されません。
 
 ## 5. Verifier cases
 
@@ -102,7 +102,7 @@ L2 0.1 baselineは、単一baseline algorithmとしてのed25519、Record chain�
 **Strength:** MUST  
 **Precondition:** Trust Anchor Binding（anchor `550e8400-e29b-41d4-a716-446655440000`、entity `urn:relink:entity:thermal-sensor-42`、key1 `ECMERdvpV0k`、`epoch-0`、floor 0）；Records 0、1、2、3はchain walkによりaccepted；`T = 1769998400`、`W = 600`；key3 `G8VbXumewVs` 下のstatement A（`epoch-1`、`generation = 1`、`issuedAt` 1769998300、`expiresAt` 1770001200）はcanonical wire上。  
 **Action:** verifierは`statement-only` modeで`T`においてstatement Aを評価する。  
-**Expected:** `VERIFIED`：snapshot Record 3はfresh（`1769998200 <= T <= 1770001800`、`T - issuedAt = 200 <= W`）、key3はsnapshot内で`current`、window `1769997600..1770001200`がstatement `issuedAt`を含む、canonical payload bytes上のsignatureは検証成功、`epochId`はaccepted epochと一致、`generation`はfloor上。  
+**Expected:** `VERIFIED`：snapshot Record 3はfresh（`1769998200 <= T <= 1770001800`、`T - issuedAt = 200 <= W`）、key3はsnapshot内で`current`、window `1769997600..1770001200`がstatement `issuedAt`を含む、canonical payload bytes上のsignatureは検証成功、`epochId`はaccepted epochと一致、`generation = 1`はfloor 0をstrictly exceed（floor equalityはvalidなstatement positionではない、§12.3）、かつaccepted statement maximumを超過。  
 **Reference:** L2 0.1 draft §15.2、§11.4、§9.6；Appendix A.5。
 
 ### L2-VER-002 — keyIdはwire publicKeyから再計算
@@ -118,7 +118,7 @@ L2 0.1 baselineは、単一baseline algorithmとしてのed25519、Record chain�
 **Strength:** MUST  
 **Precondition:** raw wire textがverifierへ提示される。  
 **Action:** verifierはstrict parse、raw wire text内のduplicate member検出、integer range、`l2Version`、payload/signature分離、`keyId`再計算を、trust evaluationに先立って適用する。  
-**Expected:** phase 1で`INVALID`、`UNVERIFIED`ではない；phase 1でrejectedされたRecordに依存するstatementはphase 5（`UNKNOWN_AUTHORITY`）で失敗し、phase 6ではない。  
+**Expected:** phase 1で`INVALID`、`UNVERIFIED`ではない；subcaseのpreconditionが`keyId` recomputation mismatchである場合に限り、依存statementはphase 5（`UNKNOWN_AUTHORITY`、§9.4）で失敗し、phase 6ではない；他のsubcaseは各自のfixtureで判定する。  
 **Reference:** L2 0.1 draft §7.2、§7.3、§15.2 phase 1。
 
 Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
@@ -212,13 +212,21 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** snapshot Record 3は独立に選定・freshness検査され、statementは`T = 1769998400`でfresh（`1769998300 <= T <= 1770001200`）；snapshot freshnessはRecord 3の`[issuedAt, expiresAt]`と`W`で評価され、statement fieldではない。  
 **Reference:** L2 0.1 draft §11.4、§15.2 phase 6、phase 10。
 
-### L2-VER-014 — Tampered trailはchainをRecord 1で停止
+### L2-VER-014 — Chain failureはinput classで分岐: wire duplicateはINVALID、trail failureはchain break、material不足はUNVERIFIED
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** Record 2のtrailがmissing、tampered、duplicated、mismatched。  
-**Action:** verifierはTrust Anchor Bindingからchainをwalkする。  
-**Expected:** Record 2はtrail verification、key-authority acceptanceの一部としてphase 5でrejected；chainはRecord 1で停止；statement Aはphase 6で`UNVERIFIED`（fresh snapshotはkey3、`epoch-1`、chainをカバーしない）。  
-**Reference:** L2 0.1 draft §9.6、§12.2、§15.2 phase 5、phase 6；Appendix A.5。
+**Precondition:** Record 2 fixtures: raw wire objectにduplicate member namesを含む；structurally validなRecord 2でtrailがmissing、tampered、duplicated、またはmismatched；statement A（signer key3 `G8VbXumewVs`）をchain `0..1`に対して評価する。  
+**Action:** verifierは各input classをchain walkで個別に評価する。  
+**Expected:** subcaseはverdict splitをもたらし、単一の一律結果ではない:  
+Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
+
+```text
+L2-VER-014/record-wire-duplicate: raw wire text with duplicate member names -> INVALID at wire canonicality, the Record rejected, chain stops at Record 1
+L2-VER-014/trail-verification-failure: structurally valid Record 2 whose trail fails field-set matching (missing, tampered, duplicated, mismatched) -> chain acceptance fails at phase 5, chain stops at Record 1
+L2-VER-014/statement-a-signer-absent: statement A signed by key3, key3 absent from the accepted chain 0..1 -> UNKNOWN_AUTHORITY at phase 5, never reaches phases 8-9, never VERIFIED (signer resolvability is part of the chain walk)
+L2-VER-014/statement-a-material-missing: chain walk stops for missing material with no trusted lower bound -> UNVERIFIED at phase 6, never VERIFIED
+```
+**Reference:** L2 0.1 draft §15.2 phase 1、phase 5、phase 6、§15.1；§9.4、§9.6、§9.8、§12.2；Appendix A.5。
 
 ### L2-VER-015 — Record 4 accepted；S6はphase 10でSTALE
 **Target:** L2-VERIFIER  
@@ -231,9 +239,9 @@ L2-VER-003/keyid-recompute-mismatch
 ### L2-VER-016 — Record 5はsignatureではなくtrail matchingでrejected
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** Records 0..4 accepted；Record 5（`G = 5`、`epoch-2`、signer key4、`issuedAt` 1770001500）はtrail `epoch-1` → `epoch-2`、key4 → key5 `cIbUqaV2qxI`を組み込み、Record 5はkey3を`current`のまま保ちkey5を2つの`current` keysの1つとして持つ。  
+**Precondition:** Records 0..4 accepted；Record 5（`G = 5`、`epoch-2`、signer key4、`issuedAt` 1770001500）はtrail `epoch-1` → `epoch-2`、key4 → key5 `cIbUqaV2qxI`を組み込み、Record 5はkey3を`current`のまま保ちkey5を2つの`current` keyの1つとして持つ。  
 **Action:** verifierはRecord 5をwalkする。  
-**Expected:** Record 5はtrail matching、phase 5でrejected：§12.2はRecord 4で`current`の全key（key3とkey4）を`validUntil = issuedAt(5)`でretireし、trail-approved incoming key key5をRecord 5唯一の`current` keyとすることを要求する。Signatureはkey4 `publicKey`下でcryptographically検証される；rejectionはmatching rule failureでありsignatureではない；chainはRecord 4で停止；key4 authority下で`epoch-2`を導入するRecordsは受理してはならない（MUST NOT）。  
+**Expected:** Record 5はtrail matching、phase 5でrejected：§12.2はRecord 4で`current`の全key（key3とkey4）を`min(previous validUntil, issuedAt(5))`にcapされた`validUntil`でretireし、trail-approved incoming key key5を唯一の`current` keyとすることを要求する — key3 `min(1770001200, 1770001500) = 1770001200`、key4 `min(1770002400, 1770001500) = 1770001500`。signatureはkey4 `publicKey`下でcryptographicallyに検証成功する；rejectionはsignatureではなくmatching-rule failureであり、chainはRecord 4で停止し、key4下で`epoch-2`を導入するRecordsは受け入れてはならない（MUST NOT）。  
 **Reference:** L2 0.1 draft §12.2、§9.6；Appendix A.5（Record 5）。
 
 ### L2-VER-017 — Record 6はcontiguityでrejected；epoch 2と3はnever accepted
@@ -273,7 +281,7 @@ L2-VER-003/keyid-recompute-mismatch
 **Strength:** MUST  
 **Precondition:** scenario D chain `0..3, 4E`；`T = 1769998300`、`W = 600`；statement S7。  
 **Action:** verifierは`T = 1769998300`でS7を評価する。  
-**Expected:** Record 4Eは`T`でfresh（`T <= expiresAt` `1769998300`はequality、`T - issuedAt = 50 <= W`）かつS7は`T`でeffective；`VERIFIED`はこの`T`でのみ成立し、S7自体がnot effective（`issuedAt 1769998300 > T`）な`T = 1769998700`ではnever成立（phase 10で失敗、phase 6ではない）。  
+**Expected:** Record 4Eは`T`でfresh（`T <= expiresAt` `1769998300`はequality、`T - issuedAt = 50 <= W`）かつS7は`T`でeffective；`VERIFIED`はこの`T`でのみ成立。`T = 1769998700`ではS7はwindow-valid（`1769998300 <= T <= 1770001200`）だが、effective latest Record 4Eがnot fresh（`expiresAt` 1769998300 `< T`）であり、結果はphase 6で`UNVERIFIED`、`VERIFIED`ではない。`T < 1769998250`ではeffective prefixは`0..3`でfresh snapshot Record 3、S7はnot effective（`issuedAt` 1769998300 `> T`）でphase 10で失敗（phase 6ではなく）、`VERIFIED`ではない；`T`のshift、`issuedAt`のrewrite、back-off、window外Recordの選択は`VERIFIED`をnever manufactureしない。  
 **Reference:** L2 0.1 draft §11.4、§15.2 phase 6、phase 10；Appendix A.5（scenario D）。
 
 ### L2-VER-022 — Effective prefixとkはnon-decreasing rule
@@ -295,9 +303,9 @@ L2-VER-003/keyid-recompute-mismatch
 ### L2-VER-024 — Clock skew toleranceはfreshnessをmanufactureしない
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** documented skew allowance `S`；snapshotは`T`に対して`[issuedAt + W, expiresAt]`外。  
+**Precondition:** documented skew allowance `S`；freshness conditionは`issuedAt <= T <= expiresAt`かつ`T - issuedAt <= W`；snapshotは`T`でこのconditionを満たさない。  
 **Action:** verifierはskew条件下で任意のstatementを評価する。  
-**Expected:** verifierは`T`をshiftし（MUST NOT）、`issuedAt`をrewriteし（MUST NOT）、freshnessをmanufactureするためにwindow外Recordを選択してはならない（MUST NOT）；`S`はdocumented境界内のclock toleranceのみ吸収する。  
+**Expected:** verifierは`T`をshiftし（MUST NOT）、`issuedAt`をrewriteし（MUST NOT）、window外Recordを選択してfreshnessをmanufactureしてはならない（MUST NOT）；`S`はdocumented境界内のclock toleranceのみ、上記freshness condition内で吸収する。  
 **Reference:** L2 0.1 draft §11.2、§11.6、§11.4。
 
 ### L2-VER-025 — Prior-epoch statementはSTALE、phase 9はskip
@@ -332,13 +340,13 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** phase 10で`CONFLICT`（equivocation）；2つのpayload間のheuristic選択なしのfail-closed。  
 **Reference:** L2 0.1 draft §9.7、§15.2 phase 10、phase 7。
 
-### L2-VER-029 — Accepted maximum以下のbyte-identical Record positionはSTALE
+### L2-VER-029 — Record chain position: accepted maximum以下はSTALE、same generation payload相違はCONFLICT
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** accepted chain maximum `G`；statement positionはaccepted maximum以下のbyte-identical position。  
-**Action:** verifierはstatement positionを評価する。  
-**Expected:** phase 7で`STALE`：accepted maximum以下のbyte-identical positionは`STALE`；same-generation byte-identical presentationはreplay；same-epoch、same-generation、payload相違は`CONFLICT`。  
-**Reference:** L2 0.1 draft §15.2 phase 7、§9.7。
+**Precondition:** accepted chainのaccepted maximum `recordGeneration = G`；byte-identical Recordをlower positionに提示、byte-identical Recordをposition `G`に提示、payload相違のRecordをposition `G`に提示。  
+**Action:** verifierは§15.2 phase 7でRecord positionsを評価する。  
+**Expected:** accepted maximum以下のpositionに提示されるRecordは`STALE`；same-generation byte-identical presentationはreplayでありfreshness progressではない（§11.3）；same-generationでpayload相違のRecordは`CONFLICT`であり受け入れてはならず（MUST NOT）、chainはnever acceptしない；statement `generation` positionはphase 10（L2-VER-030）でのみ判定、phase 7ではnever、Record generationとstatement generationは互いに比較しない（§7.2）。  
+**Reference:** L2 0.1 draft §15.2 phase 7、phase 10；§9.7、§11.3、§12.3；§7.2。
 
 ### L2-VER-030 — Statement generationがfloor未満ならSTALE
 **Target:** L2-VERIFIER  
@@ -364,13 +372,13 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `VERIFIED`は`T`の後は何もassertしない；verifierは`T′`でeffectiveなsnapshotで再評価する；`T′`でのcached `VERIFIED`をassertしてはならない（MUST NOT）。  
 **Reference:** L2 0.1 draft §13.5、§11.4、§15.2。
 
-### L2-VER-033 — Snapshotはstatement epochをカバーしなければならない
+### L2-VER-033 — Snapshot coverage不足はUNVERIFIED；statement自身のepochIdはphase 6で評価しない
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** statement epochは`T`でeffectiveなrevocation snapshotにカバーされない；accepted epochはsnapshot Record kに記録。  
-**Action:** verifierはstatementを評価する。  
-**Expected:** VERIFIEDはeffective prefix外のRecordsからのevidenceに依存してはならない（MUST NOT）；fresh snapshotが記録しないepochのstatementはphase 6で`UNVERIFIED`；phase 10のepoch比較はsnapshotが記録したaccepted epochに対して行う。  
-**Reference:** L2 0.1 draft §11.4、§15.2 phase 6、phase 10。
+**Precondition:** chain `0..3` accepted；snapshot Record 3は`T = 1769998400`でfresh、effective prefixに記録されたcurrent accepted epoch `epoch-1`、signer key material、chain、statement floorをカバー；statement S5（`epoch-0`）。  
+**Action:** verifierはphase 6でsnapshot coverageを評価し、statementをfixed phase orderで評価する。  
+**Expected:** snapshotはcurrent accepted epoch、signer key material、chain、effective prefixに記録されたfloorをカバーしなければならず、coverage failureはphase 6で`UNVERIFIED`；phase 6のcoverage checkはstatement自身の`epochId`を評価しない；`epochId`がcurrent accepted epochと異なるstatementはphase 9のkey-status judgmentをskipしphase 10で`STALE`（L2-VER-015、L2-VER-025）、phase 6で`UNVERIFIED`ではない；`VERIFIED`はeffective prefix外のRecordsからのevidenceに依存してはならない（MUST NOT）。  
+**Reference:** L2 0.1 draft §11.4、§15.2 phase 6、phase 9、phase 10；Appendix A.5（S5、S6）。
 
 ### L2-VER-034 — Retired key下のstatementはUNVERIFIED
 **Target:** L2-VERIFIER  
@@ -425,7 +433,7 @@ L2-VER-003/keyid-recompute-mismatch
 **Strength:** MUST  
 **Precondition:** `l1-bound` mode；expected Anchorに対するL1 observation記録なし。  
 **Action:** verifierはstatementを評価する。  
-**Expected:** phase 11で`UNVERIFIED`；`l1-standalone`はL1 requestを行わず`statement-only` semanticsを実行；L1 observation欠落は`MISMATCH`ではない。  
+**Expected:** phase 11で`UNVERIFIED`；`l1-bound` modeでexpected Anchorに対するL1 observationなしでは§7.4 consistency checkを行わない、`statement-only` semanticsを実行する実装はL1 requestを全く行わない、L1 observation欠落は`MISMATCH`ではない。  
 **Reference:** L2 0.1 draft §15.1、§15.2 phase 11。
 
 ### L2-VER-041 — Stateはstateとしてsurface、booleanはnever
@@ -447,9 +455,9 @@ L2-VER-003/keyid-recompute-mismatch
 ### L2-VER-043 — Snapshot failureはfail-closed；HTTP cacheはL2 currencyではない
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** snapshot unavailable、stale、incomplete、empty；chain-walk failure；statement revocationがcached。  
+**Precondition:** snapshot unavailable、stale、incomplete、empty；material不足によるchain gaps；statement revocationがcached。  
 **Action:** verifierはstatementを評価する。  
-**Expected:** snapshot failureまたはchain-walk failureで`UNVERIFIED`；revoked evidenceをcachedでもcurrentとしてsurfaceしてはならない（MUST NOT）；HTTP cache reusability（RFC 9111）はL2 currencyと別であり、HTTP-reusable cached statementをL2-currentとしてreportしてはならない（MUST NOT）。  
+**Expected:** snapshot unavailable、stale、incomplete、empty、およびmaterial不足によるchain gapsは`UNVERIFIED`；signerがaccepted chainに存在しない場合はphase 5で`UNKNOWN_AUTHORITY`（L2-VER-008）、`UNVERIFIED`ではない；revoked evidenceをcachedでもcurrentとしてsurfaceしてはならない（MUST NOT）；HTTP cache reusability（RFC 9111）はL2 currencyと別であり、HTTP-reusable cached statementをL2-currentとしてreportしてはならない（MUST NOT）。  
 **Reference:** L2 0.1 draft §13.5、§14.2。
 
 ### L2-VER-044 — OfflineはREVOKEDをmanufactureしない
@@ -460,14 +468,37 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `REVOKED`はlocalに保持されたfresh evidenceがあるときのみreport；なければ`UNVERIFIED`；offline operationはrevocation-safeではない。  
 **Reference:** L2 0.1 draft §11.5、§13.6。
 
-### L2-VER-045 — Statement revocationはextension、baselineではない
+### L2-VER-045 — Statement revocationはoptional extension: 欠如はclassificationのみ、never pin
 **Target:** L2-VERIFIER  
 **Strength:** MUST  
-**Precondition:** statement revocationはextensionとして実装；特定statementをrevokeするRecord、fresh coverage。  
-**Action:** verifierはrevoked statementを評価する。  
-**Expected:** statement revocation実装時、statementは同一phase discipline下でfresh evidenceにより`REVOKED`を報告；statement revocation supportの欠如はbaseline failureとしてreportしてはならず（MUST NOT）、`UNSUPPORTED-OPTIONAL`としてreportされる。  
-**Reference:** L2 0.1 draft §13.1、§21、§19。
+**Precondition:** baseline conformance report；statement revocation supportなしのverifier。  
+**Action:** statement-revocation coverage classificationをreportする。  
+**Expected:** statement revocation supportの欠如は`UNSUPPORTED-OPTIONAL`としてreport、`FAIL`ではなく、baseline failureではない；baseline catalogは未規定extensionのwire form、revocation trail、result、phaseをpinningしてはならない（MUST NOT、§13.1、§21 OPEN）；future statement-revocation extensionのresultsとphasesはそのextension自身のspecificationとtest profileに属する。  
+**Reference:** L2 0.1 draft §13.1、§19、§21；Catalog §3。
 
+
+### L2-VER-046 — Unknown extension memberはcanonical bytesを再現可能に保持
+**Target:** L2-VERIFIER  
+**Strength:** MUST  
+**Precondition:** `payload`内に1つのunknown extension memberを含むcanonical wire object。  
+**Action:** verifierはwire canonicality rulesを適用し、canonical payload bytes上でsignature verificationを行う。  
+**Expected:** `payload`内のnested objects、unknown extension membersを含め、はJCSによりsorted keysでcanonicalize、extension bytesは再現可能、wire canonicality（member order、whitespace、number form、escaping）はwire全体に適用、raw wire text内のduplicate member検出が適用、verifierはsigning target計算のためにmembersをstrip、rewrite、drop、re-sort、renumberしてはならない（MUST NOT）、`keyId`、`algorithm`、UUID、`l2Version`、`statementType`、string valuesはexact strings、`keyId`のcaseは保持。  
+**Reference:** L2 0.1 draft §7.3、§7.5、§15.2 phase 1、phase 8。
+
+### L2-VER-047 — Statement replay／equivocation／accepted maximum: 1つのbase statementに対するverdict split
+**Target:** L2-VERIFIER  
+**Strength:** MUST  
+**Precondition:** scenario E chain `0..3, 4A, 4R, 4B` accepted、`T = 1769998400`、`W = 600`。Base statement S9はkey4 `ECYh7yJFAn8`（Record 4Aで`current`として導入、window `1769998300..1770001900`）下、`epoch-1`、`generation = 2`、`issuedAt` 1769998300、`expiresAt` 1770001200、payloadはS8と相違。  
+**Action:** verifierはS9、`generation = 1`で同一payloadでrestated S9、S8のbyte-identical replayを評価する。  
+**Expected:** subcaseはverdict splitをもたらし、単一の一律結果ではない:  
+Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
+
+```text
+L2-VER-047/s9-generation-2-base: S9 at generation 2, above the accepted statement maximum, under key4 current in Records 4A/4R/4B, fresh at T -> VERIFIED
+L2-VER-047/s9-generation-1-equivocation: the same payload restated at generation 1, payload differs from S8 at the accepted maximum, same epoch -> CONFLICT at phase 10, never VERIFIED (phase 9 key-status is for statements in the accepted epoch; key4 is current, so phase 9 passes and phase 10 resolves equivocation)
+L2-VER-047/s8-replay-byte-identical: byte-identical replay of S8 at generation 1 within its validity window is a replay, not freshness progress; signer key3 is revoked from Record 4R onward -> REVOKED at phase 9, never VERIFIED
+```
+**Reference:** L2 0.1 draft §15.2 phase 10、phase 9；§9.7、§11.3、§13.2；Appendix A.5。
 ## 6. Authority cases
 
 ### L2-AUT-001 — Bootstrap：chain provenanceのないfirst-contact materialはtrustしない
@@ -518,13 +549,13 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** Recordはchain walkでrejected；revoked、compromised、retired keyはnever `current`へ戻らない；再登録はrejected。  
 **Reference:** L2 0.1 draft §9.5、§13.4。
 
-### L2-AUT-007 — Retirement truncation cap
+### L2-AUT-007 — Retirement truncation cap（explicit current → retired transition）
 **Target:** L2-AUTHORITY  
 **Strength:** MUST  
-**Precondition:** Record `G`はsuccessor keyを導入しoutgoing keyをretire、outgoing keyのprior `validUntil`は`issuedAt(G)`を超える。  
+**Precondition:** Record `G`は`current` keyをretire、prior `validUntil`は`issuedAt(G)`を超える。  
 **Action:** verifierはRecord `G`をwalkする。  
-**Expected:** retired entryの`validUntil`は`min(previous validUntil, issuedAt(G))`にcapされなければならず（MUST）（Record 1：key1 `validUntil` 1769997000 = `issuedAt(1)`；Record 2：key2 `validUntil` 1769997600 = `issuedAt(2)`）；outgoing keyをuntruncated windowで`current`のまま残すRecord、`validUntil > issuedAt(G)`のretired entryを持つRecordはchain acceptanceでrejectしなければならない（MUST）。  
-**Reference:** L2 0.1 draft §9.5、§10.5、§12.2；Appendix A.5（Records 1、2）。
+**Expected:** retired entryの`validUntil`は`min(previous validUntil, issuedAt(G))`にcapされなければならず（MUST）（Record 1：key1 `min(1770000000, 1769997000) = 1769997000`、Record 2：key2 `min(1770000600, 1769997600) = 1769997600`）；capを超える`validUntil`のretired entryは受け入れてはならない（MUST NOT）；rotation validity windowsはSHOULD overlap、rotation Recordはprior `current` keysをwindowのまま維持してよい（MAY）、lawful overlapを持つnormal rotationはaccepted、transfer-introducing Records（§9.6、§12.2、L2-AUT-008）に限りprior `current` keysを全retireしincoming keyをsole `current`とすることはMUST。  
+**Reference:** L2 0.1 draft §9.5、§10.4、§10.5、§12.2；Appendix A.5（Records 1、2）。
 
 ### L2-AUT-008 — statementFloorは全Recordに必須
 **Target:** L2-AUTHORITY  
@@ -654,6 +685,14 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `newEpochId`はchain historyにnever acceptedのepochでなければならない；Records 5と6のrejected後の`epoch-2`と`epoch-3`はunacceptedのまま、`epoch-0`や`epoch-1`への再進入はchain acceptanceでrejected。  
 **Reference:** L2 0.1 draft §9.6、§12.2；Appendix A.5（Records 5、6）。
 
+
+### L2-AUT-024 — Rotation positive case: Record 4Aはkey4を導入しkey3はcurrentのまま、accepted
+**Target:** L2-AUTHORITY  
+**Strength:** MUST  
+**Precondition:** chain `0..3` accepted；Record 4A（`recordGeneration = 4`、`epoch-1`、signer key3、`issuedAt` 1769998300、`expiresAt` 1770001900；key4 `ECYh7yJFAn8`を`current` `1769998300..1770001900`として導入、key3は`current`のまま）；Record 4R（`recordGeneration = 5`、signer key3、`issuedAt` 1769998400、key3は`revokedFrom = 5`でrevoked、keysはRecord 4Aと同一）；Record 4B（`recordGeneration = 6`、signer key4 `ECYh7yJFAn8`、`issuedAt` 1769998700、keysはRecord 4Rと同一）。  
+**Action:** verifierはRecords 4A、4R、4BをTrust Anchor Bindingからのchain walkでwalkする。  
+**Expected:** Record 4A accepted（signer key3 window `1769997600..1770001200`は`issuedAt(4A) = 1769998300`を含む；key3とkey4の`current` windows overlapはSHOULD-permittedなrotation overlapであり、key4導入によりkey3はretireされない、prior `current` keysを維持するrotation Recordはそのoverlap理由でnever rejectされない）；Record 4R accepted（signer key3はRecord 4Aで`current`、windowは`issuedAt(4R) = 1769998400`を含む）；Record 4B accepted（signer key4はRecord 4Rで`current`、window `1769998300..1770001900`は`issuedAt(4B) = 1769998700`を含む）；chain tip `recordGeneration = 6`。  
+**Reference:** L2 0.1 draft §9.5、§9.6、§10.3、§10.4；Appendix A.5（Records 4A、4R、4B）。
 ## 7. Producer cases
 
 ### L2-PRO-001 — 単一JCS canonical serializationがsigning target
@@ -720,55 +759,98 @@ L2-VER-003/keyid-recompute-mismatch
 **Expected:** `keyId`はcanonical `publicKey` encodingのSHA-256の先頭8 bytesのbase64url（RFC 4648 §5）、`=` strip、ちょうど11 characters、case-sensitive exact comparison、opaque lookup key；ed25519 `publicKey`はraw 32 bytes、signature 64 bytes、§10.8準拠。  
 **Reference:** L2 0.1 draft §10.1、§10.8；Appendix A.5 key derivation blocks。
 
-### L2-PRO-009 — Producer key lifecycle practices
+### L2-PRO-009 — Key lifecycle: 単一のpermanent key aloneではbaselineを満たさない
 **Target:** L2-PRODUCER  
-**Strength:** MUST baseline、SHOULD windows  
-**Precondition:** producerはrotation、revocation、retirementにわたりRecordsを発行。  
-**Action:** producerはRecordsとkey windowsを発行。  
-**Expected:** revoked、compromised、retired materialは新たなauthority actをnever署名（revoked materialはrotation authorityではなく、retired keysはnever署名、compromised keysは任何signature・generation・timeで`current`ではない）；rotationはsigning時`current`のkeyのみが発行；short-lived key windows with offline rootはSHOULD（documented理由なら`PASS-WITH-DEVIATION`）；単一permanent keyはSHOULD NOT。  
-**Reference:** L2 0.1 draft §13.4、§10.6、§10.7、§10.3。
+**Strength:** MUST baseline、SHOULD practice  
+**Precondition:** producerのkey configurationとRecord issuance across rotation、revocation、retirement。  
+**Action:** 単一のpermanent key configurationを評価；rotation、revocation、retirement issuanceを評価。  
+**Expected:** baselineはdeploymentごとの単一permanent keyのhard-codingで満たされてはならず（MUST NOT）、単一のpermanent key aloneはnever baseline conformanceを満たさない；short-lived signing keys with rotation、offline rootによるbootstrap、documented rotation practiceはrecommended practice、documented deviationは`PASS-WITH-DEVIATION`；revoked、compromised、retired materialは新たなauthority actをnever署名、revoked materialはrotation authorityではなく、rotationは署名時`current`のkeyのみが発行する。  
+**Reference:** L2 0.1 draft §10.6、§10.7、§13.4、§10.3。
 
+
+### L2-PRO-010 — Vector 3b escape fixtureはbyte-identicalにserialize
+**Target:** L2-PRODUCER  
+**Strength:** MUST  
+**Precondition:** Appendix A.4にpinnedのcanonical JSON objects、Vector 3b（escape fixtures、non-BMP key-order vectorを含む）。  
+**Action:** producerは各objectをJCSでserialize。  
+**Expected:** 各outputはpinned Vector 3b fixtureとbyte-identical、escaping forms、UTF-16 code-unit key order、number formsを含む；これらのbytes上のdigestはpinned serialization上のdigestとconsistent。  
+**Reference:** L2 0.1 draft §7.3；Appendix A.4。
+
+### L2-PRO-011 — Pinned ed25519 signatureはcanonical payload bytesに対して検証成功
+**Target:** L2-PRODUCER  
+**Strength:** MUST  
+**Precondition:** canonical payload bytes、pinned `publicKey` encodings、pinned signature strings：statements A、S5、S6、S7、S8、Records 2、3、4、4E、4F、4R、4B、4C、5V、trail payloads、すべてAppendix A。  
+**Action:** 各pinned signatureをpinned `publicKey`下のcanonical payload bytes上で`ed25519`検証する。  
+**Expected:** 全pinned signatureはcanonical payload bytesに対してpinned `publicKey`下で検証成功（raw 32-byte public key encoding、64-byte signature）；canonical bytesに対して検証成功しないsignatureはnever authority evidenceではない。  
+**Reference:** L2 0.1 draft §10.2、§10.8；Appendix A.2–A.5。
+
+### L2-PRO-012 — ES256提供時: pinned JWS encoding、digest interpretation同一
+**Target:** L2-PRODUCER  
+**Strength:** MUST when offered、optional to baseline  
+**Precondition:** ES256はalgorithmとして提供；同一canonical payloadをnon-pinned encoding（reordered r/s、DER）で署名し提示。  
+**Action:** ES256 signatureをknown vectorsに対して検証、同一payloadをnon-pinned encodingsで提示。  
+**Expected:** ES256はJOSE JWS "ES256" signature encoding、fixed 64-byte r||sを利用しなければならず（MUST）、signature bytesは同一canonical payload octets上で検証、同一payload bytes上のdigest interpretationはpinned encoding下で同一、non-pinned encodingsは受け入れてはならず（MUST NOT）、ES256欠如は`UNSUPPORTED-OPTIONAL`でbaseline failureではなく、unknownまたはunsupported `algorithm`は`UNSUPPORTED_ALGORITHM` fail-closed、`VERIFIED`でも`UNVERIFIED`でもない。  
+**Reference:** L2 0.1 draft §10.8、§15.2 phase 3、§19。
 ## 8. Server cases
 
-### L2-SRV-001 — Statement surfaceはCoreに対するadditive
+### L2-SRV-001 — Statement surfaceはCoreに対するadditive、fixed L2 status contract
 **Target:** L2-SERVER  
 **Strength:** MUST  
 **Precondition:** Coreにregistered Anchorに対しL2 statementsをservingするResolver。  
-**Action:** consumerは§6.1に従いL2 statementをrequest。  
-**Expected:** statement endpointはCore 303 resolution pathを変えずに応答；unchanged path上のCore-only consumerはfully conformingのまま；L2はManifest、AR-XML、trustをCore pathへ強制してはならない（MUST NOT）。  
-**Reference:** L2 0.1 draft §6.1、§16.1、§16.4。
+**Action:** consumerは`GET /{resolver-service}/{uuid}?l=2`でL2 statementをrequest。  
+**Expected:** statement endpointはCore 303 resolution pathを変えずに応答；unchanged path上のCore-only consumerはfully conformingのまま；L2はManifest、AR-XML、trustをCore pathへ強制してはならない（MUST NOT）；§6.1のstatus tableはL2-supporting implementationsをbindし、governing Resolver Core 0.1 / Lifecycle 0.1 rulesのnormative strengthを継承；L2 0.1はCore-only deploymentsにMUST-level status requirementsを追加しない。subcases:  
+Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
 
-### L2-SRV-002 — Authority materialは自有surfaceでserving
+```text
+L2-SRV-001/active-200: ACTIVE record -> 200 + conforming L2 Trust Statement, Content-Type application/json, Cache-Control bounded by remaining validity (L2-SRV-005)
+L2-SRV-001/suspended-404: SUSPENDED -> 404 Not Found, preserving the unknown/SUSPENDED non-distinction
+L2-SRV-001/retired-410: RETIRED -> 410 Gone
+L2-SRV-001/unknown-404: unknown UUID -> 404 Not Found
+L2-SRV-001/malformed-400: malformed UUID -> 400 Bad Request
+L2-SRV-001/method-405: unsupported method -> 405 Method Not Allowed before registration lookup
+L2-SRV-001/no-suspended-retired-served: SUSPENDED and RETIRED L2 statements MUST NOT be served on the public path
+```
+**Reference:** L2 0.1 draft §6.1、§14.2、§16.1、§16.4。
+
+### L2-SRV-002 — Authority material surface: contiguous ascending Records、unsigned transport
 **Target:** L2-SERVER  
 **Strength:** MUST  
-**Precondition:** Anchorに対するRecord chain 0..N。  
-**Action:** consumerは§6.3に従いauthority materialをrequest。  
-**Expected:** endpointはRecord chainをwire canonical form、Record 0からcontiguous、各RecordはTrust Anchor Bindingに対して検証可能な形でserving；material requestsはstatementと同一public surface rulesで応答。  
-**Reference:** L2 0.1 draft §6.3、§9.5。
+**Precondition:** Anchorに対するRecord chain `0..G`。  
+**Action:** consumerは`GET /{resolver-service}/{uuid}/authority`でauthority materialをrequest。  
+**Expected:** ACTIVE recordでは`200` + §6.1と同一status mappingのauthority material；baseline response bodyはstrict JSON object `{ "records": [ Record_0, Record_1, ..., Record_G ] }`、strictly ascending `recordGeneration`、各elementは§9.5に基づくsigned `{ payload, signature }` Record；array framingはunsigned transport、Recordsはself-contained signed objectsでありいかなるtransportもsigning targetを保持；verifierはRecord `G`を受け入れる前に全Records `0..G`をheldしなければならず、chain内のmissing Recordはchain gapで結果は`UNVERIFIED`；arrayがcontiguousかつstrictly ascendingでないresponseはauthority materialとして受け入れてはならず（MUST NOT）、transfer evidenceはRecords内にtravel、baseline responseは追加収集を要求してはならず（MUST NOT）、verifierはRecords array外でtransfer evidenceを要求してはならず（MUST NOT）、embedded trail缺失のtransfer-introducing Recordは受け入れてはならず（MUST NOT）、chainはRecord `G-1`で停止し結果は`UNVERIFIED`。  
+**Reference:** L2 0.1 draft §6.3、§9.5、§9.6、§12.2。
 
-### L2-SRV-003 — Statement／material endpointsはnever mutate
+### L2-SRV-003 — Public L2 endpointsはGET-only、read-only、anonymous
 **Target:** L2-SERVER  
 **Strength:** MUST  
-**Precondition:** 任意のstatementまたはmaterial request、unsafe methods含む。  
+**Precondition:** public surfaceにおける任意のstatement、material、mutation attempt。  
 **Action:** statement、material、mutation attemptをrequest。  
-**Expected:** public surfaceはread-only；requestsはbindings、Records、keys、epochs、floors、revocation stateを変えてはならず（MUST NOT）、mutationはpublic surfaceで到達不能。  
-**Reference:** L2 0.1 draft §6.4、§14.1。
+**Expected:** public L2 endpointsはGET-only、read-only、anonymous；L2はpublic `PUT`/`PATCH` mutation、authenticated public mutation、Resolver-side trust enforcementを導入してはならない（MUST NOT）；requestsはbindings、Records、keys、epochs、floors、revocation stateを変えてはならず（MUST NOT）、mutationはpublic surfaceで到達不能、unsupported methodsはregistration lookupの前に`405`（§6.1）；authenticated statement submissionはadministrative surface（§16）。  
+**Reference:** L2 0.1 draft §6.4、§6.1、§14.1、§16。
 
-### L2-SRV-004 — Extensionsに対するforward compatibility
+### L2-SRV-004 — `p` parameterとforward compatibilityはfail closed、client submissionのsigning targetなし
 **Target:** L2-SERVER  
 **Strength:** MUST  
-**Precondition:** serverにunknown extension memberを含むwire object。  
-**Action:** serverはrequestを処理。  
-**Expected:** serverはrequest pathのunknown extension membersでwireをrejectしてはならず（MUST NOT）、payload signing target内のregistered extension membersをbyte-identicalに保持し、L2 case identifierを定義してはならない（MUST NOT）；extensionsはadditive、never required、never prohibitive。  
-**Reference:** L2 0.1 draft §6.5、§7.5、§19。
+**Precondition:** L2-supporting resolver；`l=2`でL2-defined semantics缺失の`p`を含むrequests、`2`以外の`l` valuesを持つrequests。  
+**Action:** L2-defined semanticsなしの`p`を含む`l=2`、unsupported `l`のrequestsをrequest。  
+**Expected:** L2-defined semanticsなしの`p`を含む`l=2` requestはrecord lookupの前に`400 Bad Request`を返さなければならず（MUST、L2-supporting implementationsのみbind）、deploymentはunsupported `l`をL2、L1、L3として受け入れてはならず（MUST NOT）、consumerは`l=2`を含むrequestのみでL2 achievementをclaimしてはならない（MUST NOT）、public surfaceにはclientがserverに署名させるJSONを提出するcontractはなく、serverはL2 case identifierを定義してはならず（MUST NOT）、unknown membersを持つwire objectsはVERIFIER側とPRODUCER側で検査（L2-VER-046、L2-PRO-004）。  
+**Reference:** L2 0.1 draft §6.2、§6.5、§16、§19。
 
-### L2-SRV-005 — Statementsのcache policy
+### L2-SRV-005 — Cache policy: bounded explicit policy、error responses、immediate-freshness choice記録
 **Target:** L2-SERVER  
 **Strength:** MUST  
-**Precondition:** serverはstatementsをserving。  
-**Action:** serverはcache policyを設定しchoiceを記録。  
-**Expected:** statementsは適度にshort `max-age`、no-store、revalidationを使用；serverはcache-policy choiceを記録しなければならず（MUST）、HTTP cache reusabilityはL2 currencyと別、`VERIFIED`は§11で定義されHTTP freshnessではない。  
-**Reference:** L2 0.1 draft §14.2、§13.5、§11.4。
+**Precondition:** serverはL2 statementsをserving；baseline issuer profile、およびimmediate L2 freshnessを要求するissuer profile。  
+**Action:** serverは`200` statements、error responses、immediate-freshness responsesにcache policyを設定。  
+**Expected:** MUST、SHOULD、HTTP reusabilityを混在させずに判定するsubcases:  
+Testbedは親catalog IDを保持したまま、少なくとも次のsubcaseを実装することを推奨します。
+
+```text
+L2-SRV-005/200-bounded-policy: a 200 L2 statement response MUST send an explicit cache policy that NEVER exceeds the statement's remaining validity: Cache-Control: public, max-age = min(deployment bound, expiresAt - now)
+L2-SRV-005/error-no-store: 400/404/405/500/501/503 SHOULD use Cache-Control: no-store, a documented deviation is PASS-WITH-DEVIATION; 410 Gone MAY be cached, as in Core 0.1, because retirement is terminal
+L2-SRV-005/immediate-freshness: issuers that require immediate L2 freshness MUST choose short max-age, no-store, or revalidation directives, and MUST record that choice; issuers not requiring immediate freshness are not uniformly required to make that choice
+L2-SRV-005/http-separate-from-currency: cache rules govern HTTP reusability under RFC 9111, HTTP caches MUST NOT be required to detect revocation, revocation and epoch-transition events MUST NOT be modeled as HTTP cache behavior, invalidation on known revocation, transfer, or epoch transition is defined on the verifier side (§13.4, §13.5), an HTTP-reusable response is not L2-current by reuse
+```
+**Reference:** L2 0.1 draft §14.2、§13.4、§13.5、§11.4。
 
 ### L2-SRV-006 — Referrer-Policy：no-referrerはSHOULD
 **Target:** L2-SERVER  
