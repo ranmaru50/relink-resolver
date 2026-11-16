@@ -4,7 +4,9 @@
 
 declare(strict_types=1);
 
+use Relink\Resolver\Adapters\SqliteL2Repository;
 use Relink\Resolver\Adapters\SqliteResolverRepository;
+use Relink\Resolver\Application\L2ResolverService;
 use Relink\Resolver\Application\ResolverService;
 
 $config = require dirname(__DIR__) . '/bootstrap.php';
@@ -79,6 +81,34 @@ if (count($parts) !== 1 || $parts[0] === '') {
 if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $parts[0])) {
     http_response_code(400);
     header('Cache-Control: no-store');
+    exit;
+}
+
+// L2 公開面（§6）: thin adapter 分岐。§6.1 の全判断（405/400/501、ライフサイクル、
+// §6.3 のギャップ fail-closed、§14.2 の Cache-Control）はアプリサービスが所有し、
+// このアダプタは superglobal 解析と応答出力のみを行う（AGENTS.md §3）。
+// 内部障害は §6.1 の internal-failure 行により 503 + no-store。
+// §6.4/§16: この分岐は GET 専用・読み取り専用・匿名。公開 submission endpoint は存在しない。
+if (array_key_exists('l', $_GET)) {
+    try {
+        $l2Repository = new SqliteL2Repository($config['database_path']);
+        $l2Service = new L2ResolverService(
+            new SqliteResolverRepository($config['database_path']),
+            $l2Repository,
+            $l2Repository,
+            (int) $config['l2_cache_max_age'],
+        );
+        $result = $l2Service->authority($method, $parts[0], $_GET, time());
+    } catch (Throwable) {
+        http_response_code(503);
+        header('Cache-Control: no-store');
+        exit;
+    }
+    http_response_code($result->status);
+    foreach ($result->headers as $name => $value) {
+        header($name . ': ' . $value);
+    }
+    echo $result->body;
     exit;
 }
 
