@@ -20,8 +20,8 @@ enum Verdict: string
     case REVOKED = 'REVOKED';
     case EXPIRED = 'EXPIRED';
     case MISMATCH = 'MISMATCH';
+    case PASS = 'PASS';
 
-    public const string PASS = 'PASS';
     public const string FAIL = 'FAIL';
     public const string PASS_WITH_DEVIATION = 'PASS-WITH-DEVIATION';
     public const string NOT_APPLICABLE = 'NOT-APPLICABLE';

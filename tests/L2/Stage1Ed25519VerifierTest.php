@@ -222,9 +222,10 @@ final class Stage1Ed25519VerifierTest extends TestCase
             'REVOKED',
             'EXPIRED',
             'MISMATCH',
+            'PASS',
         ], array_map(static fn (Verdict $verdict): string => $verdict->value, Verdict::cases()));
 
-        $this->assertSame('PASS', Verdict::PASS);
+        $this->assertSame('PASS', Verdict::PASS->value);
         $this->assertSame('FAIL', Verdict::FAIL);
         $this->assertSame('PASS-WITH-DEVIATION', Verdict::PASS_WITH_DEVIATION);
         $this->assertSame('NOT-APPLICABLE', Verdict::NOT_APPLICABLE);
