@@ -141,6 +141,23 @@ final class L2ResolverService
             return L2ResolutionResult::error(500);
         }
 
+        // P1-2 / §6.3 acceptance guarantee: numbering contiguity is not chain acceptance. The
+        // stored prefix is run through the chain walk (§9.6) against the Trust Anchor Binding
+        // before any Record is served. A wire that fails the walk (trail-window cap,
+        // revokedFrom widening, signer not resolvable, keyId recomputation, …) means the
+        // stored set is not the accepted chain, so nothing is served: §6.1 internal-failure
+        // row, 500 no-store, same judgment basis as the storage gap above. The walk is
+        // read-only; the public GET performs no mutation and no state is written (§6.4).
+        $walker = new RecordChainWalker($this->signatureVerifier);
+        $state = $walker->initialState($binding);
+        foreach ($wires as $wire) {
+            $acceptance = $walker->accept($state, $wire);
+            if (!$acceptance->accepted()) {
+                return L2ResolutionResult::error(500);
+            }
+            $state = $acceptance->state();
+        }
+
         try {
             $expiresAtG = $this->recordRepository->expiresAtOfMaxGeneration($anchor->value);
         } catch (Throwable) {

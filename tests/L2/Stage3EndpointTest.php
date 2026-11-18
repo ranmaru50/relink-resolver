@@ -313,6 +313,35 @@ final class Stage3EndpointTest extends TestCase
         self::assertSame(1, $resolver->lookupCount, 'resolver lookup happens exactly once on the 200 path');
     }
 
+    /**
+     * P1-2 / §6.3 negative (red-first): a contiguous numbering that fails the accepted chain
+     * walk MUST NOT be served publicly. Record 5 fails trail-window matching (§9.6,
+     * Appendix A.5); Record 4C widens key3's revokedFrom (§9.5 revocation-field rule). Both
+     * keep numbering 0..G contiguous, so numbering contiguity alone cannot protect the
+     * public surface; the authority handler verifies the stored prefix against the chain.
+     */
+    public function testContiguousStoreFailingTrailCapAtRecord5IsNotServedAtAuthority(): void
+    {
+        [$service, $resolver, $bindings, $records] = $this->fixture(600, ['Record0', 'Record1', 'Record2', 'Record3', 'Record4A', 'Record5']);
+        $result = $service->authority('GET', Stage2TestSupport::ANCHOR_ID, [], 1770001300);
+
+        self::assertSame(500, $result->status, 'P1-2/§6.1 internal-failure row: trail-cap failure at Record 5 is never public transport (§6.3/§9.6)');
+        self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: the 500 answer is no-store');
+        self::assertSame('', $result->body, 'L2-SRV-002/gap-never-complete: no Records served when the chain walk stops at Record 5');
+        self::assertSame(1, $resolver->lookupCount, 'P1-2: the 500 decision is made without any mutation (read-only GET path)');
+    }
+
+    /** P1-2 negative, revocation-field widening at the tip (Record 4C, §9.5): contiguous numbering, chain walk rejects → 500 no-store. */
+    public function testContiguousStoreWideningRevokedFromAtTipIsNotServedAtAuthority(): void
+    {
+        [$service, $resolver, $bindings, $records] = $this->fixture(600, ['Record0', 'Record1', 'Record2', 'Record3', 'Record4C']);
+        $result = $service->authority('GET', Stage2TestSupport::ANCHOR_ID, [], 1770001300);
+
+        self::assertSame(500, $result->status, 'P1-2/§6.1 internal-failure row: revokedFrom widening at Record 4C is never public transport (§9.5)');
+        self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: the 500 answer is no-store');
+        self::assertSame('', $result->body, '§6.3: a rejected chain prefix is not assembled into records transport');
+    }
+
     /** §14.2 / L2-SRV-005/200-bounded-policy + immediate-freshness: max-age = min(deployment bound, expiresAt(G) - now). */
     public function testCacheControlFollowsDeploymentBoundAndExpiryOfRecordG(): void
     {
@@ -543,15 +572,21 @@ final class Stage3EndpointTest extends TestCase
         self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: 500 no-store');
         self::assertSame('', $result->body, 'L2-SRV-002/gap-never-complete: no partial array is served');
 
-        // Fill the gap; the completed prefix is then served byte-exactly.
+        // Fill the gap with wires the chain walk accepts: the accepted completed prefix is
+        // then served byte-exactly. 0,1,2,4A is a numbering gap at generation 3; Record 3
+        // fills it, and the walk accepts 0..4A (§9.6, Appendix A acceptance chain).
+        [$serviceFill, , , $fillRecords] = $this->fixture(600, ['Record0', 'Record1', 'Record2', 'Record4A']);
+        $gapResult = $serviceFill->authority('GET', Stage2TestSupport::ANCHOR_ID, [], 1770001800);
+        self::assertSame(500, $gapResult->status, '§6.3: gap at generation 3 (stored 0,1,2,4A) is never served as a complete array');
+
         $fillWire = Stage2TestSupport::wire('Record3');
-        $records->appendRecord(Record::fromWire($fillWire), $fillWire);
-        $filled = $service->authority('GET', Stage2TestSupport::ANCHOR_ID, [], 1770001800);
-        self::assertSame(200, $filled->status, 'the completed 0..6 prefix is served once the gap is filled');
-        $fullWireList = array_map(fn (string $id): string => Stage2TestSupport::wire($id), ['Record0', 'Record1', 'Record2', 'Record3', 'Record4', 'Record5', 'Record6']);
+        $fillRecords->appendRecord(Record::fromWire($fillWire), $fillWire);
+        $filled = $serviceFill->authority('GET', Stage2TestSupport::ANCHOR_ID, [], 1770001800);
+        self::assertSame(200, $filled->status, 'the completed accepted 0..4A prefix is served once the gap is filled (P1-2: the walk accepts every stored wire before serving)');
+        $fullWireList = array_map(fn (string $id): string => Stage2TestSupport::wire($id), self::CHAIN_POSITIVE);
         self::assertSame($this->assembledBody($fullWireList), $filled->body, 'BLOCKING-2: gap-filled body is assembled byte-exactly from stored wires');
         $decoded = json_decode($filled->body, true);
-        self::assertCount(7, $decoded['records'], 'L2-SRV-002: complete prefix Record_0..Record_6 after fill');
+        self::assertCount(5, $decoded['records'], 'L2-SRV-002: complete accepted prefix Record_0..Record_4A after fill');
         foreach ($decoded['records'] as $index => $element) {
             self::assertIsArray($element, 'BLOCKING-2/§6.3: gap-filled element ' . $index . ' is a JSON object, not a double-encoded string');
         }
