@@ -2,14 +2,16 @@
 // tests/L2/Stage2StatementVerifierTest.php
 // StatementVerifier：§15.2 phase 1..11 の固定順序、§15.1 modes、§11.4 snapshot/freshness、
 // §13.4 revocation、§12.3 epoch/floor、§9.4 signer resolvability、§7.4 l1-bound。
-// 対応 Conformance cases: L2-VER-001..006, 008, 013, 014, 015, 019..027, 029, 030..036,
-// 038..042, 044, 046; L2-AUT-022。
+// 対応 Conformance cases: L2-VER-001..006, 008, 013, 014, 015, 019..027, 029, 030, 031,
+// 033..036, 038..042, 044, 046; L2-AUT-022。
 
 declare(strict_types=1);
 
 namespace Relink\Resolver\Tests\L2;
 
 use PHPUnit\Framework\TestCase;
+use Relink\Resolver\Domain\L2\Base64Url;
+use Relink\Resolver\Domain\L2\ChainStopKind;
 use Relink\Resolver\Domain\L2\VerificationMode;
 use Relink\Resolver\Domain\L2\VerificationResult;
 use Relink\Resolver\Domain\L2\Verdict;
@@ -61,7 +63,7 @@ final class Stage2StatementVerifierTest extends TestCase
         $this->assertSame(Verdict::UNKNOWN_AUTHORITY, $result->verdict());
         $this->assertSame(5, $result->phase());
         // a §9.4 chain stop recorded in the state keeps the same classification
-        $stopped = $state->withChainStop(Verdict::INVALID, 'keyId recomputation failed (§9.4)');
+        $stopped = $state->withChainStop(Verdict::INVALID, 'keyId recomputation failed (§9.4)', ChainStopKind::KEY_ID_RECOMPUTATION);
         $result2 = Stage2TestSupport::verifier()->verify(Stage2TestSupport::wire('S7'), $stopped, Stage2TestSupport::T);
 
         $this->assertSame(Verdict::UNKNOWN_AUTHORITY, $result2->verdict());
@@ -200,6 +202,23 @@ final class Stage2StatementVerifierTest extends TestCase
     {
         $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3']);
         $wire = Stage2TestSupport::wireWithChanges('S7', ['algorithm' => 'ed25519x'], 3);
+
+        $result = Stage2TestSupport::verifier()->verify($wire, $state, Stage2TestSupport::T);
+
+        $this->assertSame(Verdict::UNSUPPORTED_ALGORITHM, $result->verdict());
+        $this->assertSame(3, $result->phase());
+    }
+
+    /**
+     * L2-VER-005, §15.2 phase 1 + phase 3 (P2-2): an unsupported algorithm presented with
+     * a signature outside the 64-byte Ed25519 length must reach phase 3, not be rejected
+     * as INVALID at phase 1; wire parse validates base64url shape only.
+     */
+    public function testUnsupportedAlgorithmWithShortSignatureReachesPhase3NotPhase1(): void
+    {
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3']);
+        $shortSignature = Base64Url::encode(str_repeat('x', 32));
+        $wire = Stage2TestSupport::wireWithEnvelopeSignature('S7', $shortSignature, ['algorithm' => 'ES256']);
 
         $result = Stage2TestSupport::verifier()->verify($wire, $state, Stage2TestSupport::T);
 
@@ -450,7 +469,7 @@ final class Stage2StatementVerifierTest extends TestCase
     public function testByteIdenticalReplayOfAcceptedStatementIsVerified(): void
     {
         $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3'])
-            ->withAcceptedStatement(1, Stage2TestSupport::vector('S7')['canonical']);
+            ->withAcceptedStatement('epoch-1', 1, Stage2TestSupport::vector('S7')['canonical']);
 
         $result = Stage2TestSupport::verifier()->verify(Stage2TestSupport::wire('S7'), $state, Stage2TestSupport::T);
 
@@ -550,7 +569,8 @@ final class Stage2StatementVerifierTest extends TestCase
         $this->assertSame(10, $result->phase());
     }
 
-    /** L2-VER-032: expiresAt <= issuedAt is INVALID at phase 1. */
+    /** §12.1, §15.2 phase 1 (structural parse): expiresAt <= issuedAt is INVALID at phase 1.
+     * Not a pinned catalog case; L2-VER-032 is re-evaluation at T' (§13.5, §11.4, §15.2). */
     public function testStatementWindowNotIncreasingIsInvalidAtPhase1(): void
     {
         $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3']);
@@ -654,7 +674,7 @@ final class Stage2StatementVerifierTest extends TestCase
         $this->assertSame(VerificationMode::L1_BOUND, $result->mode());
     }
 
-    /** L2-VER-039: l1-bound mode with no L1 observation is UNVERIFIED at phase 11, never MISMATCH. */
+    /** L2-VER-040: l1-bound mode with no L1 observation is UNVERIFIED at phase 11, never MISMATCH. */
     public function testL1BoundModeWithoutObservationIsUnverifiedAtPhase11(): void
     {
         $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3']);
@@ -671,7 +691,7 @@ final class Stage2StatementVerifierTest extends TestCase
         $this->assertSame(11, $result->phase());
     }
 
-    /** L2-VER-040: an observed L1 Location differing byte-wise is MISMATCH at phase 11 (exact byte compare). */
+    /** L2-VER-039: an observed L1 Location differing byte-wise is MISMATCH at phase 11 (exact byte compare). */
     public function testObservedLocationMismatchIsMismatchAtPhase11(): void
     {
         $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3']);
@@ -688,7 +708,7 @@ final class Stage2StatementVerifierTest extends TestCase
         $this->assertSame(11, $result->phase());
     }
 
-    /** L2-VER-040: byte compare is exact and case-sensitive; an uppercase scheme prefix is MISMATCH. */
+    /** L2-VER-039: byte compare is exact and case-sensitive; an uppercase scheme prefix is MISMATCH. */
     public function testObservedLocationCaseDifferenceIsMismatchAtPhase11(): void
     {
         $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3']);

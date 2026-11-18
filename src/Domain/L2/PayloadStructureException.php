@@ -8,7 +8,7 @@ declare(strict_types=1);
 
 namespace Relink\Resolver\Domain\L2;
 
-final class PayloadStructureException extends \RuntimeException
+class PayloadStructureException extends \RuntimeException
 {
     public function verdict(): Verdict
     {

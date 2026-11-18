@@ -163,6 +163,23 @@ final class StatementVerifier
         if ($g === $acceptedMax) {
             $accepted = $state->record($g);
             if ($accepted !== null && $accepted->canonicalPayloadOctets() === $record->canonicalPayloadOctets()) {
+                // §15.2 phase 8 runs for the byte-identical replay as well: the signature is
+                // verified under the signer publicKey recorded in Record g-1 (Record 0: the
+                // Trust Anchor Binding key). Replay requires the exact accepted bytes.
+                $replayOk = false;
+                if ($g === 0) {
+                    $replayOk = $record->signerKeyId() === $binding->keyId()
+                        && $this->signatureVerifier->verify($record->algorithm(), $binding->publicKeyBase64Url(), $record->signatureBase64Url(), $record->canonicalPayloadOctets()) === Verdict::VERIFIED;
+                } else {
+                    $prev = $state->record($g - 1);
+                    $signerInPrev = $prev === null ? null : $prev->key($record->signerKeyId());
+                    $replayOk = $signerInPrev !== null
+                        && $this->signatureVerifier->verify($record->algorithm(), $signerInPrev->publicKeyBase64Url(), $record->signatureBase64Url(), $record->canonicalPayloadOctets()) === Verdict::VERIFIED;
+                }
+                if (!$replayOk) {
+                    return VerificationResult::failed(Verdict::INVALID, 8, $mode, 'byte-identical replay Record ' . $g . ' fails signature verification under the signer publicKey recorded in the accepted chain (§9.6, §15.2 phase 8); replay requires the exact accepted bytes including the signature');
+                }
+
                 // Same-generation byte-identical presentation is a replay, not freshness
                 // progress (§11.3, §9.7); no replay penalty.
                 return VerificationResult::verified($mode, 'Record ' . $g . ' is a byte-identical replay at the accepted maximum; replay is not freshness progress (§11.3, §15.2 phase 7)');
@@ -202,10 +219,10 @@ final class StatementVerifier
             // §9.4 (L2-AUT-022, L2-VER-002): a Record rejected because its wire keyId does not
             // equal the recomputed keyId of the wire publicKey makes the key unresolvable. The
             // dependent statement fails at phase 5 as UNKNOWN_AUTHORITY, never as INVALID.
-            if (!$state->isKeyIdInAcceptedChain($statement->keyId())
-                && str_contains($reason, 'keyId')
-                && str_contains($reason, '§9.4')) {
-                return VerificationResult::failed(Verdict::UNKNOWN_AUTHORITY, 5, $mode, 'signer ' . $statement->keyId() . ' is not resolvable under §9.4 keyId recomputation; the dependent statement fails as UNKNOWN_AUTHORITY, never INVALID (§9.4, §15.2 phase 5)');
+            // The classification uses the recorded stop kind, never reason text.
+            if ($state->chainStopKind() === ChainStopKind::KEY_ID_RECOMPUTATION
+                && !$state->isKeyIdInAcceptedChain($statement->keyId())) {
+                return VerificationResult::failed(Verdict::UNKNOWN_AUTHORITY, 5, $mode, 'signer ' . $statement->keyId() . ' is not resolvable under §9.4 keyId recomputation; the dependent statement fails as UNKNOWN_AUTHORITY, never INVALID (§9.4, §15.1, §15.2 phase 5)');
             }
 
             return VerificationResult::failed(Verdict::UNVERIFIED, 5, $mode, 'chain walk stopped: ' . $reason . ' (§9.6, §15.2 phase 5)');
@@ -278,13 +295,15 @@ final class StatementVerifier
             return VerificationResult::failed(Verdict::STALE, 10, $mode, 'generation ' . $statement->generation() . ' does not strictly exceed the statement floor ' . $floor . '; floor equality is not a valid statement position (§12.3, L2-VER-001)');
         }
 
-        $statementMax = $state->statementMaximum();
+        // §11.3: the accepted statement maximum is per (epochId, generation); statement
+        // generations of a prior epoch never make a current-epoch statement STALE.
+        $statementMax = $state->statementMaximum($statement->epochId());
         if ($statement->generation() < $statementMax) {
-            return VerificationResult::failed(Verdict::STALE, 10, $mode, 'generation ' . $statement->generation() . ' is below the accepted statement maximum ' . $statementMax . ' (§11.3, §15.2 phase 10)');
+            return VerificationResult::failed(Verdict::STALE, 10, $mode, 'generation ' . $statement->generation() . ' is below the accepted statement maximum ' . $statementMax . ' in epoch ' . $statement->epochId() . ' (§11.3, §15.2 phase 10)');
         }
 
         if ($statement->generation() === $statementMax) {
-            if (!$state->isStatementByteIdentical($statement->generation(), $statement->canonicalPayloadOctets())) {
+            if (!$state->isStatementByteIdentical($statement->epochId(), $statement->generation(), $statement->canonicalPayloadOctets())) {
                 return VerificationResult::failed(Verdict::CONFLICT, 10, $mode, 'same epoch and generation with a different payload is equivocation; no heuristic choice between payloads (§9.7, §11.3, §15.2 phase 10)');
             }
             // Byte-identical replay at the accepted maximum: no replay penalty (§11.3).

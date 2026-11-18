@@ -13,8 +13,6 @@ namespace Relink\Resolver\Adapters;
 use PDO;
 use PDOException;
 use RuntimeException;
-use Relink\Resolver\Domain\L2\Base64Url;
-use Relink\Resolver\Domain\L2\KeyId;
 use Relink\Resolver\Domain\L2\Record;
 use Relink\Resolver\Domain\L2\StatementPayload;
 use Relink\Resolver\Domain\L2\TrustAnchorBinding;
@@ -59,13 +57,14 @@ final class SqliteL2Repository implements L2RecordRepository, L2StatementReposit
     }
 
     /**
-     * §9.4 fail-closed: the stored key_id column is never authoritative. The load re-derives
-     * keyId from the stored public_key bytes via TrustAnchorBinding::fromPolicyChannel, which
-     * recomputes and validates the §10.1 derivation.
+     * §9.4 fail-closed: the stored key_id column is passed verbatim to
+     * TrustAnchorBinding::fromPolicyChannel, which recomputes keyId from the stored
+     * public_key bytes and validates it. A stored key_id that does not equal the
+     * §10.1 derivation of the stored publicKey fails the load closed.
      */
     public function findBinding(string $anchorId): ?TrustAnchorBinding
     {
-        $statement = $this->pdo->prepare('SELECT anchor_id, entity_id, public_key, algorithm, initial_epoch_id, initial_statement_floor FROM trust_anchor_bindings WHERE anchor_id = :anchor_id');
+        $statement = $this->pdo->prepare('SELECT anchor_id, entity_id, key_id, public_key, algorithm, initial_epoch_id, initial_statement_floor FROM trust_anchor_bindings WHERE anchor_id = :anchor_id');
         $statement->execute(['anchor_id' => $anchorId]);
         $row = $statement->fetch();
         if ($row === false) {
@@ -75,7 +74,7 @@ final class SqliteL2Repository implements L2RecordRepository, L2StatementReposit
         return TrustAnchorBinding::fromPolicyChannel(
             (string) $row['anchor_id'],
             (string) $row['entity_id'],
-            KeyId::compute(Base64Url::decode((string) $row['public_key'])),
+            (string) $row['key_id'],
             (string) $row['public_key'],
             (string) $row['algorithm'],
             (string) $row['initial_epoch_id'],

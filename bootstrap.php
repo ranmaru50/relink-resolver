@@ -64,6 +64,9 @@ return [
     // §14.2 の deployment bound。負値は安全な 0 へクランプする。L2 200 の
     // Cache-Control は min(deployment bound, expiresAt(G) - now) で計算される。
     'l2_cache_max_age' => max(0, (int) (getenv('RELINK_L2_MAX_AGE') ?: 600)),
+    // §11.4 の snapshot freshness bound W（maxSnapshotAge）。statement ルート（§6.1）の
+    // phase 6 検証に明示値として渡す（AGENTS.md §3: composition root で env を解決）。
+    'l2_snapshot_max_age' => max(0, (int) (getenv('RELINK_L2_SNAPSHOT_MAX_AGE') ?: 600)),
     'service_prefix' => getenv('RELINK_SERVICE_PREFIX') ?: '/relink',
     // 空の許可リストは全アドレスを許可し、配備側が必要に応じて明示的に制限する。
     'outbound_allowed_cidrs' => $outboundAllowedCidrs,

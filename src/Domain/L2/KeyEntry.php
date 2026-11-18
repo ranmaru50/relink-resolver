@@ -85,9 +85,13 @@ final class KeyEntry
         if ($octets === '') {
             throw new PayloadStructureException('key entry publicKey must be full-length key material');
         }
+        if ($algorithm === 'ed25519' && strlen($octets) !== 32) {
+            // §9.4, §9.6: Ed25519 publicKey は 32 octets。长度检查は fail-closed。
+            throw new PayloadStructureException('key entry Ed25519 publicKey must be exactly 32 octets (§9.4, §9.6)');
+        }
         // §9.4 fail-closed: wire keyId must equal the recomputed keyId of the wire publicKey.
         if (!KeyId::matches($keyId, $octets)) {
-            throw new PayloadStructureException('keyId does not match the recomputed keyId of publicKey (§9.4)');
+            throw new KeyIdRecomputationException('keyId does not match the recomputed keyId of publicKey (§9.4)');
         }
 
         return new self($keyId, $publicKey, $octets, $algorithm, $validFrom, $validUntil, $status, $revokedFrom);

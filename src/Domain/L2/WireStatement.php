@@ -78,8 +78,8 @@ final class WireStatement
         if ($envelope->kind !== 'object') {
             throw new WireStatementException('envelope must be a JSON object');
         }
-        if (count($envelope->objectEntries) !== 2) {
-            throw new WireStatementException('envelope must have exactly payload and signature members');
+        if (count($envelope->objectEntries) < 2) {
+            throw new WireStatementException('envelope must carry payload and signature members');
         }
 
         $payloadNode = null;
@@ -90,9 +90,9 @@ final class WireStatement
                 $payloadNode = $entry[1];
             } elseif ($name === 'signature') {
                 $signatureNode = $entry[1];
-            } else {
-                throw new WireStatementException('unexpected top-level envelope member: ' . $name);
             }
+            // §7.5: extension members outside the payload are not signed and MUST be
+            // ignored for trust decisions; they never make the envelope rejectable.
         }
 
         if ($payloadNode === null || $signatureNode === null) {
@@ -107,7 +107,7 @@ final class WireStatement
 
         $rawPayload = substr($wire, $payloadNode->start, $payloadNode->end - $payloadNode->start);
         $payload = self::nodeToValue($payloadNode);
-        if (!is_array($payload)) {
+        if (!$payload instanceof JcsObject) {
             throw new WireStatementException('payload decoded to a non-object value');
         }
 
@@ -116,10 +116,7 @@ final class WireStatement
             throw new WireStatementException('payload is not JCS canonical on the wire');
         }
 
-        $payloadMap = [];
-        foreach ($payload as $key => $value) {
-            $payloadMap[(string) $key] = $value;
-        }
+        $payloadMap = self::unwrap($payload);
         if (array_key_exists('signature', $payloadMap)) {
             throw new WireStatementException('payload must not contain a top-level signature member');
         }
@@ -136,9 +133,10 @@ final class WireStatement
                 $exception
             );
         }
-        if (strlen($signatureOctets) !== 64) {
-            throw new WireStatementException('signature must decode to 64 octets (Ed25519, RFC 8032)');
-        }
+        // The 64-octet Ed25519 length check belongs to the signature verifier (§10.2, §15.2
+        // phase 3-8), not to phase-1 parsing: an unsupported algorithm must reach phase 3.
+        // §15.2 phase 1 checks canonicality, strict parse, duplicate members, integer range,
+        // l2Version, and payload/signature separation — never signature key-material length.
 
         return new self($payloadMap, $canonical, $signatureBase64Url, $signatureOctets);
     }
@@ -459,21 +457,45 @@ final class WireStatement
     private static function checkIntegerFields(array $value): void
     {
         foreach ($value as $key => $child) {
-            if (is_array($child)) {
-                /** @var array<array-key, mixed> $child */
-                self::checkIntegerFields($child);
+            $keyString = (string) $key;
+            if (in_array($keyString, self::INTEGER_FIELDS, true)) {
+                // fail-closed: an integer field must be a wire integer, never a list,
+                // object, string, or float (§7.3, §15.2 phase 1)
+                if (!is_int($child)) {
+                    throw new WireStatementException('integer field is not a wire integer: ' . $keyString);
+                }
+
+                // string-based range comparison, exact at the 2^53 boundary (§15.2 phase 1)
+                if (self::outOfSafeIntegerRange($child)) {
+                    throw new WireStatementException('integer field out of range 0..2^53-1: ' . $keyString);
+                }
+
                 continue;
             }
 
-            if (in_array($key, self::INTEGER_FIELDS, true)) {
-                if (!is_int($child)) {
-                    throw new WireStatementException('integer field is not a wire integer: ' . $key);
-                }
-                if ($child < 0 || $child > self::MAX_SAFE_INTEGER) {
-                    throw new WireStatementException('integer field out of range 0..2^53-1: ' . $key);
-                }
+            if (is_array($child)) {
+                /** @var array<array-key, mixed> $child */
+                self::checkIntegerFields($child);
             }
         }
+    }
+
+    private static function outOfSafeIntegerRange(int $integer): bool
+    {
+        // 2^53 = 9007199254740992; 2^53-1 (MAX_SAFE_INTEGER) is the inclusive maximum
+        // (§7.3 wire integers). string digit comparison, exact at the boundary without
+        // floating point.
+        $decimal = (string) $integer;
+        if ($decimal[0] === '-') {
+            return true;
+        }
+
+        $max = (string) self::MAX_SAFE_INTEGER;
+        if (strlen($decimal) !== strlen($max)) {
+            return strlen($decimal) > strlen($max);
+        }
+
+        return $decimal > $max;
     }
 
     /**
@@ -487,7 +509,8 @@ final class WireStatement
                 $map[$entry[0]] = self::nodeToValue($entry[1]);
             }
 
-            return $map;
+            // JCS objects keep object identity: {} is canonicalized as {}, not as []
+            return new JcsObject($map);
         }
         if ($node->kind === 'array') {
             $items = [];
@@ -499,5 +522,35 @@ final class WireStatement
         }
 
         return $node->value;
+    }
+
+    /**
+     * unwrap a JcsObject tree into plain nested arrays for payload access (§7.5 defines
+     * defined-member access over plain maps; object identity is a canonicalization concern).
+     *
+     * @return array<string, mixed>
+     */
+    private static function unwrap(JcsObject $object): array
+    {
+        $map = [];
+        foreach ($object->members as $key => $value) {
+            $map[$key] = $value instanceof JcsObject ? self::unwrap($value) : (is_array($value) ? self::unwrapList($value) : $value);
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<array-key, mixed> $list
+     * @return list<mixed>
+     */
+    private static function unwrapList(array $list): array
+    {
+        $items = [];
+        foreach ($list as $item) {
+            $items[] = $item instanceof JcsObject ? self::unwrap($item) : (is_array($item) ? self::unwrapList($item) : $item);
+        }
+
+        return $items;
     }
 }

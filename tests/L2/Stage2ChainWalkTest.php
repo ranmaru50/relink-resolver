@@ -12,8 +12,13 @@ namespace Relink\Resolver\Tests\L2;
 
 use PHPUnit\Framework\TestCase;
 use Relink\Resolver\Adapters\SodiumEd25519Verifier;
+use Relink\Resolver\Domain\L2\Base64Url;
+use Relink\Resolver\Domain\L2\ChainStopKind;
 use Relink\Resolver\Domain\L2\JcsCanonicalizer;
+use Relink\Resolver\Domain\L2\KeyId;
+use Relink\Resolver\Domain\L2\PayloadStructureException;
 use Relink\Resolver\Domain\L2\Record;
+use Relink\Resolver\Domain\L2\TrustAnchorBinding;
 use Relink\Resolver\Domain\L2\Verdict;
 use L2Fixtures;
 
@@ -554,7 +559,7 @@ final class Stage2ChainWalkTest extends TestCase
         $this->assertSame(1, $acceptance->state()->acceptedMaximum());
     }
 
-    /** L2-VER-014/record-wire-duplicate: raw wire duplicate members stop the chain at Record 1 with INVALID at phase 1. */
+    /** L2-VER-014/record-wire-duplicate: raw wire duplicate members stop the chain at Record 1 with INVALID at phase 1 (P1-2: recorded as a wire-parse chain stop). */
     public function testWireDuplicateMembersStopChainAtRecord1(): void
     {
         $state = Stage2TestSupport::walkState(['Record0', 'Record1']);
@@ -566,7 +571,8 @@ final class Stage2ChainWalkTest extends TestCase
         $this->assertFalse($acceptance->accepted());
         $this->assertSame(1, $acceptance->phase());
         $this->assertSame(Verdict::INVALID, $acceptance->verdict());
-        $this->assertFalse($acceptance->state()->hasChainStop());
+        $this->assertTrue($acceptance->state()->hasChainStop());
+        $this->assertSame(ChainStopKind::WIRE_PARSE, $acceptance->state()->chainStopKind());
         $this->assertSame(1, $acceptance->state()->acceptedMaximum());
     }
 
@@ -641,5 +647,117 @@ final class Stage2ChainWalkTest extends TestCase
         $this->assertNotNull($record1);
         $this->assertSame('36ce3c7bf819434ebc79e534649873081ee0999af85c798c6586235680809afb', $record1->prevRecordDigest());
         $this->assertSame($state->record(0)?->payloadDigest(), $record1->prevRecordDigest());
+    }
+
+    /**
+     * L2-AUT-022 (P1-2): a Record whose key entry publicKey fails §9.4 recomputation must
+     * be recorded as a chain stop with the dedicated keyId-recomputation kind, and the
+     * dependent statement (signer key4, unresolvable inside accepted prefix 0..3) is
+     * UNKNOWN_AUTHORITY at phase 5, never INVALID.
+     */
+    public function testKeyIdRecomputationFailureStopsChainWithDedicatedKindAndDependentStatementIsUnknownAuthority(): void
+    {
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3']);
+        $tampered = Stage2TestSupport::wireWithKeyChanges('Record4A', 'G8VbXumewVs', ['publicKey' => Stage2TestSupport::publicKeyOf(5)], 3);
+        $acceptance = Stage2TestSupport::walker()->accept($state, $tampered);
+
+        $this->assertFalse($acceptance->accepted());
+        $this->assertSame(Verdict::INVALID, $acceptance->verdict());
+        $this->assertSame(1, $acceptance->phase());
+        $this->assertTrue($acceptance->state()->hasChainStop());
+        $this->assertSame(ChainStopKind::KEY_ID_RECOMPUTATION, $acceptance->state()->chainStopKind());
+
+        $result = Stage2TestSupport::verifier()->verify(Stage2TestSupport::wire('S9v1'), $acceptance->state(), 1769998300);
+
+        $this->assertSame(Verdict::UNKNOWN_AUTHORITY, $result->verdict());
+        $this->assertSame(5, $result->phase());
+    }
+
+    /** §15.2 phase 1: a wire parse failure is recorded as a chain stop with the wire-parse kind. */
+    public function testWireParseFailureStopsChainWithWireParseKind(): void
+    {
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3']);
+        $nonCanonical = Stage2TestSupport::swapLeadingKeys(Stage2TestSupport::vector('Record4A')['canonical']);
+        $wire = Stage2TestSupport::wireFromRawPayload($nonCanonical, 3);
+        $acceptance = Stage2TestSupport::walker()->accept($state, $wire);
+
+        $this->assertFalse($acceptance->accepted());
+        $this->assertSame(Verdict::INVALID, $acceptance->verdict());
+        $this->assertSame(1, $acceptance->phase());
+        $this->assertSame(ChainStopKind::WIRE_PARSE, $acceptance->state()->chainStopKind());
+    }
+
+    /** §9.7, §15.2 phase 7: a Record below the accepted tip is never re-accepted. */
+    public function testRecordBelowAcceptedTipIsNeverReAccepted(): void
+    {
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3', 'Record4A']);
+        $this->assertSame(4, $state->acceptedMaximum());
+
+        $acceptance = Stage2TestSupport::walker()->accept($state, Stage2TestSupport::wire('Record3'));
+
+        $this->assertFalse($acceptance->accepted());
+        $this->assertSame(Verdict::UNVERIFIED, $acceptance->verdict());
+        $this->assertSame(5, $acceptance->phase());
+        $this->assertStringContainsString('below the accepted tip', $acceptance->reason());
+        $this->assertSame(ChainStopKind::CHAIN, $acceptance->state()->chainStopKind());
+    }
+
+    /** §9.7, §11.3: byte-identical replay at the accepted tip is accepted without state mutation. */
+    public function testByteIdenticalReplayAtTipIsAcceptedWithoutStateMutation(): void
+    {
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3', 'Record4A']);
+        $acceptance = Stage2TestSupport::walker()->accept($state, Stage2TestSupport::wire('Record4A'));
+
+        $this->assertTrue($acceptance->accepted());
+        $this->assertFalse($acceptance->state()->hasChainStop());
+        $this->assertSame(4, $acceptance->state()->acceptedMaximum());
+        $this->assertSame(Stage2TestSupport::vector('Record4A')['canonical'], $acceptance->state()->record(4)?->canonicalPayloadOctets());
+    }
+
+    /** §9.7, §15.2 phase 7: a same-generation Record with a different payload at the tip is CONFLICT and stops the chain. */
+    public function testSameGenerationDifferentPayloadAtTipIsConflictStop(): void
+    {
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3', 'Record4A']);
+        // Record 4 carries the same generation (4) as Record 4A with a different payload
+        $acceptance = Stage2TestSupport::walker()->accept($state, Stage2TestSupport::wire('Record4'));
+
+        $this->assertFalse($acceptance->accepted());
+        $this->assertSame(Verdict::CONFLICT, $acceptance->verdict());
+        $this->assertSame(7, $acceptance->phase());
+        $this->assertTrue($acceptance->state()->hasChainStop());
+        $this->assertSame(ChainStopKind::CHAIN, $acceptance->state()->chainStopKind());
+    }
+
+    /** §9.6 item 1: Record 0's algorithm must match the Trust Anchor Binding algorithm label. */
+    public function testRecord0AlgorithmMustMatchBindingAlgorithm(): void
+    {
+        $binding = Stage2TestSupport::bindingWithAlgorithm('es256');
+        $acceptance = Stage2TestSupport::walker()->accept(
+            Stage2TestSupport::walker()->initialState($binding),
+            Stage2TestSupport::wire('Record0'),
+        );
+
+        $this->assertFalse($acceptance->accepted());
+        $this->assertSame(Verdict::UNVERIFIED, $acceptance->verdict());
+        $this->assertSame(5, $acceptance->phase());
+        $this->assertStringContainsString('algorithm', $acceptance->reason());
+    }
+
+    /** §9.3, §9.4: an Ed25519 Trust Anchor Binding publicKey must be exactly 32 octets. */
+    public function testBindingEd25519PublicKeyMustBeThirtyTwoOctets(): void
+    {
+        $thirtyOneBytes = str_repeat("\x07", 31);
+        $encoded = Base64Url::encode($thirtyOneBytes);
+
+        $this->expectException(PayloadStructureException::class);
+        TrustAnchorBinding::fromPolicyChannel(
+            Stage2TestSupport::ANCHOR_ID,
+            Stage2TestSupport::ENTITY_ID,
+            KeyId::compute($thirtyOneBytes),
+            $encoded,
+            'ed25519',
+            'epoch-0',
+            0,
+        );
     }
 }

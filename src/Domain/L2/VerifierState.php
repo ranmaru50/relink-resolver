@@ -16,7 +16,8 @@ final class VerifierState
      * @param TrustAnchorBinding $binding
      * @param array<int, Record> $acceptedRecords recordGeneration を key とする連続受理 prefix
      * @param array<int, string> $acceptedEpochs 受理済み epoch の順序
-     * @param array<int, string> $statementPayloadHashes generation => sha256 hex of canonical payload
+     * @param array<string, array<int, string>> $statementPayloadHashes
+     *        epochId => generation => sha256 hex of canonical payload（§11.3 per-epoch）
      */
     private function __construct(
         private readonly TrustAnchorBinding $binding,
@@ -25,6 +26,7 @@ final class VerifierState
         private readonly array $statementPayloadHashes,
         private readonly ?Verdict $chainStopVerdict,
         private readonly string $chainStopReason,
+        private readonly ?ChainStopKind $chainStopKind = null,
     ) {
     }
 
@@ -153,21 +155,25 @@ final class VerifierState
         return false;
     }
 
-    /** -1 when no statement has been accepted. */
-    public function statementMaximum(): int
+    /** -1 when no statement has been accepted in the given epoch. §11.3: the accepted
+     * statement maximum is per (epochId, generation); statement generations of one epoch
+     * are never compared with another epoch's accepted statements. */
+    public function statementMaximum(string $epochId): int
     {
-        return $this->statementPayloadHashes === [] ? -1 : max(array_keys($this->statementPayloadHashes));
+        $epochHashes = $this->statementPayloadHashes[$epochId] ?? [];
+
+        return $epochHashes === [] ? -1 : max(array_keys($epochHashes));
     }
 
-    public function statementPayloadHash(int $generation): ?string
+    public function statementPayloadHash(string $epochId, int $generation): ?string
     {
-        return $this->statementPayloadHashes[$generation] ?? null;
+        return $this->statementPayloadHashes[$epochId][$generation] ?? null;
     }
 
-    /** §11.3/§15.2 phase 10: byte-identity of a presentation at the accepted maximum. */
-    public function isStatementByteIdentical(int $generation, string $canonicalPayloadOctets): bool
+    /** §11.3/§15.2 phase 10: byte-identity of a presentation at the accepted maximum of its epoch. */
+    public function isStatementByteIdentical(string $epochId, int $generation, string $canonicalPayloadOctets): bool
     {
-        return $this->statementPayloadHash($generation) === hash('sha256', $canonicalPayloadOctets);
+        return $this->statementPayloadHash($epochId, $generation) === hash('sha256', $canonicalPayloadOctets);
     }
 
     public function hasChainStop(): bool
@@ -185,6 +191,12 @@ final class VerifierState
         return $this->chainStopReason;
     }
 
+    /** §15.2 phase 5: the recorded stop kind. Verdict decisions never classify by reason text. */
+    public function chainStopKind(): ?ChainStopKind
+    {
+        return $this->chainStopKind;
+    }
+
     public function withAcceptedRecord(Record $record): self
     {
         $records = $this->acceptedRecords;
@@ -195,21 +207,21 @@ final class VerifierState
             $epochs[] = $record->epochId();
         }
 
-        return new self($this->binding, $records, $epochs, $this->statementPayloadHashes, $this->chainStopVerdict, $this->chainStopReason);
+        return new self($this->binding, $records, $epochs, $this->statementPayloadHashes, $this->chainStopVerdict, $this->chainStopReason, $this->chainStopKind);
     }
 
-    /** §11.3: acceptance of a VERIFIED statement moves the accepted statement maximum. */
-    public function withAcceptedStatement(int $generation, string $canonicalPayloadOctets): self
+    /** §11.3: acceptance of a VERIFIED statement moves the accepted maximum within its epoch. */
+    public function withAcceptedStatement(string $epochId, int $generation, string $canonicalPayloadOctets): self
     {
         $hashes = $this->statementPayloadHashes;
-        $hashes[$generation] = hash('sha256', $canonicalPayloadOctets);
+        $hashes[$epochId][$generation] = hash('sha256', $canonicalPayloadOctets);
 
-        return new self($this->binding, $this->acceptedRecords, $this->acceptedEpochs, $hashes, $this->chainStopVerdict, $this->chainStopReason);
+        return new self($this->binding, $this->acceptedRecords, $this->acceptedEpochs, $hashes, $this->chainStopVerdict, $this->chainStopReason, $this->chainStopKind);
     }
 
     /** §15.2 phase 5: chain walk stop (gap, trail failure, missing material) recorded. */
-    public function withChainStop(Verdict $verdict, string $reason): self
+    public function withChainStop(Verdict $verdict, string $reason, ChainStopKind $kind): self
     {
-        return new self($this->binding, $this->acceptedRecords, $this->acceptedEpochs, $this->statementPayloadHashes, $verdict, $reason);
+        return new self($this->binding, $this->acceptedRecords, $this->acceptedEpochs, $this->statementPayloadHashes, $verdict, $reason, $kind);
     }
 }

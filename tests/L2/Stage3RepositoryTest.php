@@ -2,7 +2,8 @@
 // tests/L2/Stage3RepositoryTest.php
 // Stage 3（Issue #28）: Trust Anchor Binding、Authority Records、L2 Statement の永続化。
 // Covers L2-SRV-002 (verbatim, strictly ascending 0..G Records, detectable chain gaps),
-// §9.3/§9.4 (Trust Anchor Binding fields, keyId recomputation from publicKey on load),
+// §9.3/§9.4 (Trust Anchor Binding fields, stored key_id checked against recomputation from
+// publicKey on load, fail-closed),
 // §9.5 (derived Record columns stored beside the verbatim wire),
 // L2-PRO-001 / L2-PRO-004 / L2-PRO-007 (§7.3 wire stored byte-exactly, non-BMP payload included).
 
@@ -16,6 +17,7 @@ use Relink\Resolver\Adapters\SqliteL2Repository;
 use Relink\Resolver\Adapters\SqliteMigrator;
 use Relink\Resolver\Domain\L2\Base64Url;
 use Relink\Resolver\Domain\L2\KeyId;
+use Relink\Resolver\Domain\L2\PayloadStructureException;
 use Relink\Resolver\Domain\L2\Record;
 use Relink\Resolver\Domain\L2\StatementPayload;
 
@@ -105,8 +107,14 @@ final class Stage3RepositoryTest extends TestCase
         self::assertNull($repository->findBinding(self::ANCHOR_B), '§9.3: bindings are scoped per anchor');
     }
 
-    /** §9.4 fail-closed: a stored key_id row never overrides the derivation from the public key. */
-    public function testBindingLoadRecomputesKeyIdFromPublicKey(): void
+    /**
+     * §9.4 fail-closed (P2-1): a stored key_id row that does not match the recomputation
+     * from the stored public key must surface as a load failure. The repository passes the
+     * stored key_id verbatim to TrustAnchorBinding::fromPolicyChannel, which performs the
+     * §9.4 check; silently replacing the stored key_id with the derived value makes the
+     * check unreachable.
+     */
+    public function testBindingLoadRejectsStoredKeyIdThatFailsRecomputation(): void
     {
         $publicKey = \L2Fixtures::keys()['key1']['publicKey'];
         $statement = $this->pdo()->prepare('INSERT INTO trust_anchor_bindings (anchor_id, entity_id, key_id, public_key, algorithm, initial_epoch_id, initial_statement_floor, created_at) VALUES (:anchor_id, :entity_id, :key_id, :public_key, :algorithm, :epoch, :floor, CURRENT_TIMESTAMP)');
@@ -121,9 +129,9 @@ final class Stage3RepositoryTest extends TestCase
         ]);
         $statement->closeCursor();
 
-        $loaded = $this->repository()->findBinding(Stage2TestSupport::ANCHOR_ID);
-        self::assertNotNull($loaded);
-        self::assertSame(KeyId::compute(Base64Url::decode($publicKey)), $loaded->keyId(), '§9.4: keyId is derived from the stored publicKey, never taken from the stored key_id column');
+        $this->expectException(PayloadStructureException::class);
+        $this->expectExceptionMessage('§9.4');
+        $this->repository()->findBinding(Stage2TestSupport::ANCHOR_ID);
     }
 
     /** L2-SRV-002: Records come back verbatim, ascending 0..G, scoped per anchor. */

@@ -48,6 +48,10 @@ final class TrustAnchorBinding
         if ($octets === '') {
             throw new PayloadStructureException('Trust Anchor Binding publicKey must be full-length key material (§9.3)');
         }
+        if ($algorithm === 'ed25519' && strlen($octets) !== 32) {
+            // §9.3, §9.4: Ed25519 publicKey は 32 octets。policy channel は fail-closed。
+            throw new PayloadStructureException('Trust Anchor Binding Ed25519 publicKey must be exactly 32 octets (§9.3, §9.4)');
+        }
         // §9.4 fail-closed: the binding's keyId must equal the recomputed keyId.
         if (!KeyId::matches($keyId, $octets)) {
             throw new PayloadStructureException('Trust Anchor Binding keyId does not match the recomputed publicKey (§9.4)');

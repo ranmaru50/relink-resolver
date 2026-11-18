@@ -10,6 +10,8 @@ declare(strict_types=1);
 namespace Relink\Resolver\Tests\L2;
 
 use PHPUnit\Framework\TestCase;
+use Relink\Resolver\Domain\L2\Base64Url;
+use Relink\Resolver\Domain\L2\KeyId;
 use Relink\Resolver\Domain\L2\KeyEntry;
 use Relink\Resolver\Domain\L2\KeyStatus;
 use Relink\Resolver\Domain\L2\PayloadStructureException;
@@ -125,6 +127,23 @@ final class Stage2RecordModelTest extends TestCase
         $wire = Stage2TestSupport::wireWithChanges('Record0', ['prevRecordDigest' => str_repeat('0', 64)], 1);
         $this->expectException(PayloadStructureException::class);
         Record::fromWire($wire);
+    }
+
+    /** §9.4, §9.6: an Ed25519 key entry publicKey must be exactly 32 octets (fail-closed length check). */
+    public function testKeyEntryEd25519PublicKeyMustBeThirtyTwoOctets(): void
+    {
+        $thirtyOneBytes = str_repeat("\x07", 31);
+        $entry = [
+            'keyId' => KeyId::compute($thirtyOneBytes),
+            'publicKey' => Base64Url::encode($thirtyOneBytes),
+            'algorithm' => 'ed25519',
+            'validFrom' => 1769996400,
+            'validUntil' => 1770002400,
+            'status' => 'current',
+        ];
+
+        $this->expectException(PayloadStructureException::class);
+        KeyEntry::fromPayload($entry);
     }
 
     public function testPrevRecordDigestMustBeLowercaseHexForRecord1(): void

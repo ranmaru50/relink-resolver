@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Relink\Resolver\Tests\L2;
 
 use PHPUnit\Framework\TestCase;
+use Relink\Resolver\Domain\L2\ChainStopKind;
 use Relink\Resolver\Domain\L2\Record;
 use Relink\Resolver\Domain\L2\Verdict;
 use Relink\Resolver\Domain\L2\VerifierState;
@@ -25,7 +26,7 @@ final class Stage2VerifierStateTest extends TestCase
         $this->assertSame(-1, $state->acceptedMaximum());
         $this->assertSame([], $state->acceptedRecords());
         $this->assertSame([], $state->acceptedEpochs());
-        $this->assertSame(-1, $state->statementMaximum());
+        $this->assertSame(-1, $state->statementMaximum('epoch-1'));
         $this->assertNull($state->snapshotAt(Stage2TestSupport::T));
         $this->assertNull($state->currentEpochAt(Stage2TestSupport::T));
         $this->assertNull($state->chainTipEpoch());
@@ -146,17 +147,17 @@ final class Stage2VerifierStateTest extends TestCase
     public function testStatementMaximumAndByteIdentityTrackAcceptedPayloads(): void
     {
         $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3', 'Record4A']);
-        $this->assertSame(-1, $state->statementMaximum());
-        $this->assertFalse($state->isStatementByteIdentical(1, Stage2TestSupport::vector('S9v1')['canonical']));
+        $this->assertSame(-1, $state->statementMaximum('epoch-1'));
+        $this->assertFalse($state->isStatementByteIdentical('epoch-1',1, Stage2TestSupport::vector('S9v1')['canonical']));
 
-        $after9v1 = $state->withAcceptedStatement(1, Stage2TestSupport::vector('S9v1')['canonical']);
-        $this->assertSame(1, $after9v1->statementMaximum());
-        $this->assertTrue($after9v1->isStatementByteIdentical(1, Stage2TestSupport::vector('S9v1')['canonical']));
-        $this->assertFalse($after9v1->isStatementByteIdentical(1, Stage2TestSupport::vector('S9v2')['canonical']));
+        $after9v1 = $state->withAcceptedStatement('epoch-1', 1, Stage2TestSupport::vector('S9v1')['canonical']);
+        $this->assertSame(1, $after9v1->statementMaximum('epoch-1'));
+        $this->assertTrue($after9v1->isStatementByteIdentical('epoch-1',1, Stage2TestSupport::vector('S9v1')['canonical']));
+        $this->assertFalse($after9v1->isStatementByteIdentical('epoch-1',1, Stage2TestSupport::vector('S9v2')['canonical']));
 
-        $after9 = $state->withAcceptedStatement(2, Stage2TestSupport::vector('S9')['canonical']);
-        $this->assertSame(2, $after9->statementMaximum());
-        $this->assertTrue($after9->isStatementByteIdentical(2, Stage2TestSupport::vector('S9')['canonical']));
+        $after9 = $state->withAcceptedStatement('epoch-1', 2, Stage2TestSupport::vector('S9')['canonical']);
+        $this->assertSame(2, $after9->statementMaximum('epoch-1'));
+        $this->assertTrue($after9->isStatementByteIdentical('epoch-1',2, Stage2TestSupport::vector('S9')['canonical']));
     }
 
     /** L2-VER-047: pinned state-base — prefix 0..3, 4A; snapshot fresh at T = 1769998300; key4 current. */
@@ -172,7 +173,7 @@ final class Stage2VerifierStateTest extends TestCase
         $this->assertSame('current', $key4->status());
         $this->assertSame(1769998300, $key4->validFrom());
         $this->assertSame(1770001900, $key4->validUntil());
-        $this->assertSame(-1, $state->statementMaximum());
+        $this->assertSame(-1, $state->statementMaximum('epoch-1'));
     }
 
     /** §11.4: the pinned snapshot boundary at T = 1769998300 (Record 4A issuedAt) selects Record 4A. */
@@ -191,18 +192,20 @@ final class Stage2VerifierStateTest extends TestCase
     public function testChainStopIsImmutableAndCarriesVerdictAndReason(): void
     {
         $state = VerifierState::empty(Stage2TestSupport::binding())
-            ->withChainStop(Verdict::UNVERIFIED, 'contiguity gap: Record 1 was never accepted (§9.6, §11.4)');
+            ->withChainStop(Verdict::UNVERIFIED, 'contiguity gap: Record 1 was never accepted (§9.6, §11.4)', ChainStopKind::CHAIN);
 
         $this->assertTrue($state->hasChainStop());
         $this->assertSame(Verdict::UNVERIFIED, $state->chainStopVerdict());
         $this->assertStringContainsString('contiguity gap', $state->chainStopReason());
+        $this->assertSame(ChainStopKind::CHAIN, $state->chainStopKind());
         $this->assertSame(-1, $state->acceptedMaximum());
 
-        $next = $state->withAcceptedStatement(1, 'payload-bytes');
+        $next = $state->withAcceptedStatement('epoch-0', 1, 'payload-bytes');
         $this->assertTrue($next->hasChainStop());
-        $this->assertSame(1, $next->statementMaximum());
+        $this->assertSame(ChainStopKind::CHAIN, $next->chainStopKind());
+        $this->assertSame(1, $next->statementMaximum('epoch-0'));
         // immutability: the stop-bearing state is unchanged
-        $this->assertSame(-1, $state->statementMaximum());
+        $this->assertSame(-1, $state->statementMaximum('epoch-0'));
     }
 
     /** Immutability: withAcceptedRecord / withAcceptedStatement return new states; the original is unchanged. */

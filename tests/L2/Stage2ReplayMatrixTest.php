@@ -30,13 +30,41 @@ final class Stage2ReplayMatrixTest extends TestCase
     /** state-after-s9: as state-base, plus accepted statement S9, generation 2. */
     private function stateAfterS9(): VerifierState
     {
-        return $this->stateBase()->withAcceptedStatement(2, Stage2TestSupport::vector('S9')['canonical']);
+        return $this->stateBase()->withAcceptedStatement('epoch-1', 2, Stage2TestSupport::vector('S9')['canonical']);
     }
 
     /** state-after-s9v1: as state-base, plus accepted statement S9v1, generation 1. */
     private function stateAfterS9v1(): VerifierState
     {
-        return $this->stateBase()->withAcceptedStatement(1, Stage2TestSupport::vector('S9v1')['canonical']);
+        return $this->stateBase()->withAcceptedStatement('epoch-1', 1, Stage2TestSupport::vector('S9v1')['canonical']);
+    }
+
+    /** §11.3 round-3 review P1-1 regression: the accepted statement maximum is per
+     * (epochId, generation). A high generation accepted in epoch-0 must NOT make a valid
+     * low-generation statement in the current post-transfer epoch STALE. */
+    public function testEpochScopedStatementMaximumDoesNotCrossTransfers(): void
+    {
+        // Record 2 introduces epoch-1 via Trail2, so the epoch-0 prefix is 0..1.
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1']);
+        $this->assertSame('epoch-0', $state->chainTipEpoch());
+
+        // Simulate the acceptance of a high-generation epoch-0 statement (generation 4 >
+        // S9v1's generation 1); the statement payload itself is not relevant to phase 10.
+        $state = $state->withAcceptedStatement('epoch-0', 4, Stage2TestSupport::vector('S7')['canonical']);
+
+        foreach (['Record2', 'Record3', 'Record4A'] as $id) {
+            $acceptance = Stage2TestSupport::walker()->accept($state, Stage2TestSupport::wire($id));
+            $this->assertTrue($acceptance->accepted(), $id . ' must be accepted: ' . $acceptance->reason());
+            $state = $acceptance->state();
+        }
+
+        $this->assertSame('epoch-1', $state->currentEpochAt(self::T_BASE));
+        $this->assertSame(4, $state->statementMaximum('epoch-0'));
+        $this->assertSame(-1, $state->statementMaximum('epoch-1'));
+
+        $result = Stage2TestSupport::verifier()->verify(Stage2TestSupport::wire('S9v1'), $state, self::T_BASE);
+
+        $this->assertSame(Verdict::VERIFIED, $result->verdict(), 'epoch-1 generation 1 is above the epoch-1 maximum (-1), not below epoch-0\'s 4 (§11.3)');
     }
 
     /** state-s8: accepted chain prefix 0..3, 4A, 4R; T = 1769998400; key3 revoked from Record 4R. */
@@ -60,15 +88,15 @@ final class Stage2ReplayMatrixTest extends TestCase
     public function testByteIdenticalReplayOfS9AfterAcceptanceIsVerifiedWithoutPenalty(): void
     {
         $state = $this->stateAfterS9();
-        $this->assertSame(2, $state->statementMaximum());
+        $this->assertSame(2, $state->statementMaximum('epoch-1'));
 
         $first = Stage2TestSupport::verifier()->verify(Stage2TestSupport::wire('S9'), $state, self::T_BASE);
         $replay = Stage2TestSupport::verifier()->verify(Stage2TestSupport::wire('S9'), $state, self::T_BASE);
 
         $this->assertSame(Verdict::VERIFIED, $first->verdict());
         $this->assertSame(Verdict::VERIFIED, $replay->verdict());
-        $this->assertSame(2, $state->statementMaximum());
-        $this->assertTrue($state->isStatementByteIdentical(2, Stage2TestSupport::vector('S9')['canonical']));
+        $this->assertSame(2, $state->statementMaximum('epoch-1'));
+        $this->assertTrue($state->isStatementByteIdentical('epoch-1', 2, Stage2TestSupport::vector('S9')['canonical']));
     }
 
     /** s9-generation-1-stale-variant: S9v1 (generation 1) after S9 (generation 2) is
@@ -118,7 +146,7 @@ final class Stage2ReplayMatrixTest extends TestCase
     public function testS8ReplayAtStateS8IsRevokedNeverVerified(): void
     {
         $state = $this->stateS8();
-        $this->assertSame(-1, $state->statementMaximum());
+        $this->assertSame(-1, $state->statementMaximum('epoch-1'));
 
         $first = Stage2TestSupport::verifier()->verify(Stage2TestSupport::wire('S8'), $state, Stage2TestSupport::T);
         $replay = Stage2TestSupport::verifier()->verify(Stage2TestSupport::wire('S8'), $state, Stage2TestSupport::T);
@@ -128,7 +156,7 @@ final class Stage2ReplayMatrixTest extends TestCase
         $this->assertSame(Verdict::REVOKED, $replay->verdict());
         $this->assertSame(9, $replay->phase());
         // replay of a REVOKED presentation never moves the statement maximum
-        $this->assertSame(-1, $state->statementMaximum());
+        $this->assertSame(-1, $state->statementMaximum('epoch-1'));
     }
 
     /** The pinned S9 fixtures bind to the catalog-pinned canonical payloads and key4. */
@@ -157,5 +185,24 @@ final class Stage2ReplayMatrixTest extends TestCase
         $this->assertStringContainsString('"generation":1', Stage2TestSupport::vector('S9v2')['canonical']);
         $this->assertStringContainsString('"descriptionLocation":"https://sensors.example/thermal/42/ar-xml-2"', Stage2TestSupport::vector('S9v2')['canonical']);
         $this->assertStringContainsString('"descriptionLocation":"https://sensors.example/thermal/42/ar-xml"', Stage2TestSupport::vector('S9v1')['canonical']);
+    }
+
+    /**
+     * Mochi P2-2: a byte-identical replay at the accepted tip must pass phase 8 signature
+     * verification under the signer publicKey recorded in the accepted chain. The canonical
+     * Record 4A payload bytes presented with a signature produced by key1 are INVALID at
+     * phase 8, not a verified replay.
+     */
+    public function testByteIdenticalReplayRecordAtTipSignedUnderForeignKeyIsInvalidAtPhase8(): void
+    {
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3', 'Record4A']);
+
+        // Record 4A canonical payload bytes signed by key1 presented as a replay
+        $forged = Stage2TestSupport::wireSignedBy('Record4A', 1);
+        $result = Stage2TestSupport::verifier()->verifyRecord($forged, $state, 1769998300);
+
+        $this->assertFalse($result->isVerified());
+        $this->assertSame(Verdict::INVALID, $result->verdict());
+        $this->assertSame(8, $result->failedPhase());
     }
 }

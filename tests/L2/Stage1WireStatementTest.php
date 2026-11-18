@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Relink\Resolver\Domain\L2\Base64Url;
 use Relink\Resolver\Domain\L2\WireStatement;
 use Relink\Resolver\Domain\L2\WireStatementException;
 
@@ -168,14 +169,14 @@ final class Stage1WireStatementTest extends TestCase
         // envelope メンバ不足（payload なし）
         yield ['missing-payload-member', '{"signature":"' . $signature . '"}'];
 
-        // envelope 余分メンバ
-        yield ['extra-envelope-member', '{"payload":' . $canonical . ',"signature":"' . $signature . '","extra":1}'];
+        // envelope 余分メンバ: §7.5 で payload 外の extension は署名対象外、受理し無視する
+        // （positive: testUnsignedOuterEnvelopeExtensionIsIgnoredNotRejected）
 
         // payload が object でない
         yield ['payload-not-object', '{"payload":5,"signature":"' . $signature . '"}'];
 
-        // payload が空 object（PHP [] と {} の Ambiguity: fail-closed）
-        yield ['payload-empty-object-ambiguity', '{"payload":{},"signature":"' . $signature . '"}'];
+        // payload が空 object: JCS canonical `{}` は空 object に round-trip する
+        // （positive: testEmptyPayloadObjectRoundTripsAsEmptyObject）
 
         // signature が JSON string でない
         yield ['signature-not-a-string', '{"payload":' . $canonical . ',"signature":7}'];
@@ -186,8 +187,9 @@ final class Stage1WireStatementTest extends TestCase
         // signature に base64url 非アルファベット（'+'）
         yield ['signature-plus-character', L2Fixtures::envelope($canonical, str_replace('-', '+', $signature))];
 
-        // signature が 64 オクテットにデコードされない（84 chars = 63 bytes）
-        yield ['signature-63-bytes', L2Fixtures::envelope($canonical, substr($signature, 0, 84))];
+        // signature の 64 オクテット長は phase 1 では検証しない（§10.2, §15.2 phase 1 の
+        // wire 検査は base64url 形状のみ; 長失敗は phase 8 の署名検証）
+        // （positive: testShortSignatureDecodesAtParseWithoutLengthCheck）
 
         // wire 末尾の余分な content
         yield ['trailing-content', L2Fixtures::envelope($canonical, $signature) . 'x'];
@@ -271,5 +273,155 @@ final class Stage1WireStatementTest extends TestCase
         $spaced = WireStatement::parse(' { "payload" : ' . $vector1['canonical'] . ' , "signature" : "' . $vector1['signature'] . '" } ');
 
         $this->assertSame($plain->canonicalPayloadOctets(), $spaced->canonicalPayloadOctets());
+    }
+
+    /**
+     * §7.3 (P2-3): an empty payload `{}` round-trips as an empty JCS object through wire
+     * canonicalization; wire parse does not reject it as a list ambiguity. Statement-level
+     * required-member validation is a separate phase (StatementPayload / §9.5).
+     */
+    public function testEmptyPayloadObjectRoundTripsAsEmptyObject(): void
+    {
+        $vector = self::vectorById('S7');
+        $wire = L2Fixtures::envelope('{}', $vector['signature']);
+        $statement = WireStatement::parse($wire);
+
+        $this->assertSame('{}', $statement->canonicalPayloadOctets());
+        $this->assertSame([], $statement->payload());
+    }
+
+    /**
+     * §7.5 (P2-3): an empty object extension member inside the payload must round-trip as
+     * an object through wire canonicalization, never as an empty list.
+     */
+    public function testEmptyObjectExtensionInsidePayloadRoundTripsAsObject(): void
+    {
+        $vector = self::vectorById('S7');
+        $canonical = str_replace('"generation":1', '"ext":{},"generation":1', $vector['canonical']);
+        $statement = WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+
+        $this->assertSame($canonical, $statement->canonicalPayloadOctets());
+        $this->assertSame([], $statement->payload()['ext']);
+    }
+
+    /**
+     * §7.5 (P2-3): a numeric-keyed object extension member inside the payload must
+     * round-trip as an object with the numeric string key preserved.
+     */
+    public function testNumberKeyObjectExtensionInsidePayloadRoundTrips(): void
+    {
+        $vector = self::vectorById('S7');
+        $canonical = str_replace('"generation":1', '"ext":{"0":"x"},"generation":1', $vector['canonical']);
+        $statement = WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+
+        $this->assertSame($canonical, $statement->canonicalPayloadOctets());
+        $this->assertSame(['0' => 'x'], $statement->payload()['ext']);
+    }
+
+    /**
+     * §7.5: unsigned extension members outside the payload are not signature-covered and
+     * MUST be ignored for trust decisions, not rejected at wire parse.
+     */
+    public function testUnsignedOuterEnvelopeExtensionIsIgnoredNotRejected(): void
+    {
+        $vector = self::vectorById('S7');
+        $wire = '{"payload":' . $vector['canonical'] . ',"signature":"' . $vector['signature'] . '","ext":{}}';
+        $statement = WireStatement::parse($wire);
+
+        $this->assertSame($vector['canonical'], $statement->canonicalPayloadOctets());
+        $this->assertSame($vector['signature'], $statement->signatureBase64Url());
+    }
+
+    /**
+     * §15.2 phase 1 (P2-2): wire parse validates base64url shape but NOT Ed25519 signature
+     * octets length; length failures belong to phase 8 verification under the signer key.
+     */
+    public function testShortSignatureDecodesAtParseWithoutLengthCheck(): void
+    {
+        $vector = self::vectorById('S7');
+        $shortSignature = Base64Url::encode(str_repeat('x', 32));
+        $statement = WireStatement::parse(L2Fixtures::envelope($vector['canonical'], $shortSignature));
+
+        $this->assertSame($vector['canonical'], $statement->canonicalPayloadOctets());
+        $this->assertSame($shortSignature, $statement->signatureBase64Url());
+    }
+
+    /**
+     * §15.2 phase 1 (Mochi P2-5): an integer field carrying an array value is rejected
+     * fail-closed, not passed through by array recursion.
+     */
+    public function testIntegerFieldWithArrayValueIsRejectedAtParse(): void
+    {
+        $vector = self::vectorById('S7');
+        $canonical = str_replace('"generation":1', '"generation":[1]', $vector['canonical']);
+
+        $this->expectException(WireStatementException::class);
+        WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+    }
+
+    /**
+     * §7.3, §15.2 phase 1 (Mochi P2-6): the 2^53-1 integer boundary is accepted as the
+     * canonical wire integer form.
+     */
+    public function testIntegerFieldAtTwoToThe53MinusOneIsAcceptedAtParse(): void
+    {
+        $vector = self::vectorById('S7');
+        $canonical = str_replace('"generation":1', '"generation":9007199254740991', $vector['canonical']);
+        $statement = WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+
+        $this->assertSame(9007199254740991, $statement->payload()['generation']);
+    }
+
+    /**
+     * §7.3, §15.2 phase 1 (Mochi P2-6): 2^53 exceeds the canonical wire integer range and
+     * is rejected fail-closed.
+     */
+    public function testIntegerFieldAtTwoToThe53IsRejectedAtParse(): void
+    {
+        $vector = self::vectorById('S7');
+        $canonical = str_replace('"generation":1', '"generation":9007199254740992', $vector['canonical']);
+
+        $this->expectException(WireStatementException::class);
+        WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+    }
+
+    /**
+     * §7.3 (Mochi P2-6): an exponent form inside an integer field fails wire canonicality
+     * at phase 1; no string-based numeric coercion is applied.
+     */
+    public function testExponentFormInIntegerFieldFailsCanonicalityAtParse(): void
+    {
+        $vector = self::vectorById('S7');
+        $canonical = str_replace('"generation":1', '"generation":1e15', $vector['canonical']);
+
+        $this->expectException(WireStatementException::class);
+        WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+    }
+
+    /**
+     * §7.3 (Mochi P2-6): a decimal form inside an integer field fails wire canonicality
+     * at phase 1.
+     */
+    public function testDecimalFormInIntegerFieldFailsCanonicalityAtParse(): void
+    {
+        $vector = self::vectorById('S7');
+        $canonical = str_replace('"generation":1', '"generation":1.0', $vector['canonical']);
+
+        $this->expectException(WireStatementException::class);
+        WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+    }
+
+    /**
+     * @return array{canonical: string, signature: string, signerPublicKey: string}
+     */
+    private static function vectorById(string $id): array
+    {
+        foreach (L2Fixtures::signedVectors() as $vector) {
+            if ($vector['id'] === $id) {
+                return $vector;
+            }
+        }
+
+        throw new RuntimeException('unknown fixture id: ' . $id);
     }
 }

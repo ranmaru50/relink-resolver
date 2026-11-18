@@ -261,6 +261,50 @@ final class Stage2TestSupport
         return $state;
     }
 
+    /** wire signed by seed-derived key N over the fixture's canonical payload bytes verbatim. */
+    public static function wireSignedBy(string $id, int $signerN): string
+    {
+        $vector = self::vector($id);
+
+        return L2Fixtures::envelope($vector['canonical'], self::sign($vector['canonical'], $signerN));
+    }
+
+    /**
+     * wire carrying the given envelope signature verbatim; payload changes are re-canonicalized.
+     * Used to deliver foreign-length signatures that must reach later phases, not phase 1.
+     *
+     * @param array<string, mixed> $payloadChanges
+     */
+    public static function wireWithEnvelopeSignature(string $id, string $signatureBase64Url, array $payloadChanges): string
+    {
+        $payload = self::payloadOf($id);
+        foreach ($payloadChanges as $member => $value) {
+            if ($value === null) {
+                unset($payload[$member]);
+            } else {
+                $payload[$member] = $value;
+            }
+        }
+
+        return L2Fixtures::envelope(JcsCanonicalizer::canonicalize($payload), $signatureBase64Url);
+    }
+
+    /** Trust Anchor Binding with an explicit algorithm label (bootstrap matching negative cases). */
+    public static function bindingWithAlgorithm(string $algorithm): TrustAnchorBinding
+    {
+        $publicKey = self::publicKeyOf(1);
+
+        return TrustAnchorBinding::fromPolicyChannel(
+            self::ANCHOR_ID,
+            self::ENTITY_ID,
+            KeyId::compute(Base64Url::decode($publicKey)),
+            $publicKey,
+            $algorithm,
+            'epoch-0',
+            0,
+        );
+    }
+
     /**
      * @param array<string, mixed> $payload
      */

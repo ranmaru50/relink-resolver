@@ -46,6 +46,10 @@ final class JcsCanonicalizer
         if (is_null($value)) {
             return 'null';
         }
+        if ($value instanceof JcsObject) {
+            // JSON object identity: {} canonicalizes as {} (empty object), never as []
+            return self::encodeObject($value->members);
+        }
         if (is_array($value)) {
             /** @var array<array-key, mixed> $value */
             if (array_is_list($value)) {

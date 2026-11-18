@@ -26,10 +26,14 @@ final class RecordChainWalker
     {
         try {
             $record = Record::fromWire($wire);
+        } catch (KeyIdRecomputationException $e) {
+            // §9.4: the failure is recorded as a chain stop of the dedicated kind; the
+            // dependent statement must be judged as UNKNOWN_AUTHORITY at phase 5 (§15.1).
+            return $this->stop($state, Verdict::INVALID, 1, $e->getMessage(), ChainStopKind::KEY_ID_RECOMPUTATION);
         } catch (WireStatementException $e) {
-            return ChainAcceptance::rejected($state, Verdict::INVALID, 1, $e->getMessage());
+            return $this->stop($state, Verdict::INVALID, 1, $e->getMessage(), ChainStopKind::WIRE_PARSE);
         } catch (PayloadStructureException $e) {
-            return ChainAcceptance::rejected($state, Verdict::INVALID, 1, $e->getMessage());
+            return $this->stop($state, Verdict::INVALID, 1, $e->getMessage(), ChainStopKind::WIRE_PARSE);
         }
 
         if ($state->hasChainStop()) {
@@ -52,6 +56,24 @@ final class RecordChainWalker
         $g = $record->recordGeneration();
         if ($g === 0) {
             return $this->acceptBootstrap($state, $record);
+        }
+
+        // §9.7, §11.3, §15.2 phase 7: chain position rules at the accepted tip. A Record
+        // below the accepted tip is never re-accepted (authority rollback never re-binds
+        // the chain); a byte-identical replay at the tip leaves the state unchanged; a
+        // same-generation Record with a different payload is CONFLICT and stops the chain.
+        $acceptedMax = $state->acceptedMaximum();
+        if ($g <= $acceptedMax) {
+            $accepted = $state->record($g);
+            if ($accepted !== null && $accepted->canonicalPayloadOctets() === $record->canonicalPayloadOctets()) {
+                if ($g === $acceptedMax) {
+                    return ChainAcceptance::acceptedState($state, 'Record ' . $g . ' is a byte-identical replay at the accepted tip; state unchanged (§9.7, §11.3)');
+                }
+
+                return $this->stop($state, Verdict::UNVERIFIED, 5, 'Record ' . $g . ' presented below the accepted tip ' . $acceptedMax . '; authority rollback is never re-accepted (§9.7, §11.3, §15.2 phase 7)');
+            }
+
+            return $this->stop($state, Verdict::CONFLICT, 7, 'same-generation Record ' . $g . ' with a different payload is CONFLICT and is never accepted (§9.7, §15.2 phase 7)');
         }
 
         $prev = $state->record($g - 1);
@@ -100,6 +122,9 @@ final class RecordChainWalker
         }
         if ($record->hasTransfer()) {
             return $this->stop($state, Verdict::UNVERIFIED, 5, 'transfer member is forbidden on Record 0 (§9.5)');
+        }
+        if ($record->algorithm() !== $binding->algorithm()) {
+            return $this->stop($state, Verdict::UNVERIFIED, 5, 'Record 0 algorithm does not match the Trust Anchor Binding algorithm (§9.6 item 1)');
         }
         if ($record->epochId() !== $binding->initialEpochId()) {
             return $this->stop($state, Verdict::UNVERIFIED, 5, 'Record 0 epochId does not match the Trust Anchor Binding initial epochId (§9.6 item 1)');
@@ -324,8 +349,8 @@ final class RecordChainWalker
         return null;
     }
 
-    private function stop(VerifierState $state, Verdict $verdict, int $phase, string $reason): ChainAcceptance
+    private function stop(VerifierState $state, Verdict $verdict, int $phase, string $reason, ChainStopKind $kind = ChainStopKind::CHAIN): ChainAcceptance
     {
-        return ChainAcceptance::rejected($state->withChainStop($verdict, $reason), $verdict, $phase, $reason);
+        return ChainAcceptance::rejected($state->withChainStop($verdict, $reason, $kind), $verdict, $phase, $reason);
     }
 }
