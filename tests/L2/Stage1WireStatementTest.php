@@ -412,6 +412,37 @@ final class Stage1WireStatementTest extends TestCase
     }
 
     /**
+     * P1-2 (PR #31 review round 2, §7.3/§7.5/L2-VER-046): an extension member carrying the
+     * ES262 fixed-point canonical decimal form 0.00001 is canonical on the wire, so the
+     * envelope parses and the canonical octets are preserved byte-for-byte.
+     */
+    public function testCanonicalDecimalExtensionFloatIsAcceptedAtWireCanonicality(): void
+    {
+        $vector = self::vectorById('S5');
+        $canonical = str_replace('"generation":', '"extDemo":0.00001,"generation":', $vector['canonical']);
+        self::assertStringContainsString('"extDemo":0.00001', $canonical, 'fixture guard: the fixed-point form must sit inside the canonical payload');
+
+        $statement = WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+
+        $this->assertSame($canonical, $statement->canonicalPayloadOctets(), 'P1-2: 0.00001 is the canonical ES262 shortest form of 1e-5 on the wire (§7.3)');
+        $this->assertSame(0.00001, $statement->payload()['extDemo'], '§7.5: the extension member is accepted as payload content (never security-critical)');
+    }
+
+    /**
+     * P1-2 (PR #31 review round 2, §7.3/§15.2 phase 1/L2-VER-046): the non-canonical
+     * exponential wire form 1e-5 fails wire canonicality at phase 1 → INVALID; canonicalizing
+     * the decoded payload yields the fixed-point form 0.00001, so the wire bytes do not match.
+     */
+    public function testNonCanonicalExponentialExtensionFloatFailsWireCanonicalityAtParse(): void
+    {
+        $vector = self::vectorById('S5');
+        $canonical = str_replace('"generation":', '"extDemo":1e-5,"generation":', $vector['canonical']);
+
+        $this->expectException(WireStatementException::class);
+        WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+    }
+
+    /**
      * @return array{canonical: string, signature: string, signerPublicKey: string}
      */
     private static function vectorById(string $id): array

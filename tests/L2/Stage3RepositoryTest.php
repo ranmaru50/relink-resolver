@@ -279,4 +279,26 @@ final class Stage3RepositoryTest extends TestCase
         self::assertSame(['ECYh7yJFAn8', 'G8VbXumewVs', 'ECYh7yJFAn8'], $keys, 'L2-SRV-002 storage order: ties within one generation ordered deterministically by key id');
         self::assertSame([Stage2TestSupport::wire('S6'), Stage2TestSupport::wire('S7'), Stage2TestSupport::wire('S9')], $wires, 'L2-SRV-002: statement wires verbatim on round-trip');
     }
+
+    /**
+     * P1-1 (PR #31 review round 2, §7.2/§11.3): generations are intra-epoch sequences, so the
+     * storage boundary keeps the epoch explicit and the read side filters by the epoch given
+     * as a typed selection. Real SQLite: epoch-0 (S5), epoch-1 (S7, S9) stored out of order;
+     * per-epoch reads return only that epoch's wires, ascending, byte-verbatim; an unknown
+     * epoch yields the empty set; the unfiltered read keeps the full ascending store order.
+     */
+    public function testStatementWiresAreEpochScopedAtTheStorageBoundary(): void
+    {
+        $repository = $this->repository();
+        $anchor = Stage2TestSupport::ANCHOR_ID;
+        foreach (['S9', 'S5', 'S7'] as $id) {
+            $wire = Stage2TestSupport::wire($id);
+            $repository->appendStatement(StatementPayload::fromWire($wire), $wire);
+        }
+
+        self::assertSame([Stage2TestSupport::wire('S5')], $repository->statementWires($anchor, 'epoch-0'), 'P1-1: the epoch-0 selection returns only the epoch-0 wire byte-verbatim');
+        self::assertSame([Stage2TestSupport::wire('S7'), Stage2TestSupport::wire('S9')], $repository->statementWires($anchor, 'epoch-1'), 'P1-1: the epoch-1 selection returns that epoch\'s wires ascending, byte-verbatim');
+        self::assertSame([], $repository->statementWires($anchor, 'epoch-9'), 'P1-1: a selection of an epoch with no stored statement is the empty set');
+        self::assertSame([Stage2TestSupport::wire('S5'), Stage2TestSupport::wire('S7'), Stage2TestSupport::wire('S9')], $repository->statementWires($anchor), 'L2-SRV-002: the unfiltered read keeps ascending (generation, key id) store order');
+    }
 }

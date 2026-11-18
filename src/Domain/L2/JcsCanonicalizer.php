@@ -200,7 +200,12 @@ final class JcsCanonicalizer
         if ($n >= 1 && $n <= 21) {
             return substr($digits, 0, $n) . '.' . substr($digits, $n);
         }
-        if ($n >= -3 && $n <= 0) {
+        // ES262 Number::toString fixed-point branch (RFC 8785 §3.4, ECMA-262 7.1.12.10,
+        // step 5): fixed-point form when 0 < n <= 21 (integer part), 1 < n <= 21 (fraction
+        // part), and -6 < n <= 0 (small magnitudes, n = 1 + exponent of the 10^k form).
+        // With this bound, 1e-5 (n = -4) and 1e-6 (n = -5, the RFC 8785 Appendix B boundary
+        // vector) are fixed-point '0.00001'/'0.000001', while 1e-7 (n = -6) is exponential.
+        if ($n > -6 && $n <= 0) {
             return '0.' . str_repeat('0', -$n) . $digits;
         }
 

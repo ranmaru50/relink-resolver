@@ -158,13 +158,18 @@ final class Stage1JcsCanonicalizationTest extends TestCase
         yield [42.0, '42'];
         yield [0.0001, '0.0001'];
         yield [0.001, '0.001'];
-        yield [1e-5, '1e-5'];
+        // P1-2 (PR #31 review round 2): ES262 fixed-point branch is -6 < n <= 0, so
+        // 1e-5 (n = -4) and 1e-6 (n = -5, RFC 8785 Appendix B boundary vector) are
+        // fixed-point decimal forms, while 1e-7 (n = -6) is the exponential form.
+        yield [1e-5, '0.00001'];
+        yield [1e-6, '0.000001'];
         yield [1e-7, '1e-7'];
         yield [1e20, '100000000000000000000'];
         yield [1e21, '1e+21'];
         yield [1.23456789e17, '123456789000000000'];
         yield [0.123, '0.123'];
         yield [-1.5, '-1.5'];
+        yield [-0.000001, '-0.000001'];
         yield [3.141592653589793, '3.141592653589793'];
         yield [7, '7'];
         yield [-1, '-1'];

@@ -159,10 +159,11 @@ final class SqliteL2Repository implements L2RecordRepository, L2StatementReposit
     /** §7.3/§9.5 storage principle: statement wires are stored byte-for-byte as well. */
     public function appendStatement(StatementPayload $statementPayload, string $wire): void
     {
-        $statement = $this->pdo->prepare('INSERT INTO l2_statements (anchor_id, key_id, generation, wire, issued_at, expires_at, stored_at) VALUES (:anchor_id, :key_id, :generation, :wire, :issued_at, :expires_at, CURRENT_TIMESTAMP)');
+        $statement = $this->pdo->prepare('INSERT INTO l2_statements (anchor_id, epoch_id, key_id, generation, wire, issued_at, expires_at, stored_at) VALUES (:anchor_id, :epoch_id, :key_id, :generation, :wire, :issued_at, :expires_at, CURRENT_TIMESTAMP)');
         try {
             $statement->execute([
                 'anchor_id' => $statementPayload->anchorId(),
+                'epoch_id' => $statementPayload->epochId(),
                 'key_id' => $statementPayload->keyId(),
                 'generation' => $statementPayload->generation(),
                 'wire' => $wire,
@@ -177,11 +178,22 @@ final class SqliteL2Repository implements L2RecordRepository, L2StatementReposit
         }
     }
 
-    public function statementWires(string $anchorId): array
+    public function statementWires(string $anchorId, ?string $epochId = null): array
     {
-        // Deterministic storage order: ascending generation, ties ordered by key id.
-        $statement = $this->pdo->prepare('SELECT wire FROM l2_statements WHERE anchor_id = :anchor_id ORDER BY generation ASC, key_id ASC');
-        $statement->execute(['anchor_id' => $anchorId]);
+        // Deterministic storage order: ascending generation, ties ordered by key id. P1-1
+        // (§7.2/§11.3): generations are intra-epoch sequences, so the epoch selection is
+        // explicit at the storage boundary; with $epochId given, only that epoch's wires
+        // are read. Byte-verbatim wire bytes are preserved unchanged (§7.3/§9.5).
+        $sql = 'SELECT wire FROM l2_statements WHERE anchor_id = :anchor_id';
+        $params = ['anchor_id' => $anchorId];
+        if ($epochId !== null) {
+            $sql .= ' AND epoch_id = :epoch_id';
+            $params['epoch_id'] = $epochId;
+        }
+        $sql .= ' ORDER BY generation ASC, key_id ASC';
+
+        $statement = $this->pdo->prepare($sql);
+        $statement->execute($params);
 
         return array_map(static fn (array $row): string => (string) $row['wire'], $statement->fetchAll());
     }

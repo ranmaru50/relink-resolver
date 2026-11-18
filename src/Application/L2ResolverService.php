@@ -6,11 +6,13 @@
 // 順序（§6.1 fail-closed、両ハンドラ共通）: malformed UUID→400、メソッド→405、
 // route-parameter 検査→400/501、ライフサイクル→404/410、Trust Anchor Binding→501。
 //
-// §6.1 statement route: 公開 statement は受理済み最新 generation の署名済み wire を verbatim で
-// 返し、§15.2 phases（chain walk + verify）で VERIFIED になったもののみ公開する。ACTIVE anchor に
-// statement が無い、chain walk が停まる、verdict が非 VERIFIED（EXPIRED/STALE/CONFLICT 等）は
-// §6.1 を規定どおり答えられない内部失敗行として 500（no-store）で fail-closed。SUSPENDED/RETIRED
-// anchor の statement は公開してはならない（§6.1 前置き）。
+// §6.1 statement route: 公開 statement は T で受理されている current epoch（§11.4 snapshot が
+// 確立する epoch）内の最高 generation の署名済み wire を verbatim で返し、§15.2 phases（chain
+// walk + verify）で VERIFIED になったもののみ公開する（P1-1: generation は epoch 内列、
+// cross-epoch の global 選択は行わない）。ACTIVE anchor に statement が無い、chain walk が
+// 停まる、verdict が非 VERIFIED（EXPIRED/STALE/CONFLICT 等）は §6.1 を規定どおり答えられない
+// 内部失敗行として 500（no-store）で fail-closed。SUSPENDED/RETIRED anchor の statement は
+// 公開してはならない（§6.1 前置き）。
 //
 // §6.3 ギャップ設計判断: verifier は 0..G を全て必要とし、ギャップは phase 5 で UNVERIFIED
 // （§15.2）。公開エンドポイントギャップを含む集合を「完全」として提供してはならないため、内部
@@ -37,6 +39,7 @@ use Relink\Resolver\Domain\L2\StatementVerifier;
 use Relink\Resolver\Domain\L2\VerificationMode;
 use Relink\Resolver\Domain\L2\WireStatementException;
 use Relink\Resolver\Domain\L2\PayloadStructureException;
+use Relink\Resolver\Domain\L2\Record;
 use Relink\Resolver\Domain\LifecycleState;
 use Relink\Resolver\Ports\L2RecordRepository;
 use Relink\Resolver\Ports\L2StatementRepository;
@@ -158,12 +161,17 @@ final class L2ResolverService
             $state = $acceptance->state();
         }
 
+        // P2-1 (PR #31 review round 2, §6.3/§14.2): the TTL is taken from the tip Record of
+        // the validated wire set that is served, NOT from a separately re-queried max
+        // generation. A concurrent admin append landing between the wire read and a TTL query
+        // would serve body 0..G while Cache-Control claims the lifetime of Record G+1, a
+        // Record absent from the body. The body and the TTL must derive from the same set:
+        // the tip wire of the accepted list (the walk parsed every wire above, so the tip
+        // re-parses without failure; a storage integrity surprise maps to the internal row).
+        $tipWire = $wires[count($wires) - 1];
         try {
-            $expiresAtG = $this->recordRepository->expiresAtOfMaxGeneration($anchor->value);
+            $expiresAtG = Record::fromWire($tipWire)->expiresAt();
         } catch (Throwable) {
-            return L2ResolutionResult::error(503);
-        }
-        if ($expiresAtG === null) {
             return L2ResolutionResult::error(500);
         }
 
@@ -246,19 +254,12 @@ final class L2ResolverService
             return new L2ResolutionResult(501, ['Cache-Control' => 'no-store']);
         }
 
-        // §6.1 active → 200 + statement. With an empty statement store the deployment cannot
-        // answer §6.1 as specified (no §6.1 status exists for "ACTIVE anchor, no statement");
-        // this is a judgment basis (DEFENSIBLE-BUT-UNPINNED, same class as the gap→500
-        // decision above): the §6.1 internal-failure row (500/503) is the closest pinned
-        // mapping, and serving nothing is fail-closed. Detected before any Record chain read.
-        try {
-            $statementWires = $this->statementRepository->statementWires($anchor->value);
-        } catch (Throwable) {
-            return L2ResolutionResult::error(503);
-        }
-        if ($statementWires === []) {
-            return L2ResolutionResult::error(500);
-        }
+        // P1-1 (PR #31 review round 2, §7.2/§11.3/§11.4): generations are intra-epoch
+        // sequences. The public selection MUST run within the epoch accepted as current at T
+        // (the snapshot Record at T establishes the epoch; Records issuedAt > T never update
+        // the epoch, floor, and key snapshot at T), so the epoch-scoped statement query is
+        // taken from currentEpochAt(T), never from the global store order. The Record chain
+        // is read and walked first.
 
         // §6.3/§15.2 phases 5-6: the statement is verified against the accepted Record chain.
         // A stored gap is UNVERIFIED at phase 5 (never served); a chain walk stop on the
@@ -282,21 +283,55 @@ final class L2ResolverService
             $state = $acceptance->state();
         }
 
-        // Accepted latest statement: the last entry of the ascending store (generation order,
-        // ties by key id, per the port contract).
-        $latestWire = $statementWires[count($statementWires) - 1];
+        $epochAtT = $state->currentEpochAt($now);
 
-        // §15.2 full verification at T = now. A stored wire that no longer parses is a storage
-        // integrity failure (the store keeps verbatim wires accepted via the policy channel),
-        // mapped to the §6.1 internal-failure row.
         try {
-            $statement = StatementPayload::fromWire($latestWire);
-        } catch (WireStatementException | PayloadStructureException) {
+            $statementWires = $this->statementRepository->statementWires($anchor->value, $epochAtT);
+        } catch (Throwable) {
+            return L2ResolutionResult::error(503);
+        }
+
+        // §6.1 active → 200 + statement. With no statement material for the current epoch the
+        // deployment cannot answer §6.1 as specified (no §6.1 status exists for "ACTIVE
+        // anchor, no statement"); this is a judgment basis (DEFENSIBLE-BUT-UNPINNED, same
+        // class as the gap→500 decision above): the §6.1 internal-failure row (500/503) is
+        // the closest pinned mapping, and serving nothing is fail-closed.
+        if ($statementWires === []) {
             return L2ResolutionResult::error(500);
         }
 
+        // Parse every wire in the epoch scope; a stored wire that no longer parses is a
+        // storage integrity failure (the store keeps verbatim wires accepted via the policy
+        // channel), mapped to the §6.1 internal-failure row.
+        /** @var list<array{wire: string, payload: StatementPayload}> $pairs */
+        $pairs = [];
+        foreach ($statementWires as $wire) {
+            try {
+                $pairs[] = ['wire' => $wire, 'payload' => StatementPayload::fromWire($wire)];
+            } catch (WireStatementException | PayloadStructureException) {
+                return L2ResolutionResult::error(500);
+            }
+        }
+
+        // Accepted statement of the current epoch: the highest generation inside the epoch
+        // scope. Byte-identical duplicates at that generation are the same statement (§11.3
+        // permits byte-identical re-acceptance within the validity window); distinct payloads
+        // at the same epoch and generation are equivocation → CONFLICT, never served.
+        $maxGeneration = max(array_map(static fn (array $pair): int => $pair['payload']->generation(), $pairs));
+        /** @var list<array{wire: string, payload: StatementPayload}> $atMax */
+        $atMax = array_values(array_filter($pairs, static fn (array $pair): bool => $pair['payload']->generation() === $maxGeneration));
+        $distinctCanonical = array_values(array_unique(array_map(static fn (array $pair): string => $pair['payload']->canonicalPayloadOctets(), $atMax)));
+        if (count($distinctCanonical) > 1) {
+            // §11.3: same epochId + generation with different payloads is CONFLICT; the §6.1
+            // internal-failure row (500/503) is the judgment basis, nothing is served.
+            return L2ResolutionResult::error(500);
+        }
+
+        $selectedPair = $atMax[0];
+
+        // §15.2 full verification at T = now.
         $verifier = new StatementVerifier($this->signatureVerifier, $this->maxSnapshotAge);
-        $result = $verifier->verify($latestWire, $state, $now, VerificationMode::STATEMENT_ONLY);
+        $result = $verifier->verify($selectedPair['wire'], $state, $now, VerificationMode::STATEMENT_ONLY);
 
         // §6.1 fail-closed: only VERIFIED statements are served publicly. EXPIRED, STALE,
         // CONFLICT, REVOKED, UNVERIFIED, INVALID, ANCHOR_MISMATCH verdicts map to the §6.1
@@ -310,11 +345,11 @@ final class L2ResolverService
 
         // §14.2 statement row: public, max-age = min(deployment bound, expiresAt(statement) - now),
         // never exceeding the remaining validity of the served statement.
-        $maxAge = max(0, min($this->deploymentMaxAge, $statement->expiresAt() - $now));
+        $maxAge = max(0, min($this->deploymentMaxAge, $selectedPair['payload']->expiresAt() - $now));
 
         return new L2ResolutionResult(200, [
             'Content-Type' => 'application/json; charset=utf-8',
             'Cache-Control' => 'public, max-age=' . $maxAge,
-        ], $latestWire);
+        ], $selectedPair['wire']);
     }
 }

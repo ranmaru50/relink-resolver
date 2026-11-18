@@ -124,6 +124,15 @@ final class InMemoryL2RecordRepository implements L2RecordRepository
         return $generations === [] ? -1 : max(array_keys($generations));
     }
 
+    /**
+     * P2-1 race hook: fixture ids appended AFTER the wire set has been read by
+     * contiguousRecordWires, simulating a concurrent admin append that races the response
+     * (the appended Record is not in the served body).
+     *
+     * @var list<string>
+     */
+    public array $appendAfterWires = [];
+
     public function contiguousRecordWires(string $anchorId): ?array
     {
         $this->queryCount++;
@@ -140,7 +149,16 @@ final class InMemoryL2RecordRepository implements L2RecordRepository
             }
         }
 
-        return array_map(fn (int $generation): string => $stored[$generation], $generations);
+        $list = array_map(fn (int $generation): string => $stored[$generation], $generations);
+
+        // The hook appends after the list snapshot is taken: the returned wire set stays
+        // 0..G, while a later TTL query would observe the appended Record (the P2-1 race).
+        foreach ($this->appendAfterWires as $id) {
+            $wire = Stage2TestSupport::wire($id);
+            $this->appendRecord(Record::fromWire($wire), $wire);
+        }
+
+        return $list;
     }
 
     public function expiresAtOfMaxGeneration(string $anchorId): ?int
@@ -189,25 +207,32 @@ final class InMemoryBindingRepository implements TrustAnchorBindingRepository
  */
 final class InMemoryStatementRepository implements L2StatementRepository
 {
-    /** @var array<string, list<array{keyId: string, generation: int, wire: string}>> */
+    /** @var array<string, list<array{keyId: string, epochId: string, generation: int, wire: string}>> */
     private array $wires = [];
     public int $queryCount = 0;
+    /** @var list<null|string> epoch selections recorded per statement query (P1-1) */
+    public array $queriedEpochs = [];
     public int $storeCount = 0;
 
     public function appendStatement(StatementPayload $statement, string $wire): void
     {
         $this->wires[$statement->anchorId()][] = [
             'keyId' => $statement->keyId(),
+            'epochId' => $statement->epochId(),
             'generation' => $statement->generation(),
             'wire' => $wire,
         ];
         $this->storeCount++;
     }
 
-    public function statementWires(string $anchorId): array
+    public function statementWires(string $anchorId, ?string $epochId = null): array
     {
         $this->queryCount++;
+        $this->queriedEpochs[] = $epochId;
         $entries = $this->wires[$anchorId] ?? [];
+        if ($epochId !== null) {
+            $entries = array_values(array_filter($entries, static fn (array $entry): bool => $entry['epochId'] === $epochId));
+        }
         usort($entries, static fn (array $a, array $b): int => [$a['generation'], $a['keyId']] <=> [$b['generation'], $b['keyId']]);
 
         return array_map(static fn (array $entry): string => $entry['wire'], $entries);
@@ -625,6 +650,75 @@ final class Stage3EndpointTest extends TestCase
         self::assertSame('', $crossEpoch->body, '§6.1: no statement material for non-VERIFIED verdicts');
     }
 
+    /**
+     * P1-1 (PR #31 review round 2, §7.2/§11.3/§11.4): generations are intra-epoch sequences;
+     * the public statement selection must run within the epoch accepted as current at T, never
+     * across epochs. The store holds an epoch-0 generation-10 wire (key 1, seed 1) beside the
+     * epoch-1 S9 wire. After the Record 2 transfer takes effect (chain tip 4A), the old-epoch
+     * high generation must NOT preempt the lower valid generation of the current epoch: the
+     * service serves the S9 wire verbatim with 200 (L2-SRV-001/active-200, §6.1).
+     */
+    public function testCurrentEpochStatementIsServedAcrossTransferNotOlderEpochHighGeneration(): void
+    {
+        // T = 1769998800: snapshot Record 4A (issuedAt 1769998300) is fresh within W = 600,
+        // so the current accepted epoch is epoch-1 (§11.4). The epoch-0 generation-10 wire is
+        // stored with the highest generation in the whole store.
+        $olderEpochHigh = Stage2TestSupport::wireWithChanges('S5', ['generation' => 10], 1);
+        [$service, , , , $statements] = $this->fixture(600, self::CHAIN_POSITIVE, ['S9']);
+        $statements->appendStatement(StatementPayload::fromWire($olderEpochHigh), $olderEpochHigh);
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769998800);
+        self::assertSame(200, $result->status, 'P1-1/§11.3: after the transfer takes effect, the current epoch (epoch-1) statement is served; the epoch-0 generation-10 wire does not preempt it');
+        self::assertSame(Stage2TestSupport::wire('S9'), $result->body, 'P1-1/§6.1: the served body is the epoch-1 S9 wire verbatim');
+        self::assertSame('public, max-age=600', $result->headers['Cache-Control'], 'P1-1/§14.2: remaining validity 1770001200 − 1769998800 = 2400 clamped by deployment bound 600');
+    }
+
+    /**
+     * P1-1 (PR #31 review round 2, §11.4): Records issuedAt > T never update the epoch, floor
+     * or key snapshot at T, so a statement of a future epoch must not preempt the statement of
+     * the current accepted epoch before the transfer takes effect. Prefix is Record 0 only
+     * (epoch-0); the pinned S9v1 (epoch-1, generation 1, key 4) is stored with a tied
+     * generation; selection must land on the epoch-0 wire, never on the epoch-1 wire whose
+     * signer is not even in the accepted chain.
+     */
+    public function testFutureEpochStatementIsNotServedBeforeTransferTakesEffect(): void
+    {
+        // T = 1769996900: snapshot Record 0 (issuedAt 1769996400) is fresh within W = 600;
+        // the current accepted epoch is epoch-0. The epoch-0 wire is re-stamped inside the
+        // live key-1 window so it verifies at T. The signed extension member extDemo carries
+        // the canonical ES262 fixed-point decimal form 0.00001 (P1-2 wire form, §7.5): the
+        // full verifier accepts it inside the payload, canonicalized and signed.
+        $currentEpochWire = Stage2TestSupport::wireWithChanges('S5', ['keyId' => 'ECMERdvpV0k', 'issuedAt' => 1769996800, 'expiresAt' => 1770001200, 'extDemo' => 0.00001], 1);
+        [$service, , , , $statements] = $this->fixture(600, ['Record0'], []);
+        $statements->appendStatement(StatementPayload::fromWire($currentEpochWire), $currentEpochWire);
+        $futureEpochWire = Stage2TestSupport::wire('S9v1');
+        $statements->appendStatement(StatementPayload::fromWire($futureEpochWire), $futureEpochWire);
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769996900);
+        self::assertSame(200, $result->status, 'P1-1/§11.4: before the epoch-1 transfer takes effect, the current-epoch statement is served, never the future-epoch wire');
+        self::assertSame($currentEpochWire, $result->body, 'P1-1/§11.4: the served body is the epoch-0 wire verbatim; the epoch-1 wire is never served');
+    }
+
+    /**
+     * P2-1 (PR #31 review round 2, §6.3/§14.2): the Cache-Control TTL must be taken from the
+     * tip Record of the validated wire set that is served, not from a separately re-queried
+     * max generation. A concurrent admin append of Record 5 (expiresAt 1770002400) happens
+     * after the wire set is read; the served body stays 0..4A (tip expiresAt 1770001900), so
+     * the TTL at T = 1770001800 must be min(600, 100) = 100, never 600.
+     */
+    public function testAuthorityCacheAgeFollowsTheServedTipRecordNotALaterAppend(): void
+    {
+        [$service, , , $records] = $this->fixture(600, self::CHAIN_POSITIVE);
+        $records->appendAfterWires = ['Record5'];
+
+        $result = $service->authority('GET', Stage2TestSupport::ANCHOR_ID, [], 1770001800);
+        self::assertSame(200, $result->status, 'P2-1: the accepted 0..4A prefix is served');
+        $wireList = array_map(fn (string $id): string => Stage2TestSupport::wire($id), self::CHAIN_POSITIVE);
+        self::assertSame($this->assembledBody($wireList), $result->body, 'P2-1: the served body is exactly the wire set read before the racing append');
+        self::assertStringNotContainsString(Stage2TestSupport::wire('Record5'), $result->body, 'P2-1: the concurrently appended Record 5 is not in the served body');
+        self::assertSame('public, max-age=100', $result->headers['Cache-Control'], 'P2-1/§14.2: TTL = min(600, expiresAt(4A) 1770001900 − T 1770001800) from the served tip, not from Record 5 expiry absent from the body');
+    }
+
     /** ACTIVE anchor with no stored statement: §6.1 cannot be answered as specified; fail-closed 500. */
     public function testActiveAnchorWithoutStatementIsFailClosed(): void
     {
@@ -638,8 +732,9 @@ final class Stage3EndpointTest extends TestCase
         self::assertSame(500, $result->status, '§6.1 internal-failure mapping: ACTIVE anchor, no statement material, no §6.1 status to serve');
         self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: 500 no-store');
         self::assertSame('', $result->body, '§6.1: no statement material is served on the failure path');
-        self::assertSame(1, $statements->queryCount, 'the empty statement store was checked once, fail-closed');
-        self::assertSame(0, $records->queryCount, 'the failure is detected before any Record chain read (fail-closed ordering)');
+        self::assertSame(1, $records->queryCount, 'P1-1/§11.4: the epoch selection at T is established by the snapshot Record, so the Record chain is read exactly once before the statement query');
+        self::assertSame(1, $statements->queryCount, 'the statement store is checked exactly once, fail-closed');
+        self::assertSame(['epoch-1'], $statements->queriedEpochs, 'P1-1/§11.3: the statement query is scoped to the epoch accepted as current at T (snapshot 4A establishes epoch-1), never unscoped');
     }
 
     /**

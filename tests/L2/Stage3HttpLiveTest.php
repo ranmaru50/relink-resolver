@@ -390,6 +390,34 @@ final class Stage3HttpLiveTest extends TestCase
         self::assertStringNotContainsString($pinnedWire, $body, '§6.3: the rejected Record 1 wire is not assembled into records transport');
     }
 
+    /**
+     * P1-1 (PR #31 review round 2, §7.2/§11.3/§11.4), through the real SQLite repository and
+     * the public HTTP route: generations are intra-epoch sequences. The live prefix is Record 0
+     * only, so the epoch accepted at the live T is epoch-0. A future-epoch (epoch-1) statement
+     * stored with a tied generation — key id ECYh7yJFAn8 sorts AFTER the current epoch's key
+     * ECMERdvpV0k in the global ascending order — must NOT preempt the epoch-0 statement, and
+     * its signer key is not even part of the accepted chain. The statement route serves the
+     * current-epoch wire verbatim with 200, never the epoch-1 wire.
+     */
+    public function testLiveFutureEpochStatementIsNotPreemptedBeforeTransferTakesEffect(): void
+    {
+        [$statementWire, $recordWire] = $this->seed();
+        self::assertNotSame('', $statementWire, 'seed precondition: live epoch-0 statement stored');
+        self::assertNotSame('', $recordWire, 'seed precondition: live Record 0 stored (epoch-0 is the current accepted epoch)');
+
+        $l2 = new SqliteL2Repository($this->path);
+        $futureEpochWire = Stage2TestSupport::wire('S9v1');
+        $l2->appendStatement(StatementPayload::fromWire($futureEpochWire), $futureEpochWire);
+
+        $base = $this->startServer();
+        [$status, $headers, $body] = $this->request($base, '/relink/' . Stage2TestSupport::ANCHOR_ID . '?l=2');
+
+        self::assertSame(200, $status, 'P1-1/§11.4: before the epoch-1 transfer takes effect, the current epoch (epoch-0) statement is served over HTTP');
+        self::assertSame($statementWire, $body, 'P1-1/§6.1: the served body is the epoch-0 wire verbatim, never the future-epoch wire');
+        self::assertStringNotContainsString($futureEpochWire, $body, 'P1-1: the epoch-1 wire is excluded from the epoch-scoped selection at the storage boundary');
+        self::assertSame(600, self::maxAgeOf((string) ($headers['cache-control'] ?? '')), '§14.2: live-stamped statement validity (T0+3600 − live T) clamps to the deployment bound 600');
+    }
+
     /** §6.1 fail-closed: a stored statement that is not VERIFIED at T (EXPIRED at the live clock) is never served; 500 no-store. */
     public function testLiveNonVerifiedStatementIsNeverServed500(): void
     {

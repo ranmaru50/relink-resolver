@@ -38,6 +38,7 @@ CREATE INDEX l2_records_generation_idx ON l2_records (anchor_id, record_generati
 
 CREATE TABLE l2_statements (
     anchor_id TEXT NOT NULL,
+    epoch_id TEXT NOT NULL,
     key_id TEXT NOT NULL,
     generation INTEGER NOT NULL CHECK (generation >= 0),
     wire TEXT NOT NULL,
@@ -48,3 +49,8 @@ CREATE TABLE l2_statements (
 );
 
 CREATE INDEX l2_statements_generation_idx ON l2_statements (anchor_id, generation);
+
+-- P1-1 (PR #31 review round 2, §7.2/§11.3): generations are intra-epoch sequences, so the
+-- storage boundary keeps the statement's epoch explicit and the read side can make the epoch
+-- selection explicit at the port level.
+CREATE INDEX l2_statements_epoch_idx ON l2_statements (anchor_id, epoch_id, generation);
