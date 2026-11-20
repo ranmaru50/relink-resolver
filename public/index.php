@@ -4,7 +4,10 @@
 
 declare(strict_types=1);
 
+use Relink\Resolver\Adapters\SodiumEd25519Verifier;
+use Relink\Resolver\Adapters\SqliteL2Repository;
 use Relink\Resolver\Adapters\SqliteResolverRepository;
+use Relink\Resolver\Application\L2ResolverService;
 use Relink\Resolver\Application\ResolverService;
 
 $config = require dirname(__DIR__) . '/bootstrap.php';
@@ -67,6 +70,71 @@ if (count($parts) === 2 && $parts[1] === 'manifest') {
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: public, max-age=' . max(0, $config['cache_max_age']));
     echo json_encode($manifest, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    exit;
+}
+
+// BLOCKING-1 routing separation (§6.1/§6.3). §6.3: GET /{prefix}/{uuid}/authority (2 segments)
+// routes to the Record series handler; §6.1: GET /{prefix}/{uuid}?l=2 (1 segment + l) routes to
+// the L2 Trust Statement handler. All §6.1/§6.3 decisions (405/400/501, lifecycle, statement
+// verification fail-closed, §14.2 Cache-Control) are owned by the application service; this
+// adapter only parses superglobals and emits the response (AGENTS.md §3). Internal failures map
+// to 503 + no-store per the §6.1 internal-failure row. §6.4/§16: both branches are GET-only,
+// read-only, anonymous; no public submission endpoint exists.
+
+if (count($parts) === 2 && $parts[1] === 'authority') {
+    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $parts[0])) {
+        http_response_code(400);
+        header('Cache-Control: no-store');
+        exit;
+    }
+    try {
+        $l2Repository = new SqliteL2Repository($config['database_path']);
+        $l2Service = new L2ResolverService(
+            new SqliteResolverRepository($config['database_path']),
+            $l2Repository,
+            $l2Repository,
+            $l2Repository,
+            new SodiumEd25519Verifier(),
+            (int) $config['l2_cache_max_age'],
+            (int) $config['l2_snapshot_max_age'],
+        );
+        $result = $l2Service->authority($method, $parts[0], $_GET, time());
+    } catch (Throwable) {
+        http_response_code(503);
+        header('Cache-Control: no-store');
+        exit;
+    }
+    http_response_code($result->status);
+    foreach ($result->headers as $name => $value) {
+        header($name . ': ' . $value);
+    }
+    echo $result->body;
+    exit;
+}
+
+if (count($parts) === 1 && $parts[0] !== '' && array_key_exists('l', $_GET)) {
+    try {
+        $l2Repository = new SqliteL2Repository($config['database_path']);
+        $l2Service = new L2ResolverService(
+            new SqliteResolverRepository($config['database_path']),
+            $l2Repository,
+            $l2Repository,
+            $l2Repository,
+            new SodiumEd25519Verifier(),
+            (int) $config['l2_cache_max_age'],
+            (int) $config['l2_snapshot_max_age'],
+        );
+        $result = $l2Service->statement($method, $parts[0], $_GET, time());
+    } catch (Throwable) {
+        http_response_code(503);
+        header('Cache-Control: no-store');
+        exit;
+    }
+    http_response_code($result->status);
+    foreach ($result->headers as $name => $value) {
+        header($name . ': ' . $value);
+    }
+    echo $result->body;
     exit;
 }
 
