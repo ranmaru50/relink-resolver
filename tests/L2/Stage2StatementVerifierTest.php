@@ -12,6 +12,8 @@ namespace Relink\Resolver\Tests\L2;
 use PHPUnit\Framework\TestCase;
 use Relink\Resolver\Domain\L2\Base64Url;
 use Relink\Resolver\Domain\L2\ChainStopKind;
+use Relink\Resolver\Domain\L2\PayloadStructureException;
+use Relink\Resolver\Domain\L2\StatementPayload;
 use Relink\Resolver\Domain\L2\VerificationMode;
 use Relink\Resolver\Domain\L2\VerificationResult;
 use Relink\Resolver\Domain\L2\Verdict;
@@ -808,5 +810,49 @@ final class Stage2StatementVerifierTest extends TestCase
 
         $this->assertInstanceOf(VerificationResult::class, $ok);
         $this->assertInstanceOf(Verdict::class, $ok->verdict());
+    }
+
+    /**
+     * P1-2 (PR #31 review round 4, §7.2 lines 298-299, §15.2 phase 1): lifecycleStatus is an
+     * enumerated value ("active", "suspended", "retired"); "ACTIVE" is out of the enumeration
+     * and the payload structure check rejects it as a structural failure, never 200-able content.
+     */
+    public function testStatementPayloadRejectsOutOfEnumLifecycleStatusStructurally(): void
+    {
+        $outOfEnumWire = Stage2TestSupport::wireWithChanges('S9', ['lifecycleStatus' => 'ACTIVE'], 4);
+
+        $this->expectException(PayloadStructureException::class);
+        StatementPayload::fromWire($outOfEnumWire);
+    }
+
+    /**
+     * P1-2 (PR #31 review round 4, §7.2 lines 298-299): "active " (trailing space) is out of
+     * the enumeration. Its wire bytes are a canonical JSON string encoding (the trailing space
+     * round-trips byte-for-byte), so the rejecting check is the value enumeration at phase 1:
+     * PayloadStructureException, never a string match, never 200-able content.
+     */
+    public function testStatementPayloadRejectsTrailingSpaceLifecycleStatusAsOutOfEnum(): void
+    {
+        $paddedWire = str_replace('"lifecycleStatus":"active"', '"lifecycleStatus":"active "', Stage2TestSupport::wire('S9'));
+        self::assertStringContainsString('"lifecycleStatus":"active "', $paddedWire, 'fixture guard: the padded value sits on the wire verbatim');
+
+        $this->expectException(PayloadStructureException::class);
+        StatementPayload::fromWire($paddedWire);
+    }
+
+    /**
+     * P1-2 (PR #31 review round 4, §15.2 phase 1): through the full verifier with the accepted
+     * epoch-1 chain at T = 1769998400, the out-of-enum wire carries a valid key-4 signature and
+     * all later phases would pass; the phase-1 structural check is the rejecting phase → INVALID.
+     */
+    public function testOutOfEnumLifecycleStatusStatementIsInvalidAtPhase1ThroughTheVerifier(): void
+    {
+        $state = Stage2TestSupport::walkState(['Record0', 'Record1', 'Record2', 'Record3', 'Record4A']);
+        $wire = Stage2TestSupport::wireWithChanges('S9', ['lifecycleStatus' => 'ACTIVE'], 4);
+
+        $result = Stage2TestSupport::verifier()->verify($wire, $state, Stage2TestSupport::T);
+
+        $this->assertSame(Verdict::INVALID, $result->verdict(), 'P1-2/§15.2 phase 1: out-of-enum lifecycleStatus is INVALID (§7.2), never VERIFIED');
+        $this->assertSame(1, $result->failedPhase(), 'P1-2: the rejecting phase is phase 1 (structural), not a later signature/epoch phase');
     }
 }

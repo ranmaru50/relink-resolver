@@ -14,7 +14,8 @@ final class JcsCanonicalizer
     /**
      * JSON デコード済み PHP 値（連想配列/リスト/scalar）を JCS 正準文字列化する。
      *
-     * 整数は wire 整数として、浮動小数は ES262 Number#toString の最短形式で出力する。
+     * 整数は binary64 (IEEE-754 double) の値として ES262 Number#toString の最短形式で
+     * 出力する（RFC 8785 §3.2.2.3: すべての JSON 数値は double として扱う）。
      * 空の連想配列（PHP では空オブジェクト {} のデコード結果）は空リスト [] とみなす。
      *
      * @param mixed $value
@@ -35,7 +36,7 @@ final class JcsCanonicalizer
             return self::encodeString($value);
         }
         if (is_int($value)) {
-            return (string) $value;
+            return self::encodeFloat((float) $value);
         }
         if (is_float($value)) {
             return self::encodeFloat($value);

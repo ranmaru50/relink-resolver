@@ -284,6 +284,12 @@ final class L2ResolverService
         }
 
         $epochAtT = $state->currentEpochAt($now);
+        if ($epochAtT === null) {
+            // No Record establishes the current epoch at T (T is before the Record0 anchor
+            // record): the §6.1 internal-failure row applies, fail-closed 500 no-store. The
+            // statement store is never queried unscoped for a null epoch.
+            return L2ResolutionResult::error(500);
+        }
 
         try {
             $statementWires = $this->statementRepository->statementWires($anchor->value, $epochAtT);
@@ -340,6 +346,15 @@ final class L2ResolverService
         // non-VERIFIED statement would breach §11.3/§12.3/§14.2 freshness promises, so nothing
         // is served and the response is 500 no-store.
         if (!$result->isVerified()) {
+            return L2ResolutionResult::error(500);
+        }
+
+        // P1-2 (PR #31 review round 4, §7.2 lines 298-299): the served statement's
+        // lifecycleStatus MUST equal the record's registry state. The signed field never
+        // overrides the registry and the body is never rewritten: a mismatch is an internal
+        // inconsistency, fail-closed as the §6.1 internal-failure row (500 no-store). The
+        // registry wire form is the enum's lowercased manifest value (§7.2 §14.2).
+        if ($selectedPair['payload']->lifecycleStatus() !== $lifecycle->state->manifestValue()) {
             return L2ResolutionResult::error(500);
         }
 

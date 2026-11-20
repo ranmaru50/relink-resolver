@@ -443,6 +443,68 @@ final class Stage1WireStatementTest extends TestCase
     }
 
     /**
+     * P1-1 (PR #31 review round 4, RFC 8785 §3.2.2.3 / §7.3): 1000000000000000100 parses to
+     * the binary64 value 1000000000000000128 (binade [2^59, 2^60), spacing 128), and 100 digits
+     * are the shortest ES262 round-trip form of that double (k = 17, n = 19), so the wire bytes
+     * are canonical at phase 1 and the extension member is accepted as payload content (§7.5).
+     */
+    public function testCanonicalBinary64ExtensionIntegerIsAcceptedAtWireCanonicality(): void
+    {
+        $vector = self::vectorById('S5');
+        $canonical = str_replace('"generation":', '"extDemo":1000000000000000100,"generation":', $vector['canonical']);
+        self::assertStringContainsString('"extDemo":1000000000000000100', $canonical, 'fixture guard: the binary64 canonical integer must sit inside the canonical payload');
+
+        $statement = WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+
+        $this->assertSame($canonical, $statement->canonicalPayloadOctets(), 'P1-1: 1000000000000000100 is the shortest ES262 wire form, preserved byte-for-byte (§7.3)');
+        $this->assertSame(1000000000000000100, $statement->payload()['extDemo'], '§7.5: the binary64-canonical extension member is accepted as payload content');
+    }
+
+    /**
+     * P1-1 (PR #31 review round 4, RFC 8785 §3.2.2.3 / §15.2 phase 1): the 19-digit exact form
+     * 1000000000000000128 parses to the same binary64 value as 1000000000000000100, but the
+     * canonical JCS form of that double is the shortest round-trip digits 1000000000000000100,
+     * so these wire bytes fail wire canonicality at phase 1 → INVALID.
+     */
+    public function testNonCanonicalBinary64ExtensionIntegerFailsWireCanonicalityAtParse(): void
+    {
+        $vector = self::vectorById('S5');
+        $canonical = str_replace('"generation":', '"extDemo":1000000000000000128,"generation":', $vector['canonical']);
+
+        $this->expectException(WireStatementException::class);
+        WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+    }
+
+    /**
+     * P1-1 (PR #31 review round 4, RFC 8785 §3.2.2.3 / §15.2 phase 1): PHP_INT_MAX wire text
+     * 9223372036854775807 is not representable as binary64; the nearest double is 2^63, whose
+     * canonical JCS form is the shortest round-trip digits 9223372036854776000, so these wire
+     * bytes fail wire canonicality at phase 1 → INVALID.
+     */
+    public function testPhpIntMaxWireTextFailsCanonicalityAtParse(): void
+    {
+        $vector = self::vectorById('S5');
+        $canonical = str_replace('"generation":', '"extDemo":9223372036854775807,"generation":', $vector['canonical']);
+
+        $this->expectException(WireStatementException::class);
+        WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+    }
+
+    /**
+     * P1-1 (PR #31 review round 4, §7.3 wire integer range 0..2^53-1, string digit comparison
+     * preserved): PHP_INT_MAX text inside a known integer field is rejected at phase 1 — the
+     * known-field integer checks stay wire-integer semantics, never widened to binary64.
+     */
+    public function testPhpIntMaxTextInKnownIntegerFieldIsRejectedAtParse(): void
+    {
+        $vector = self::vectorById('S7');
+        $canonical = str_replace('"generation":1', '"generation":9223372036854775807', $vector['canonical']);
+
+        $this->expectException(WireStatementException::class);
+        WireStatement::parse(L2Fixtures::envelope($canonical, $vector['signature']));
+    }
+
+    /**
      * @return array{canonical: string, signature: string, signerPublicKey: string}
      */
     private static function vectorById(string $id): array

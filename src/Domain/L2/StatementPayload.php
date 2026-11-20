@@ -27,6 +27,9 @@ final class StatementPayload
         'epochId',
     ];
 
+    /** @var list<string> §7.2 lines 298-299: the enumerated lifecycleStatus values. */
+    private const LIFECYCLE_STATUSES = ['active', 'suspended', 'retired'];
+
     private function __construct(
         /** @var array<string, mixed> */
         private readonly array $payload,
@@ -81,7 +84,6 @@ final class StatementPayload
             'anchorId' => $anchorId,
             'entityId' => $entityId,
             'descriptionLocation' => $descriptionLocation,
-            'lifecycleStatus' => $lifecycleStatus,
             'keyId' => $keyId,
             'algorithm' => $algorithm,
             'epochId' => $epochId,
@@ -89,6 +91,11 @@ final class StatementPayload
             if (!is_string($raw) || $raw === '') {
                 throw new PayloadStructureException('statement member ' . $name . ' must be a non-empty exact string (§7.2)');
             }
+        }
+
+        // §7.2 lines 298-299: lifecycleStatus MUST be one of the enumerated lowercase values.
+        if (!in_array($lifecycleStatus, self::LIFECYCLE_STATUSES, true)) {
+            throw new PayloadStructureException('statement member lifecycleStatus must be one of "active", "suspended", "retired" (§7.2, §15.2 phase 1)');
         }
 
         $issuedAtRaw = $payload['issuedAt'];

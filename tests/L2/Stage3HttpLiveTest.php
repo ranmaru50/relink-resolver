@@ -433,4 +433,47 @@ final class Stage3HttpLiveTest extends TestCase
         self::assertSame('no-store', $headers['cache-control'] ?? '', '§14.2: the 500 answer is no-store');
         self::assertStringNotContainsString($pinnedStatementWire, $body, '§6.1: a non-VERIFIED statement is never served publicly');
     }
+
+    /**
+     * P1-2 (PR #31 review round 4, §7.2 lines 298-299, §6.1), through the real SQLite store
+     * and the public HTTP route: the signed lifecycleStatus MUST equal the registry state.
+     * An ACTIVE live registry with a VERIFIED-at-live-T statement carrying "suspended" is an
+     * internal inconsistency → 500 no-store, empty body, the wire is never served.
+     */
+    public function testLiveActiveRegistryWithSignedSuspendedStatementIs500NoStore(): void
+    {
+        $this->seed(withStatement: false);
+        $l2 = new SqliteL2Repository($this->path);
+        $suspendedWire = Stage2TestSupport::wireWithChanges('S5', ['keyId' => 'ECMERdvpV0k', 'issuedAt' => $this->T0 - 10, 'expiresAt' => $this->T0 + 3600, 'lifecycleStatus' => 'suspended'], 1);
+        $l2->appendStatement(StatementPayload::fromWire($suspendedWire), $suspendedWire);
+
+        $base = $this->startServer();
+        [$status, $headers, $body] = $this->request($base, '/relink/' . Stage2TestSupport::ANCHOR_ID . '?l=2');
+
+        self::assertSame(500, $status, 'P1-2/§7.2: signed "suspended" under an ACTIVE live registry is an internal inconsistency, never public transport (§6.1)');
+        self::assertSame('no-store', $headers['cache-control'] ?? '', '§14.2: the 500 answer is no-store');
+        self::assertSame('', $body, 'P1-2: the mismatching signed statement is never served publicly');
+        self::assertStringNotContainsString($suspendedWire, $body, 'P1-2: the signed field never overrides the registry state over HTTP');
+    }
+
+    /**
+     * P1-1 (PR #31 review round 4, RFC 8785 §3.2.2.3), over real HTTP: 1000000000000000100
+     * parses to the binary64 value 1000000000000000128 and is its shortest ES262 round-trip
+     * form, so the signed canonical extension wire is accepted at phase 1 and served verbatim
+     * with 200 — the binary64 routing keeps canonical wire bytes byte-for-byte identical.
+     */
+    public function testLiveCanonicalBinary64ExtensionStatementIsServedVerbatim(): void
+    {
+        $this->seed(withStatement: false);
+        $l2 = new SqliteL2Repository($this->path);
+        $canonicalExtensionWire = Stage2TestSupport::wireWithChanges('S5', ['keyId' => 'ECMERdvpV0k', 'issuedAt' => $this->T0 - 10, 'expiresAt' => $this->T0 + 3600, 'extDemo' => 1000000000000000100], 1);
+        $l2->appendStatement(StatementPayload::fromWire($canonicalExtensionWire), $canonicalExtensionWire);
+
+        $base = $this->startServer();
+        [$status, $headers, $body] = $this->request($base, '/relink/' . Stage2TestSupport::ANCHOR_ID . '?l=2');
+
+        self::assertSame(200, $status, 'P1-1 guard: the canonical binary64 extension wire is accepted and served over HTTP');
+        self::assertSame($canonicalExtensionWire, $body, 'P1-1/§6.1: the binary64-canonical wire is served byte-for-byte over the public route');
+        self::assertStringContainsString('"extDemo":1000000000000000100', $body, 'P1-1: the shortest ES262 round-trip form 1000000000000000100 of the binary64 value 1000000000000000128 is preserved verbatim in the served body');
+    }
 }

@@ -173,7 +173,27 @@ final class Stage1JcsCanonicalizationTest extends TestCase
         yield [3.141592653589793, '3.141592653589793'];
         yield [7, '7'];
         yield [-1, '-1'];
-        yield [PHP_INT_MAX, (string) PHP_INT_MAX];
+        // P1-1 (PR #31 review round 4, RFC 8785 §3.2.2.3 / §7.3): ALL JSON numbers are
+        // canonicalized under IEEE-754 binary64 semantics, not verbatim PHP storage types.
+        // PHP_INT_MAX = 2^63 − 1 is NOT representable as a double; the nearest binary64
+        // value is 2^63. In the binade [2^63, 2^64) the spacing is 1024, so the shortest
+        // ES262 round-trip digits (k = 16, n = 19) are 9223372036854776000 — the shortest
+        // decimal whose parse-back lands on 2^63 (distance 192, next neighbour 832).
+        yield [PHP_INT_MAX, '9223372036854776000'];
+        // 2^53 − 1 is exactly representable in binary64 and stays canonical as written.
+        yield [9007199254740991, '9007199254740991'];
+        // In the binade [2^59, 2^60) the binary64 spacing is 128: 1000000000000000100 and
+        // 1000000000000000128 both parse to the SAME double (1000000000000000128). The
+        // shortest ES262 round-trip digits for that double are 1000000000000000100
+        // (k = 17, n = 19: '10000000000000001' + 2 zeros parses back to the double,
+        // distance 28 vs 100 to 1e18), so 1000000000000000100 is canonical and the
+        // 19-digit exact form 1000000000000000128 is NOT canonical. 1000000000000000001
+        // (1e18 + 1) rounds to 1e18, whose shortest ES262 form is 1000000000000000000.
+        yield [1000000000000000100, '1000000000000000100'];
+        yield [1000000000000000128, '1000000000000000100'];
+        yield [1000000000000000001, '1000000000000000000'];
+        yield [1000000000000000000, '1000000000000000000'];
+        yield [1e18, '1000000000000000000'];
     }
 
     #[DataProvider('numberProvider')]

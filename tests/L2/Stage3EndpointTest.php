@@ -42,6 +42,7 @@ use Relink\Resolver\Ports\L2RecordRepository;
 use Relink\Resolver\Ports\L2StatementRepository;
 use Relink\Resolver\Ports\ResolverRepository;
 use Relink\Resolver\Ports\TrustAnchorBindingRepository;
+use L2Fixtures;
 
 require_once __DIR__ . '/L2Fixtures.php';
 require_once __DIR__ . '/Stage2TestSupport.php';
@@ -220,6 +221,23 @@ final class InMemoryStatementRepository implements L2StatementRepository
             'keyId' => $statement->keyId(),
             'epochId' => $statement->epochId(),
             'generation' => $statement->generation(),
+            'wire' => $wire,
+        ];
+        $this->storeCount++;
+    }
+
+    /**
+     * P1-1/P1-2 (PR #31 review round 4): store a wire that fails parse at the store boundary
+     * (non-canonical wire bytes / out-of-enum payloads are appended as raw bytes; the row
+     * metadata is supplied explicitly, never parsed), so the service read path is what
+     * classifies it.
+     */
+    public function appendRawWire(string $anchorId, string $wire, string $epochId, int $generation, string $keyId): void
+    {
+        $this->wires[$anchorId][] = [
+            'keyId' => $keyId,
+            'epochId' => $epochId,
+            'generation' => $generation,
             'wire' => $wire,
         ];
         $this->storeCount++;
@@ -697,6 +715,170 @@ final class Stage3EndpointTest extends TestCase
         $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769996900);
         self::assertSame(200, $result->status, 'P1-1/§11.4: before the epoch-1 transfer takes effect, the current-epoch statement is served, never the future-epoch wire');
         self::assertSame($currentEpochWire, $result->body, 'P1-1/§11.4: the served body is the epoch-0 wire verbatim; the epoch-1 wire is never served');
+    }
+
+    /**
+     * P1-1 (PR #31 review round 4, RFC 8785 §3.2.2.3 / §7.3, mirror of the round-2 signed
+     * extension pattern): 1000000000000000100 parses to the binary64 value
+     * 1000000000000000128 and is its shortest ES262 round-trip form (k = 17, n = 19), so the
+     * wire bytes stay canonical at phase 1 and the full verifier accepts the signed canonical
+     * extension member inside the payload. The wire is served verbatim with 200.
+     */
+    public function testSignedCanonicalBinary64ExtensionIsServedVerbatimByTheFullVerifier(): void
+    {
+        $canonicalExtensionWire = Stage2TestSupport::wireWithChanges('S5', ['keyId' => 'ECMERdvpV0k', 'issuedAt' => 1769996800, 'expiresAt' => 1770001200, 'extDemo' => 1000000000000000100], 1);
+        [$service, , , , $statements] = $this->fixture(600, ['Record0'], []);
+        $statements->appendStatement(StatementPayload::fromWire($canonicalExtensionWire), $canonicalExtensionWire);
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769996900);
+        self::assertSame(200, $result->status, 'P1-1: the canonical binary64 extension wire passes wire canonicality, the chain, and the full verifier at T');
+        self::assertSame($canonicalExtensionWire, $result->body, 'P1-1/§6.1: the canonical binary64 wire is served byte-for-byte');
+        self::assertStringContainsString('"extDemo":1000000000000000100', $result->body, 'P1-1: 1000000000000000100 IS the shortest ES262 round-trip form of the binary64 value 1000000000000000128; the wire bytes are preserved verbatim');
+    }
+
+    /**
+     * P1-1 (PR #31 review round 4, RFC 8785 §3.2.2.3 / §15.2 phase 1): the 19-digit exact
+     * form 1000000000000000128 parses to the same binary64 value as 1000000000000000100, but
+     * the canonical JCS form of that number is the shortest round-trip digits
+     * 1000000000000000100, so these wire bytes fail wire canonicality at phase 1. Even with a
+     * valid key-1 signature over the exact non-canonical bytes, the statement is never served:
+     * fail-closed 500 no-store, empty body, wire absent from the body.
+     */
+    public function testSignedNonCanonicalBinary64ExtensionWireIsNeverServed(): void
+    {
+        $s5canonical = '';
+        foreach (L2Fixtures::signedVectors() as $vector) {
+            if ($vector['id'] === 'S5') {
+                $s5canonical = $vector['canonical'];
+                break;
+            }
+        }
+        self::assertNotSame('', $s5canonical, 'fixture guard: S5 canonical payload located');
+
+        $rawPayload = str_replace('"keyId":"4KKXd7XSJW8"', '"keyId":"ECMERdvpV0k"', $s5canonical);
+        $rawPayload = str_replace('"issuedAt":1769997200', '"issuedAt":1769996800', $rawPayload);
+        $rawPayload = str_replace('"generation":1', '"extDemo":1000000000000000128,"generation":1', $rawPayload);
+        self::assertStringContainsString('"extDemo":1000000000000000128', $rawPayload, 'fixture guard: the non-canonical binary64 wire bytes sit inside the raw payload verbatim');
+        self::assertStringNotContainsString('1769996800"', $rawPayload, 'fixture guard: the issuedAt replacement stays inside JSON number syntax');
+
+        $nonCanonicalWire = Stage2TestSupport::wireFromRawPayload($rawPayload, 1);
+        [$service, , , , $statements] = $this->fixture(600, ['Record0'], []);
+        $statements->appendRawWire(Stage2TestSupport::ANCHOR_ID, $nonCanonicalWire, 'epoch-0', 1, 'ECMERdvpV0k');
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769996900);
+        self::assertSame(500, $result->status, 'P1-1/§15.2 phase 1: a signed statement whose wire bytes fail binary64 canonicality is INVALID, never public transport (§6.1)');
+        self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: the 500 answer is no-store');
+        self::assertSame('', $result->body, '§6.1: no wire is served on the phase-1 failure path');
+        self::assertStringNotContainsString($nonCanonicalWire, $result->body, 'P1-1: the non-canonical wire is never served');
+    }
+
+    /**
+     * P1-2 (PR #31 review round 4, §7.2 lines 298-299, §6.1, §15.2): the signed statement
+     * lifecycleStatus MUST equal the record's registry state. An ACTIVE registry with an
+     * accepted chain, current epoch, and a valid key-4 signature carrying "suspended" is an
+     * internal inconsistency: the service must NOT serve it (registry state is never
+     * overridden by the signed field), 500 no-store, empty body, wire absent from the body.
+     */
+    public function testActiveRegistryWithSignedSuspendedStatementIsNotServed(): void
+    {
+        $suspendedWire = Stage2TestSupport::wireWithChanges('S9', ['lifecycleStatus' => 'suspended'], 4);
+        [$service, , , , $statements] = $this->fixture(600, self::CHAIN_POSITIVE, []);
+        $statements->appendStatement(StatementPayload::fromWire($suspendedWire), $suspendedWire);
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769998400);
+        self::assertSame(500, $result->status, 'P1-2/§7.2: signed "suspended" under an ACTIVE registry is an internal inconsistency, never served (§6.1)');
+        self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: the 500 answer is no-store');
+        self::assertSame('', $result->body, 'P1-2: the mismatching signed statement is never served publicly');
+        self::assertStringNotContainsString($suspendedWire, $result->body, 'P1-2: the signed field never overrides the registry state');
+    }
+
+    /** P1-2 (PR #31 review round 4, §7.2/§6.1): the same verdict for signed "retired" under an ACTIVE registry. */
+    public function testActiveRegistryWithSignedRetiredStatementIsNotServed(): void
+    {
+        $retiredWire = Stage2TestSupport::wireWithChanges('S9', ['lifecycleStatus' => 'retired'], 4);
+        [$service, , , , $statements] = $this->fixture(600, self::CHAIN_POSITIVE, []);
+        $statements->appendStatement(StatementPayload::fromWire($retiredWire), $retiredWire);
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769998400);
+        self::assertSame(500, $result->status, 'P1-2/§7.2: signed "retired" under an ACTIVE registry is an internal inconsistency, never served (§6.1)');
+        self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: the 500 answer is no-store');
+        self::assertSame('', $result->body, 'P1-2: the mismatching signed statement is never served publicly');
+        self::assertStringNotContainsString($retiredWire, $result->body, 'P1-2: the signed field never overrides the registry state');
+    }
+
+    /**
+     * P1-2 (PR #31 review round 4, §7.2 lines 298-299, §15.2 phase 1): lifecycleStatus must be
+     * exactly "active", "suspended", or "retired"; "ACTIVE" is out of the enumeration and is
+     * structurally rejected at phase 1. The canonical wire bytes carry a valid key-4 signature,
+     * so phase 1 structure is the rejecting phase; fail-closed 500, never 200.
+     */
+    public function testOutOfEnumLifecycleStatusStatementIsStructurallyRejected(): void
+    {
+        $outOfEnumWire = Stage2TestSupport::wireWithChanges('S9', ['lifecycleStatus' => 'ACTIVE'], 4);
+        self::assertStringContainsString('"lifecycleStatus":"ACTIVE"', $outOfEnumWire, 'fixture guard: the out-of-enum value sits on the wire verbatim');
+        [$service, , , , $statements] = $this->fixture(600, self::CHAIN_POSITIVE, []);
+        $statements->appendRawWire(Stage2TestSupport::ANCHOR_ID, $outOfEnumWire, 'epoch-1', 2, 'ECYh7yJFAn8');
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769998400);
+        self::assertSame(500, $result->status, 'P1-2/§15.2 phase 1: out-of-enum lifecycleStatus is INVALID (§7.2), never public transport (§6.1)');
+        self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: the 500 answer is no-store');
+        self::assertSame('', $result->body, 'P1-2: the structurally rejected wire is never served');
+        self::assertStringNotContainsString($outOfEnumWire, $result->body, 'P1-2: the out-of-enum wire is never served publicly');
+    }
+
+    /**
+     * P1-2 (PR #31 review round 4, §7.2/§15.2): "active " (trailing space) is out of the
+     * enumeration. The wire bytes are a canonical JSON string encoding, so the rejecting check
+     * is the phase-1 value enumeration; with the enum check in place the wire fails structural
+     * parse before any signature phase. Fail-closed 500, empty body, wire never served.
+     */
+    public function testTrailingSpaceLifecycleStatusWireIsStructurallyRejected(): void
+    {
+        $paddedWire = str_replace('"lifecycleStatus":"active"', '"lifecycleStatus":"active "', Stage2TestSupport::wire('S9'));
+        self::assertStringContainsString('"lifecycleStatus":"active "', $paddedWire, 'fixture guard: the padded value sits on the wire verbatim');
+        [$service, , , , $statements] = $this->fixture(600, self::CHAIN_POSITIVE, []);
+        $statements->appendRawWire(Stage2TestSupport::ANCHOR_ID, $paddedWire, 'epoch-1', 2, 'ECYh7yJFAn8');
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769998400);
+        self::assertSame(500, $result->status, 'P1-2/§7.2+§15.2 phase 1: "active " is out of the enumeration, structural rejection, never 200');
+        self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: the 500 answer is no-store');
+        self::assertStringNotContainsString($paddedWire, $result->body, 'P1-2: the padded wire is never served publicly');
+    }
+
+    /**
+     * P1-2 (PR #31 review round 4) positive guard: ACTIVE registry + signed "active" statement
+     * stays 200 with the wire served verbatim — the lifecycle match check never removes a
+     * legitimate statement.
+     */
+    public function testActiveRegistryWithSignedActiveStatementIsStillServed200(): void
+    {
+        $activeWire = Stage2TestSupport::wire('S9');
+        [$service, , , , $statements] = $this->fixture(600, self::CHAIN_POSITIVE, []);
+        $statements->appendStatement(StatementPayload::fromWire($activeWire), $activeWire);
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769998400);
+        self::assertSame(200, $result->status, 'P1-2 guard: ACTIVE registry + signed "active" statement is the §6.1 200 path');
+        self::assertSame($activeWire, $result->body, 'P1-2 guard: the matched wire is served byte-for-byte');
+    }
+
+    /**
+     * Non-blocking cleanup (PR #31 review round 4, §6.1/§11.3): when no snapshot exists at T
+     * (T < Record 0 issuedAt 1769996400, so no epoch is established at T), the service must
+     * return 500 no-store, empty body WITHOUT touching the statement store — the statement
+     * query is never issued unscoped. Today the query runs once unscoped before the same 500
+     * verdict is reached via the verifier; the verdict stays identical, the query is removed.
+     */
+    public function testNullCurrentEpochAtTFailsClosedBeforeTheStatementQuery(): void
+    {
+        [$service, , , $records, $statements] = $this->fixture(600, self::CHAIN_POSITIVE, ['S9']);
+
+        $result = $service->statement('GET', Stage2TestSupport::ANCHOR_ID, ['l' => '2'], 1769996300);
+        self::assertSame(500, $result->status, '§6.1 internal-failure row: no established epoch at T, same 500 verdict as today');
+        self::assertSame('no-store', $result->headers['Cache-Control'], '§14.2: the 500 answer is no-store');
+        self::assertSame('', $result->body, '§6.1: nothing is served on the failure path');
+        self::assertSame(1, $records->queryCount, 'the Record chain is read exactly once to establish the snapshot');
+        self::assertSame(0, $statements->queryCount, 'cleanup: the statement store is never queried unscoped when the current epoch at T is null');
+        self::assertSame([], $statements->queriedEpochs, 'cleanup: no statement query is recorded on the null-epoch path');
     }
 
     /**
